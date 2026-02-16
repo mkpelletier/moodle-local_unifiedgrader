@@ -15,7 +15,7 @@
 
 /**
  * Annotation toolbar handler — manages tool selection, colour picker,
- * undo/redo, and clear buttons.
+ * undo/redo, clear buttons, and document info popout.
  *
  * This is a plain class (not a reactive component) that is wired to
  * an AnnotationLayer instance by the PdfViewer.
@@ -24,6 +24,8 @@
  * @copyright  2026 South African Theological Seminary
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+
+import {get_string as getString} from 'core/str';
 
 export default class AnnotationToolbar {
 
@@ -38,6 +40,16 @@ export default class AnnotationToolbar {
         this._layer = annotationLayer;
         /** @type {string} */
         this._activeTool = 'select';
+        /** @type {?object} Document info data. */
+        this._docInfo = null;
+        /** @type {?Function} Callback to compute word count. */
+        this._wordCountFn = null;
+        /** @type {?number} Cached word count. */
+        this._wordCount = null;
+        /** @type {boolean} Whether word count is being computed. */
+        this._wordCountLoading = false;
+        /** @type {?Function} Bound outside-click handler for closing the popout. */
+        this._outsideClickHandler = null;
 
         this._bindEvents();
     }
@@ -74,6 +86,9 @@ export default class AnnotationToolbar {
                 this._layer.deleteSelected();
             } else if (action === 'clear-annotations') {
                 this._layer.clearAnnotations();
+            } else if (action === 'doc-info') {
+                this._toggleDocInfo();
+                return; // Don't update action states for info toggle.
             }
 
             this._updateActionStates();
@@ -160,6 +175,214 @@ export default class AnnotationToolbar {
         }
     }
 
+    // ──────────────────────────────────────────────
+    //  Document info popout
+    // ──────────────────────────────────────────────
+
+    /**
+     * Set document info data to display in the popout.
+     *
+     * @param {object} info Document info.
+     * @param {string} info.filename File name.
+     * @param {number} info.filesize File size in bytes.
+     * @param {number} info.pages Total page count.
+     * @param {object} info.metadata PDF internal metadata.
+     * @param {Function} wordCountFn Async callback that returns the word count.
+     */
+    setDocumentInfo(info, wordCountFn) {
+        this._docInfo = info;
+        this._wordCountFn = wordCountFn;
+        this._wordCount = null;
+        this._wordCountLoading = false;
+    }
+
+    /**
+     * Toggle the document info popout visibility.
+     */
+    _toggleDocInfo() {
+        const popout = this._el.querySelector('[data-region="doc-info-popout"]');
+        if (!popout) {
+            return;
+        }
+
+        const isVisible = !popout.classList.contains('d-none');
+        if (isVisible) {
+            this._closeDocInfo();
+        } else {
+            this._renderDocInfo();
+            popout.classList.remove('d-none');
+            // Close on outside click (deferred so current click doesn't trigger it).
+            requestAnimationFrame(() => {
+                this._outsideClickHandler = (e) => {
+                    const wrapper = this._el.querySelector('[data-region="doc-info-wrapper"]');
+                    if (wrapper && !wrapper.contains(e.target)) {
+                        this._closeDocInfo();
+                    }
+                };
+                document.addEventListener('click', this._outsideClickHandler, true);
+            });
+        }
+    }
+
+    /**
+     * Close the document info popout.
+     */
+    _closeDocInfo() {
+        const popout = this._el.querySelector('[data-region="doc-info-popout"]');
+        if (popout) {
+            popout.classList.add('d-none');
+        }
+        if (this._outsideClickHandler) {
+            document.removeEventListener('click', this._outsideClickHandler, true);
+            this._outsideClickHandler = null;
+        }
+    }
+
+    /**
+     * Render document info content into the popout.
+     */
+    async _renderDocInfo() {
+        const popout = this._el.querySelector('[data-region="doc-info-popout"]');
+        if (!popout || !this._docInfo) {
+            return;
+        }
+
+        const info = this._docInfo;
+        const meta = info.metadata || {};
+
+        // Fetch all labels in parallel.
+        const [
+            lblFilename, lblFilesize, lblPages, lblWordcount,
+            lblAuthor, lblCreator, lblCreated, lblModified, lblCalc,
+        ] = await Promise.all([
+            getString('docinfo_filename', 'local_unifiedgrader'),
+            getString('docinfo_filesize', 'local_unifiedgrader'),
+            getString('docinfo_pages', 'local_unifiedgrader'),
+            getString('docinfo_wordcount', 'local_unifiedgrader'),
+            getString('docinfo_author', 'local_unifiedgrader'),
+            getString('docinfo_creator', 'local_unifiedgrader'),
+            getString('docinfo_created', 'local_unifiedgrader'),
+            getString('docinfo_modified', 'local_unifiedgrader'),
+            getString('docinfo_calculating', 'local_unifiedgrader'),
+        ]);
+
+        const rows = [];
+        rows.push(this._makeRow(lblFilename, info.filename || ''));
+        rows.push(this._makeRow(lblFilesize, this._formatBytes(info.filesize)));
+        rows.push(this._makeRow(lblPages, String(info.pages || 0)));
+
+        // Word count: show cached value or calculating placeholder.
+        const wordCountValue = this._wordCount !== null
+            ? this._wordCount.toLocaleString()
+            : lblCalc;
+        rows.push(this._makeRow(lblWordcount, wordCountValue, 'doc-info-wordcount'));
+
+        // PDF metadata rows (only show if value exists).
+        if (meta.Author) {
+            rows.push(this._makeRow(lblAuthor, meta.Author));
+        }
+        if (meta.Creator) {
+            rows.push(this._makeRow(lblCreator, meta.Creator));
+        }
+        if (meta.CreationDate) {
+            rows.push(this._makeRow(lblCreated, this._formatPdfDate(meta.CreationDate)));
+        }
+        if (meta.ModDate) {
+            rows.push(this._makeRow(lblModified, this._formatPdfDate(meta.ModDate)));
+        }
+
+        popout.innerHTML = '';
+        rows.forEach((row) => popout.appendChild(row));
+
+        // Trigger lazy word count computation if not yet done.
+        if (this._wordCount === null && !this._wordCountLoading && this._wordCountFn) {
+            this._wordCountLoading = true;
+            try {
+                this._wordCount = await this._wordCountFn();
+                const wcEl = popout.querySelector('[data-region="doc-info-wordcount"]');
+                if (wcEl) {
+                    wcEl.textContent = this._wordCount.toLocaleString();
+                }
+            } catch {
+                // Silently ignore word count errors.
+            } finally {
+                this._wordCountLoading = false;
+            }
+        }
+    }
+
+    /**
+     * Create a key-value row element for the popout.
+     *
+     * @param {string} label The label text.
+     * @param {string} value The value text.
+     * @param {string} [valueRegion] Optional data-region for the value element.
+     * @return {HTMLElement}
+     */
+    _makeRow(label, value, valueRegion) {
+        const row = document.createElement('div');
+        row.className = 'docinfo-row';
+
+        const lbl = document.createElement('span');
+        lbl.className = 'docinfo-label';
+        lbl.textContent = label;
+
+        const val = document.createElement('span');
+        val.className = 'docinfo-value';
+        val.textContent = value;
+        if (valueRegion) {
+            val.dataset.region = valueRegion;
+        }
+
+        row.appendChild(lbl);
+        row.appendChild(val);
+        return row;
+    }
+
+    /**
+     * Format bytes into a human-readable string.
+     *
+     * @param {number} bytes File size in bytes.
+     * @return {string}
+     */
+    _formatBytes(bytes) {
+        if (!bytes || bytes === 0) {
+            return '0 B';
+        }
+        const units = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(1024));
+        const size = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1);
+        return size + ' ' + units[i];
+    }
+
+    /**
+     * Parse a PDF date string (D:YYYYMMDDHHmmSS) into a readable format.
+     *
+     * @param {string} pdfDate PDF date string.
+     * @return {string}
+     */
+    _formatPdfDate(pdfDate) {
+        if (!pdfDate) {
+            return '';
+        }
+        // PDF dates look like "D:20240315120000+02'00'" or "D:20240315120000".
+        const match = pdfDate.match(
+            /D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?/
+        );
+        if (!match) {
+            return pdfDate;
+        }
+        const [, y, m, d, h, min] = match;
+        const date = new Date(
+            parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10),
+            parseInt(h || '0', 10), parseInt(min || '0', 10),
+        );
+        return date.toLocaleDateString(undefined, {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
+    }
+
     /**
      * Show the toolbar.
      */
@@ -182,6 +405,7 @@ export default class AnnotationToolbar {
             this._el.removeEventListener('click', this._onClick);
             this._onClick = null;
         }
+        this._closeDocInfo();
         this._layer = null;
     }
 }

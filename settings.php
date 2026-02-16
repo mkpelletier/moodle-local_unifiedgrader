@@ -51,5 +51,12 @@ if ($hassiteconfig) {
         0
     ));
 
+    $settings->add(new admin_setting_configcheckbox(
+        'local_unifiedgrader/allow_manual_grade_override',
+        get_string('setting_allow_manual_override', 'local_unifiedgrader'),
+        get_string('setting_allow_manual_override_desc', 'local_unifiedgrader'),
+        1
+    ));
+
     $ADMIN->add('localplugins', $settings);
 }

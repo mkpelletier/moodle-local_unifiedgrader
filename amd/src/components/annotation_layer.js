@@ -88,6 +88,8 @@ export default class AnnotationLayer {
         this._onChangeCallbacks = [];
         /** @type {Function[]} */
         this._onSelectionChangeCallbacks = [];
+        /** @type {Function[]} */
+        this._onToolChangeCallbacks = [];
 
         // Enable pointer events on the canvas element.
         canvasEl.style.pointerEvents = 'auto';
@@ -148,6 +150,7 @@ export default class AnnotationLayer {
             this._canvas.discardActiveObject();
         }
         this._canvas.requestRenderAll();
+        this._notifyToolChange(tool);
     }
 
     /**
@@ -374,6 +377,15 @@ export default class AnnotationLayer {
      */
     onSelectionChange(callback) {
         this._onSelectionChangeCallbacks.push(callback);
+    }
+
+    /**
+     * Register a callback for tool changes.
+     *
+     * @param {Function} callback Called with the new tool name when the tool changes.
+     */
+    onToolChange(callback) {
+        this._onToolChangeCallbacks.push(callback);
     }
 
     /**
@@ -830,5 +842,14 @@ export default class AnnotationLayer {
     /** Notify all selection change callbacks. */
     _notifySelectionChange() {
         this._onSelectionChangeCallbacks.forEach((cb) => cb());
+    }
+
+    /**
+     * Notify all tool change callbacks.
+     *
+     * @param {string} tool The new active tool name.
+     */
+    _notifyToolChange(tool) {
+        this._onToolChangeCallbacks.forEach((cb) => cb(tool));
     }
 }

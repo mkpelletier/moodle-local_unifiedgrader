@@ -121,4 +121,34 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_prepare_feedback_draft' => [
+        'classname' => 'local_unifiedgrader\external\prepare_feedback_draft',
+        'description' => 'Prepare draft area with feedback files for a student.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_get_submission_comments' => [
+        'classname' => 'local_unifiedgrader\external\get_submission_comments',
+        'description' => 'Get submission comments for a student.',
+        'type' => 'read',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_add_submission_comment' => [
+        'classname' => 'local_unifiedgrader\external\add_submission_comment',
+        'description' => 'Add a submission comment.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_delete_submission_comment' => [
+        'classname' => 'local_unifiedgrader\external\delete_submission_comment',
+        'description' => 'Delete a submission comment.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_prepare_feedback_files_draft' => [
+        'classname' => 'local_unifiedgrader\external\prepare_feedback_files_draft',
+        'description' => 'Prepare draft area with feedback files for a student.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
 ];

@@ -44,6 +44,8 @@ $string['setting_enable_forum'] = 'Enable for Forums';
 $string['setting_enable_forum_desc'] = 'Allow the Unified Grader to be used for forum activities.';
 $string['setting_enable_quiz'] = 'Enable for Quizzes';
 $string['setting_enable_quiz_desc'] = 'Allow the Unified Grader to be used for quiz activities.';
+$string['setting_allow_manual_override'] = 'Allow manual grade override';
+$string['setting_allow_manual_override_desc'] = 'When enabled, teachers can manually type a grade even when a rubric or marking guide is configured. When disabled, the grade is calculated exclusively from the rubric or marking guide criteria.';
 
 // Grading interface.
 $string['grade'] = 'Grade';
@@ -126,6 +128,16 @@ $string['manualquestions'] = 'Manual questions';
 $string['response'] = 'Response';
 $string['teachercomment'] = 'Teacher comment';
 
+// Submission comments.
+$string['submissioncomments'] = 'Submission comments';
+$string['nocommentsyet'] = 'No comments yet';
+$string['addcomment'] = 'Add a comment...';
+$string['postcomment'] = 'Post';
+$string['deletesubmissioncomment'] = 'Delete comment';
+
+// Feedback files.
+$string['feedbackfiles'] = 'Feedback files';
+
 // Plagiarism.
 $string['plagiarism'] = 'Plagiarism';
 $string['plagiarism_noresults'] = 'No plagiarism results available.';
@@ -187,3 +199,15 @@ $string['annotate_undo'] = 'Undo';
 $string['annotate_redo'] = 'Redo';
 $string['annotate_delete'] = 'Delete selected';
 $string['annotate_clearall'] = 'Clear all';
+
+// Document info.
+$string['docinfo'] = 'Document info';
+$string['docinfo_filename'] = 'Filename';
+$string['docinfo_filesize'] = 'File size';
+$string['docinfo_pages'] = 'Pages';
+$string['docinfo_wordcount'] = 'Word count';
+$string['docinfo_author'] = 'Author';
+$string['docinfo_creator'] = 'Creator';
+$string['docinfo_created'] = 'Created';
+$string['docinfo_modified'] = 'Modified';
+$string['docinfo_calculating'] = 'Calculating...';

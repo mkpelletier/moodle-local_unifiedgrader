@@ -26,6 +26,7 @@ import Mutations from 'local_unifiedgrader/mutations';
 import PreviewPanel from 'local_unifiedgrader/components/preview_panel';
 import MarkingPanel from 'local_unifiedgrader/components/marking_panel';
 import StudentNavigator from 'local_unifiedgrader/components/student_navigator';
+import SubmissionComments from 'local_unifiedgrader/components/submission_comments';
 
 /** @type {Reactive|null} */
 let reactiveInstance = null;
@@ -52,6 +53,11 @@ export const init = (containerId) => {
 
     const hasGroupMode = container.dataset.hasgroupmode === '1';
     const currentGroup = parseInt(container.dataset.currentgroup, 10) || 0;
+    const draftitemid = parseInt(container.dataset.draftitemid, 10) || 0;
+    const feedbackfilesdraftid = parseInt(container.dataset.feedbackfilesdraftid, 10) || 0;
+    const hasfeedbackfileplugin = container.dataset.hasfeedbackfileplugin === '1';
+    const feedbackfilesclientid = container.dataset.feedbackfilesclientid || '';
+    const allowmanualgradeoverride = container.dataset.allowmanualgradeoverride === '1';
 
     let activityinfo = {};
     let participants = [];
@@ -113,6 +119,7 @@ export const init = (containerId) => {
         grade: {
             grade: null,
             feedback: '',
+            feedbackdraft: '',
             feedbackformat: 1,
             rubricdata: '',
             gradingdefinition: '',
@@ -120,6 +127,12 @@ export const init = (containerId) => {
             grader: 0,
         },
         notes: [],
+        submissionComments: {
+            count: 0,
+            canpost: false,
+            loaded: false,
+            comments: [],
+        },
         commentLibrary: [],
         groups: groups,
         filters: {
@@ -133,8 +146,13 @@ export const init = (containerId) => {
         ui: {
             loading: false,
             saving: false,
+            draftitemid: draftitemid,
+            feedbackfilesdraftid: feedbackfilesdraftid,
+            hasfeedbackfileplugin: hasfeedbackfileplugin,
+            feedbackfilesclientid: feedbackfilesclientid,
             maxgrade: maxgrade,
             gradingmethod: gradingmethod,
+            allowmanualgradeoverride: allowmanualgradeoverride,
             canviewnotes: canviewnotes,
             canmanagenotes: canmanagenotes,
         },
@@ -163,6 +181,14 @@ export const init = (containerId) => {
     if (navEl) {
         new StudentNavigator({
             element: navEl,
+            reactive: reactiveInstance,
+        });
+    }
+
+    const commentsEl = container.querySelector('[data-region="submission-comments"]');
+    if (commentsEl) {
+        new SubmissionComments({
+            element: commentsEl,
             reactive: reactiveInstance,
         });
     }

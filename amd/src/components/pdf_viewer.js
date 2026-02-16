@@ -72,6 +72,8 @@ export default class PdfViewer extends BaseComponent {
             ZOOM_FIT_BTN: '[data-action="zoom-fit"]',
             LOADING_MESSAGE: '[data-region="pdf-loading-message"]',
             ERROR_MESSAGE: '[data-region="pdf-error"]',
+            TEXT_LAYER: '[data-region="pdf-text-layer"]',
+            LINK_LAYER: '[data-region="pdf-link-layer"]',
         };
 
         /** @type {?object} PDF.js document proxy. */
@@ -116,12 +118,18 @@ export default class PdfViewer extends BaseComponent {
         this._loadedPageNums = new Set();
         /** @type {boolean} Whether this is a read-only student view. */
         this._readOnly = this.element?.dataset?.readonly === '1';
+        /** @type {?object} PDF.js TextLayer instance for the current page. */
+        this._textLayer = null;
         /** @type {?AbortController} Abort controller for in-flight PDF fetch/conversion polling. */
         this._fetchAbortController = null;
         /** @type {?ArrayBuffer} Original PDF bytes for flattening. */
         this._pdfBytes = null;
         /** @type {?AbortController} Abort controller for in-flight flatten operation. */
         this._flattenAbortController = null;
+        /** @type {?object} Current file metadata {filename, filesize, mimetype}. */
+        this._fileInfo = null;
+        /** @type {Map<number, number>} Cached word counts per file ID. */
+        this._wordCountCache = new Map();
     }
 
     /**
@@ -210,6 +218,86 @@ export default class PdfViewer extends BaseComponent {
         this._cmid = cmid;
         this._userid = userid;
         this._fileid = fileid;
+    }
+
+    /**
+     * Store file metadata for the document info popout.
+     *
+     * @param {object} file File info from submission state.
+     */
+    setFileInfo(file) {
+        this._fileInfo = {
+            filename: file.filename || '',
+            filesize: file.filesize || 0,
+            mimetype: file.mimetype || '',
+        };
+    }
+
+    /**
+     * Gather PDF metadata and pass it to the annotation toolbar.
+     *
+     * @returns {Promise<void>}
+     */
+    async _pushDocumentInfo() {
+        if (!this._pdfDoc || !this._annotationToolbar) {
+            return;
+        }
+
+        let metadata = {};
+        try {
+            const meta = await this._pdfDoc.getMetadata();
+            metadata = meta?.info || {};
+        } catch {
+            // Some PDFs have no metadata — ignore errors.
+        }
+
+        const info = {
+            filename: this._fileInfo?.filename || '',
+            filesize: this._fileInfo?.filesize || 0,
+            pages: this._totalPages,
+            metadata: metadata,
+        };
+
+        // Pass a lazy word count callback bound to the current file.
+        const fileid = this._fileid;
+        const wordCountFn = () => this._getWordCount(fileid);
+
+        this._annotationToolbar.setDocumentInfo(info, wordCountFn);
+    }
+
+    /**
+     * Count words across all pages of the current PDF.
+     *
+     * Uses PDF.js text extraction. Results are cached per file ID.
+     *
+     * @param {number} fileid File ID to verify we're still on the same file.
+     * @returns {Promise<number>} Total word count.
+     */
+    async _getWordCount(fileid) {
+        // Return cached value if available.
+        if (this._wordCountCache.has(fileid)) {
+            return this._wordCountCache.get(fileid);
+        }
+
+        if (!this._pdfDoc) {
+            return 0;
+        }
+
+        let totalWords = 0;
+        for (let i = 1; i <= this._pdfDoc.numPages; i++) {
+            // Bail out if the user switched files while we're counting.
+            if (this._fileid !== fileid) {
+                return 0;
+            }
+            const page = await this._pdfDoc.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map((item) => item.str).join(' ');
+            const words = pageText.split(/\s+/).filter((w) => w.length > 0);
+            totalWords += words.length;
+        }
+
+        this._wordCountCache.set(fileid, totalWords);
+        return totalWords;
     }
 
     /**
@@ -377,6 +465,12 @@ export default class PdfViewer extends BaseComponent {
                 this._annotationsInitialised = false;
             }
 
+            // Clean up text layer from previous PDF.
+            if (this._textLayer) {
+                this._textLayer.cancel();
+                this._textLayer = null;
+            }
+
             // Reset persistence state for the new file.
             this._dirty = false;
             this._loadedPageNums = new Set();
@@ -411,6 +505,11 @@ export default class PdfViewer extends BaseComponent {
 
             // Initialise annotation layer after first render.
             await this._initAnnotations();
+
+            // Pass document info to the toolbar for the info popout.
+            if (this._annotationToolbar) {
+                await this._pushDocumentInfo();
+            }
 
             // Load saved annotations from backend (skip in read-only mode —
             // annotations are loaded externally by feedback_viewer.js via the student API).
@@ -464,6 +563,14 @@ export default class PdfViewer extends BaseComponent {
                     this._dirty = true;
                     this._scheduleSave();
                 });
+
+                // Toggle text selection when the annotation tool changes.
+                // Text selection is enabled when the "select" tool is active.
+                this._annotationLayer.onToolChange((tool) => {
+                    this.setTextSelectable(tool === 'select');
+                });
+                // Enable text selection initially (default tool is select).
+                this.setTextSelectable(true);
 
                 // Create the toolbar handler and show it.
                 if (toolbarEl) {
@@ -543,6 +650,10 @@ export default class PdfViewer extends BaseComponent {
                 canvasContext: ctx,
                 viewport: viewport,
             }).promise;
+
+            // Render the text layer (for text selection) and link layer (for clickable hyperlinks).
+            await this._renderTextLayer(page, displayViewport);
+            await this._renderLinkLayer(page, displayViewport);
 
             this._currentPage = pageNum;
             this._updatePageControls();
@@ -825,6 +936,202 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
+     * Render the PDF.js text layer for text selection.
+     *
+     * @param {object} page PDF.js page proxy.
+     * @param {object} viewport Display viewport (not DPR-scaled).
+     * @returns {Promise<void>}
+     */
+    async _renderTextLayer(page, viewport) {
+        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
+        if (!textLayerDiv) {
+            window.console.warn('[pdf_viewer] Text layer div not found in DOM.');
+            return;
+        }
+
+        // Cancel previous TextLayer render.
+        if (this._textLayer) {
+            this._textLayer.cancel();
+            this._textLayer = null;
+        }
+        textLayerDiv.innerHTML = '';
+
+        // Set container styles inline so they work even if CSS isn't loaded.
+        textLayerDiv.style.width = viewport.width + 'px';
+        textLayerDiv.style.height = viewport.height + 'px';
+        textLayerDiv.style.position = 'absolute';
+        textLayerDiv.style.top = '0';
+        textLayerDiv.style.left = '0';
+        textLayerDiv.style.lineHeight = '1.0';
+        textLayerDiv.style.pointerEvents = 'none';
+        textLayerDiv.style.opacity = '1';
+
+        // CRITICAL: PDF.js v4.x TextLayer uses calc(var(--scale-factor) * Xpx)
+        // for font sizes and some positioning. Without this CSS variable, all
+        // font sizes are invalid and text spans render at the wrong size.
+        textLayerDiv.style.setProperty('--scale-factor', viewport.scale);
+
+        // Check if TextLayer is available in this PDF.js build.
+        if (typeof this._pdfjsLib.TextLayer !== 'function') {
+            window.console.warn('[pdf_viewer] PDF.js TextLayer not available — text selection disabled.');
+            return;
+        }
+
+        try {
+            const textContent = await page.getTextContent();
+            this._textLayer = new this._pdfjsLib.TextLayer({
+                textContentSource: textContent,
+                container: textLayerDiv,
+                viewport: viewport,
+            });
+            await this._textLayer.render();
+
+            // Only set color: transparent on spans — TextLayer handles all
+            // positioning (left, top, fontSize, transform) via its own styles.
+            const spans = textLayerDiv.querySelectorAll('span');
+            spans.forEach((span) => {
+                span.style.color = 'transparent';
+            });
+
+            window.console.info('[pdf_viewer] Text layer rendered:', spans.length, 'spans',
+                '| scale-factor:', viewport.scale);
+        } catch (err) {
+            window.console.warn('[pdf_viewer] Failed to render text layer:', err);
+        }
+
+        // Enable text selection in read-only mode by default.
+        if (this._readOnly) {
+            textLayerDiv.classList.add('text-selectable');
+        }
+    }
+
+    /**
+     * Render clickable hyperlink elements over PDF link annotations.
+     *
+     * @param {object} page PDF.js page proxy.
+     * @param {object} viewport Display viewport (not DPR-scaled).
+     * @returns {Promise<void>}
+     */
+    async _renderLinkLayer(page, viewport) {
+        const linkLayerDiv = this.getElement(this.selectors.LINK_LAYER);
+        if (!linkLayerDiv) {
+            window.console.warn('[pdf_viewer] Link layer div not found in DOM.');
+            return;
+        }
+
+        linkLayerDiv.innerHTML = '';
+
+        // Set critical styles inline so they work even if CSS isn't loaded.
+        linkLayerDiv.style.width = viewport.width + 'px';
+        linkLayerDiv.style.height = viewport.height + 'px';
+        linkLayerDiv.style.position = 'absolute';
+        linkLayerDiv.style.top = '0';
+        linkLayerDiv.style.left = '0';
+        linkLayerDiv.style.zIndex = '5';
+        linkLayerDiv.style.pointerEvents = 'none';
+
+        try {
+            const annotations = await page.getAnnotations();
+            let linkCount = 0;
+            for (const annot of annotations) {
+                // Accept links with url or unsafeUrl.
+                const linkUrl = annot.url || annot.unsafeUrl;
+                if (annot.subtype !== 'Link' || !linkUrl) {
+                    continue;
+                }
+
+                // Convert PDF coordinates to viewport coordinates.
+                const rect = viewport.convertToViewportRectangle(annot.rect);
+                const [x1, y1, x2, y2] = this._pdfjsLib.Util.normalizeRect(rect);
+
+                const link = document.createElement('a');
+                link.href = linkUrl;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.title = linkUrl;
+
+                // Set all positioning inline (don't rely on external CSS).
+                link.style.position = 'absolute';
+                link.style.left = Math.round(x1) + 'px';
+                link.style.top = Math.round(y1) + 'px';
+                link.style.width = Math.round(x2 - x1) + 'px';
+                link.style.height = Math.round(y2 - y1) + 'px';
+                link.style.pointerEvents = 'auto';
+                link.style.cursor = 'pointer';
+                link.style.opacity = '0';
+
+                linkLayerDiv.appendChild(link);
+                linkCount++;
+            }
+            window.console.info('[pdf_viewer] Link layer rendered:', linkCount, 'links from',
+                annotations.length, 'total annotations');
+        } catch (err) {
+            window.console.warn('[pdf_viewer] Failed to render link layer:', err);
+        }
+    }
+
+    /**
+     * Enable or disable text selection on the text layer.
+     *
+     * When enabled, the text layer is moved after the Fabric.js canvas-container
+     * in the DOM so it sits on top for event capture. Text spans get pointer-events
+     * and clicks on non-text areas fall through to Fabric for annotation selection.
+     *
+     * @param {boolean} enabled Whether text selection should be enabled.
+     */
+    setTextSelectable(enabled) {
+        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
+        const wrapper = this.getElement(this.selectors.CANVAS_WRAPPER);
+        if (!textLayerDiv || !wrapper) {
+            return;
+        }
+
+        textLayerDiv.classList.toggle('text-selectable', enabled);
+
+        // Set z-index, pointer-events, and user-select inline.
+        // user-select is critical: Moodle/Bootstrap may set user-select: none
+        // on parent elements, which prevents text selection from working.
+        textLayerDiv.style.zIndex = enabled ? '4' : '1';
+        textLayerDiv.style.userSelect = enabled ? 'text' : 'none';
+        textLayerDiv.style.webkitUserSelect = enabled ? 'text' : 'none';
+        const spans = textLayerDiv.querySelectorAll('span');
+        spans.forEach((span) => {
+            span.style.pointerEvents = enabled ? 'auto' : '';
+            span.style.cursor = enabled ? 'text' : '';
+            span.style.userSelect = enabled ? 'text' : '';
+            span.style.webkitUserSelect = enabled ? 'text' : '';
+        });
+
+        // Reorder the text layer relative to the Fabric.js canvas-container.
+        // Fabric.js wraps the annotation canvas in a .canvas-container div whose
+        // upper-canvas captures all mouse events. DOM order determines which
+        // sibling receives events first when z-index alone is unreliable.
+        const canvasContainer = wrapper.querySelector('.canvas-container');
+        if (!canvasContainer) {
+            window.console.info('[pdf_viewer] setTextSelectable:', enabled,
+                '— no canvas-container yet (Fabric not initialised)');
+            return;
+        }
+
+        if (enabled) {
+            // Place text layer AFTER canvas-container but BEFORE link layer.
+            const linkLayer = this.getElement(this.selectors.LINK_LAYER);
+            if (linkLayer && linkLayer.parentNode === wrapper) {
+                wrapper.insertBefore(textLayerDiv, linkLayer);
+            } else {
+                canvasContainer.after(textLayerDiv);
+            }
+        } else {
+            // Move text layer BEFORE canvas-container so Fabric gets events.
+            wrapper.insertBefore(textLayerDiv, canvasContainer);
+        }
+
+        window.console.info('[pdf_viewer] setTextSelectable:', enabled,
+            '| spans:', spans.length, '| DOM order: text-layer',
+            enabled ? 'AFTER' : 'BEFORE', 'canvas-container');
+    }
+
+    /**
      * Show or hide the loading spinner.
      *
      * @param {boolean} show Whether to show the spinner.
@@ -935,6 +1242,10 @@ export default class PdfViewer extends BaseComponent {
             this._flattenAbortController = null;
         }
 
+        if (this._textLayer) {
+            this._textLayer.cancel();
+            this._textLayer = null;
+        }
         this._pdfBytes = null;
         this._currentUrl = null;
         super.destroy();

@@ -29,6 +29,7 @@ defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once($CFG->dirroot . '/mod/assign/locallib.php');
 require_once($CFG->dirroot . '/grade/grading/lib.php');
+require_once($CFG->dirroot . '/comment/lib.php');
 
 /**
  * Concrete adapter wrapping mod_assign's internal API.
@@ -177,10 +178,23 @@ class assign_adapter extends base_adapter {
                 'timecreated' => 0,
                 'timemodified' => 0,
                 'attemptnumber' => 0,
+                'commentcount' => 0,
             ];
         }
 
         $onlinetext = $this->get_onlinetext($submission);
+
+        // Get submission comment count via Moodle's comment API.
+        $commentcount = 0;
+        if ($this->has_submission_plugin('comments')) {
+            $commentoptions = new \stdClass();
+            $commentoptions->context = $this->context;
+            $commentoptions->component = 'assignsubmission_comments';
+            $commentoptions->itemid = $submission->id;
+            $commentoptions->area = 'submission_comments';
+            $commentobj = new \comment($commentoptions);
+            $commentcount = $commentobj->count();
+        }
 
         return [
             'userid' => $userid,
@@ -191,6 +205,7 @@ class assign_adapter extends base_adapter {
             'timecreated' => (int) $submission->timecreated,
             'timemodified' => (int) $submission->timemodified,
             'attemptnumber' => (int) $submission->attemptnumber,
+            'commentcount' => $commentcount,
         ];
     }
 
@@ -250,6 +265,8 @@ class assign_adapter extends base_adapter {
      * @param string $feedback
      * @param int $feedbackformat
      * @param array $advancedgradingdata
+     * @param int $draftitemid Draft area item ID for feedback file uploads.
+     * @param int $feedbackfilesdraftid Draft area item ID for feedback files (assignfeedback_file).
      * @return bool
      */
     public function save_grade(
@@ -258,8 +275,10 @@ class assign_adapter extends base_adapter {
         string $feedback,
         int $feedbackformat = FORMAT_HTML,
         array $advancedgradingdata = [],
+        int $draftitemid = 0,
+        int $feedbackfilesdraftid = 0,
     ): bool {
-        global $USER;
+        global $USER, $DB;
 
         // Moodle's assign::save_grade() requires attemptnumber to identify
         // which submission attempt the grade applies to.
@@ -274,23 +293,77 @@ class assign_adapter extends base_adapter {
             // Advanced grading is active but no criteria data provided.
             // Bypass assign::save_grade() to avoid the grading form trying
             // to process null criteria data (causes foreach-on-null warnings).
-            $this->save_grade_directly($userid, $grade, $feedback, $feedbackformat, $attemptnumber);
+            $this->save_grade_directly(
+                $userid, $grade, $feedback, $feedbackformat,
+                $attemptnumber, $draftitemid, $feedbackfilesdraftid,
+            );
             return true;
         }
 
         $data = new \stdClass();
         $data->grade = $grade;
         $data->attemptnumber = $attemptnumber;
-        $data->assignfeedbackcomments_editor = [
+        $editordata = [
             'text' => $feedback,
             'format' => $feedbackformat,
         ];
+        if ($draftitemid > 0) {
+            $editordata['itemid'] = $draftitemid;
+        }
+        $data->assignfeedbackcomments_editor = $editordata;
 
         if (!empty($advancedgradingdata)) {
             $data->advancedgrading = $advancedgradingdata;
         }
 
+        // Add feedback files draft ID so assignfeedback_file::save() can find it.
+        // The plugin searches $data for keys matching "files_*_filemanager".
+        if ($feedbackfilesdraftid > 0) {
+            $elementname = 'files_' . $userid;
+            $data->{$elementname . '_filemanager'} = $feedbackfilesdraftid;
+        }
+
         $this->assign->save_grade($userid, $data);
+
+        // When advanced grading is active, assign::save_grade() calculates the
+        // grade from the rubric/guide criteria, ignoring $data->grade. If the
+        // admin allows manual grade overrides, apply the teacher's explicit
+        // grade value after the advanced grading has been saved.
+        if ($grade !== null && !empty($advancedgradingdata)
+                && get_config('local_unifiedgrader', 'allow_manual_grade_override')) {
+            $gradeobj = $this->assign->get_user_grade($userid, false);
+            if ($gradeobj && (float) $gradeobj->grade !== $grade) {
+                $gradeobj->grade = $grade;
+                $gradeobj->timemodified = time();
+                $DB->update_record('assign_grades', $gradeobj);
+                $this->assign->update_grade($gradeobj);
+            }
+        }
+
+        // assign::save_grade() → assignfeedback_comments::save() stores the
+        // raw editor text but does NOT process draft files (that is normally
+        // handled by the grading form). Move files from draft to permanent
+        // storage and rewrite draftfile.php URLs to @@PLUGINFILE@@.
+        if ($draftitemid > 0) {
+            $gradeobj = $this->assign->get_user_grade($userid, false);
+            if ($gradeobj) {
+                $rewritten = file_save_draft_area_files(
+                    $draftitemid,
+                    $this->context->id,
+                    'assignfeedback_comments',
+                    'feedback',
+                    (int) $gradeobj->id,
+                    $this->get_editor_options(),
+                    $feedback,
+                );
+                $comment = $DB->get_record('assignfeedback_comments', ['grade' => $gradeobj->id]);
+                if ($comment) {
+                    $comment->commenttext = $rewritten;
+                    $DB->update_record('assignfeedback_comments', $comment);
+                }
+            }
+        }
+
         return true;
     }
 
@@ -305,6 +378,8 @@ class assign_adapter extends base_adapter {
      * @param string $feedback
      * @param int $feedbackformat
      * @param int $attemptnumber
+     * @param int $draftitemid Draft area item ID for feedback file uploads.
+     * @param int $feedbackfilesdraftid Draft area item ID for feedback files (assignfeedback_file).
      */
     private function save_grade_directly(
         int $userid,
@@ -312,6 +387,8 @@ class assign_adapter extends base_adapter {
         string $feedback,
         int $feedbackformat,
         int $attemptnumber,
+        int $draftitemid = 0,
+        int $feedbackfilesdraftid = 0,
     ): void {
         global $USER, $DB;
 
@@ -321,6 +398,19 @@ class assign_adapter extends base_adapter {
         $gradeobj->grader = $USER->id;
         $gradeobj->timemodified = time();
         $DB->update_record('assign_grades', $gradeobj);
+
+        // If a draft area was provided, migrate files from draft to permanent storage.
+        if ($draftitemid > 0) {
+            $feedback = file_save_draft_area_files(
+                $draftitemid,
+                $this->context->id,
+                'assignfeedback_comments',
+                'feedback',
+                $gradeobj->id,
+                $this->get_editor_options(),
+                $feedback,
+            );
+        }
 
         // Save feedback via the comments plugin.
         foreach ($this->assign->get_feedback_plugins() as $plugin) {
@@ -343,6 +433,11 @@ class assign_adapter extends base_adapter {
                 }
                 break;
             }
+        }
+
+        // Save feedback files via the file plugin (bypasses plugin iteration).
+        if ($feedbackfilesdraftid > 0 && $this->has_feedback_plugin('file')) {
+            $this->save_feedback_files_directly($gradeobj, $userid, $feedbackfilesdraftid);
         }
 
         // Push to gradebook and trigger events.
@@ -475,6 +570,90 @@ class assign_adapter extends base_adapter {
     }
 
     /**
+     * Prepare the feedback draft area for a student.
+     *
+     * Clears the shared draft area, copies the student's existing feedback
+     * files into it, and returns the feedback HTML with draft URLs.
+     *
+     * @param int $userid The student user ID.
+     * @param int $draftitemid The shared draft area item ID.
+     * @return array With key 'feedbackhtml'.
+     */
+    public function prepare_feedback_draft(int $userid, int $draftitemid): array {
+        global $USER, $DB;
+
+        $grade = $this->assign->get_user_grade($userid, false) ?: null;
+        $feedbacktext = '';
+
+        if ($grade) {
+            $comment = $DB->get_record('assignfeedback_comments', ['grade' => $grade->id]);
+            if ($comment) {
+                $feedbacktext = $comment->commenttext;
+            }
+        }
+
+        // Clear existing draft files from the previous student.
+        $fs = get_file_storage();
+        $usercontext = \context_user::instance($USER->id);
+        $fs->delete_area_files($usercontext->id, 'user', 'draft', $draftitemid);
+
+        // Copy this student's feedback files from permanent storage into the draft area.
+        // NOTE: file_prepare_draft_area() only copies files when draftitemid is empty (0).
+        // Since we reuse the same draftitemid across student switches, we must copy manually.
+        $gradeid = $grade ? (int) $grade->id : 0;
+        if ($gradeid) {
+            $files = $fs->get_area_files(
+                $this->context->id,
+                'assignfeedback_comments',
+                'feedback',
+                $gradeid,
+            );
+            $filerecord = [
+                'contextid' => $usercontext->id,
+                'component' => 'user',
+                'filearea' => 'draft',
+                'itemid' => $draftitemid,
+            ];
+            foreach ($files as $file) {
+                if ($file->is_directory() && $file->get_filepath() === '/') {
+                    continue;
+                }
+                $fs->create_file_from_storedfile($filerecord, $file);
+            }
+        }
+
+        // Rewrite @@PLUGINFILE@@ URLs to draftfile.php URLs for the editor.
+        if (!empty($feedbacktext)) {
+            $feedbacktext = file_rewrite_pluginfile_urls(
+                $feedbacktext,
+                'draftfile.php',
+                $usercontext->id,
+                'user',
+                'draft',
+                $draftitemid,
+                $this->get_editor_options(),
+            );
+        }
+
+        return ['feedbackhtml' => $feedbacktext];
+    }
+
+    /**
+     * Get editor options for the feedback editor.
+     *
+     * @return array Editor options compatible with file_prepare_draft_area / file_save_draft_area_files.
+     */
+    private function get_editor_options(): array {
+        global $CFG;
+        return [
+            'maxfiles' => EDITOR_UNLIMITED_FILES,
+            'maxbytes' => $CFG->maxbytes,
+            'context' => $this->context,
+            'subdirs' => true,
+        ];
+    }
+
+    /**
      * Get plagiarism report links for a user's assignment submission.
      *
      * Calls Moodle's generic plagiarism API for each submitted file and for
@@ -579,6 +758,134 @@ class assign_adapter extends base_adapter {
             }
         }
         return false;
+    }
+
+    /**
+     * Check if a feedback plugin of the given type is enabled.
+     *
+     * @param string $type Plugin type identifier (e.g. 'file', 'comments').
+     * @return bool
+     */
+    public function has_feedback_plugin(string $type): bool {
+        foreach ($this->assign->get_feedback_plugins() as $plugin) {
+            if ($plugin->get_type() === $type && $plugin->is_enabled()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Prepare the feedback files draft area for a student.
+     *
+     * Clears the shared draft area and repopulates it with the student's
+     * existing feedback files from assignfeedback_file storage.
+     *
+     * @param int $userid The student user ID.
+     * @param int $draftitemid The shared draft area item ID.
+     * @return array With key 'filecount'.
+     */
+    public function prepare_feedback_files_draft(int $userid, int $draftitemid): array {
+        global $USER;
+
+        $grade = $this->assign->get_user_grade($userid, false) ?: null;
+
+        // Clear existing draft files from the previous student.
+        $fs = get_file_storage();
+        $usercontext = \context_user::instance($USER->id);
+        $fs->delete_area_files($usercontext->id, 'user', 'draft', $draftitemid);
+
+        $filecount = 0;
+        $gradeid = $grade ? (int) $grade->id : 0;
+        if ($gradeid) {
+            $files = $fs->get_area_files(
+                $this->context->id,
+                'assignfeedback_file',
+                'feedback_files',
+                $gradeid,
+                'sortorder, filename',
+                false,
+            );
+            $filerecord = [
+                'contextid' => $usercontext->id,
+                'component' => 'user',
+                'filearea' => 'draft',
+                'itemid' => $draftitemid,
+            ];
+            foreach ($files as $file) {
+                $fs->create_file_from_storedfile($filerecord, $file);
+                $filecount++;
+            }
+        }
+
+        return ['filecount' => $filecount];
+    }
+
+    /**
+     * Save feedback files directly, bypassing the feedback plugin iteration.
+     *
+     * Used by save_grade_directly() when the normal assign::save_grade() path
+     * is not available (advanced grading without criteria data).
+     *
+     * @param \stdClass $gradeobj The grade record object.
+     * @param int $userid The student user ID.
+     * @param int $feedbackfilesdraftid The draft area item ID containing feedback files.
+     */
+    private function save_feedback_files_directly(
+        \stdClass $gradeobj,
+        int $userid,
+        int $feedbackfilesdraftid,
+    ): void {
+        global $DB, $COURSE;
+
+        $fileoptions = [
+            'subdirs' => 1,
+            'maxbytes' => $COURSE->maxbytes,
+            'accepted_types' => '*',
+            'return_types' => FILE_INTERNAL,
+        ];
+
+        // Build the data object that file_postupdate_standard_filemanager expects.
+        $elementname = 'files_' . $userid;
+        $data = new \stdClass();
+        $data->{$elementname . '_filemanager'} = $feedbackfilesdraftid;
+
+        file_postupdate_standard_filemanager(
+            $data,
+            $elementname,
+            $fileoptions,
+            $this->context,
+            'assignfeedback_file',
+            'feedback_files',
+            $gradeobj->id,
+        );
+
+        // Update the file count in the assignfeedback_file table.
+        $fs = get_file_storage();
+        $files = $fs->get_area_files(
+            $this->context->id,
+            'assignfeedback_file',
+            'feedback_files',
+            $gradeobj->id,
+            'id',
+            false,
+        );
+        $numfiles = count($files);
+
+        $existing = $DB->get_record('assignfeedback_file', [
+            'assignment' => $gradeobj->assignment,
+            'grade' => $gradeobj->id,
+        ]);
+        if ($existing) {
+            $existing->numfiles = $numfiles;
+            $DB->update_record('assignfeedback_file', $existing);
+        } else if ($numfiles > 0) {
+            $record = new \stdClass();
+            $record->assignment = $gradeobj->assignment;
+            $record->grade = $gradeobj->id;
+            $record->numfiles = $numfiles;
+            $DB->insert_record('assignfeedback_file', $record);
+        }
     }
 
     /**

@@ -335,6 +335,8 @@ class forum_adapter extends base_adapter {
         string $feedback,
         int $feedbackformat = FORMAT_HTML,
         array $advancedgradingdata = [],
+        int $draftitemid = 0,
+        int $feedbackfilesdraftid = 0,
     ): bool {
         global $DB, $USER;
 

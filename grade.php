@@ -113,12 +113,88 @@ $templatedata = [
         default => (new moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cm->id]))->out(false),
     },
     'uniqid' => uniqid(),
+    'draftitemid' => 0,
     'hasgroupmode' => $groupmode != NOGROUPS,
     'groupsjson' => json_encode(array_values(array_map(function ($g) {
         return ['id' => (int) $g->id, 'name' => format_string($g->name)];
     }, $availablegroups))),
     'currentgroup' => $currentgroup,
+    'allowmanualgradeoverride' => !empty(get_config('local_unifiedgrader', 'allow_manual_grade_override')),
 ];
+
+// TinyMCE editor setup for the feedback textarea.
+// The textarea is rendered in the static Mustache template, so use_editor() can find it.
+$editor = editors_get_preferred_editor(FORMAT_HTML);
+if ($editor instanceof \editor_tiny\editor) {
+    global $CFG;
+    require_once($CFG->dirroot . '/repository/lib.php');
+
+    $draftitemid = file_get_unused_draft_itemid();
+    $feedbackeditorid = 'feedback-editor-' . $templatedata['uniqid'];
+
+    $editoroptions = [
+        'context' => $context,
+        'maxfiles' => EDITOR_UNLIMITED_FILES,
+        'maxbytes' => $CFG->maxbytes,
+        'noclean' => true,
+        'subdirs' => true,
+        'autosave' => false,
+    ];
+
+    $fpoptions = [];
+    $fptypes = [
+        'image' => ['image'],
+        'media' => ['video', 'audio'],
+        'link' => ['*'],
+    ];
+    foreach ($fptypes as $type => $accepted) {
+        $args = new \stdClass();
+        $args->accepted_types = $accepted;
+        $args->return_types = FILE_INTERNAL;
+        $args->context = $context;
+        $args->env = 'editor';
+        $fpoptions[$type] = initialise_filepicker($args);
+        $fpoptions[$type]->itemid = $draftitemid;
+        $fpoptions[$type]->context = $context;
+        $fpoptions[$type]->client_id = uniqid();
+    }
+
+    $editor->use_editor($feedbackeditorid, $editoroptions, $fpoptions);
+    $templatedata['draftitemid'] = $draftitemid;
+}
+
+// Feedback files filemanager setup (assignfeedback_file).
+$feedbackfileshtml = '';
+$feedbackfilesdraftid = 0;
+$hasfeedbackfileplugin = false;
+$feedbackfilesclientid = '';
+
+if ($cm->modname === 'assign' && $adapter->has_feedback_plugin('file')) {
+    $hasfeedbackfileplugin = true;
+    $feedbackfilesdraftid = file_get_unused_draft_itemid();
+    $feedbackfilesclientid = 'fbfiles_' . $cmid;
+
+    global $CFG;
+    require_once($CFG->libdir . '/form/filemanager.php');
+
+    $fm = new \form_filemanager((object) [
+        'client_id' => $feedbackfilesclientid,
+        'itemid' => $feedbackfilesdraftid,
+        'maxbytes' => $course->maxbytes,
+        'maxfiles' => -1,
+        'subdirs' => true,
+        'accepted_types' => '*',
+        'return_types' => FILE_INTERNAL,
+        'context' => $context,
+    ]);
+    $filesrenderer = $PAGE->get_renderer('core', 'files');
+    $feedbackfileshtml = $filesrenderer->render($fm);
+}
+
+$templatedata['hasfeedbackfileplugin'] = $hasfeedbackfileplugin;
+$templatedata['feedbackfileshtml'] = $feedbackfileshtml;
+$templatedata['feedbackfilesdraftid'] = $feedbackfilesdraftid;
+$templatedata['feedbackfilesclientid'] = $feedbackfilesclientid;
 
 // Output.
 echo $OUTPUT->header();

@@ -25,6 +25,7 @@ import {BaseComponent} from 'core/reactive';
 import Templates from 'core/templates';
 import Notification from 'core/notification';
 import {get_string as getString} from 'core/str';
+import {getInstanceForElementId} from 'editor_tiny/editor';
 
 export default class extends BaseComponent {
 
@@ -143,25 +144,70 @@ export default class extends BaseComponent {
     }
 
     /**
+     * Get the current feedback content from TinyMCE or the textarea fallback.
+     *
+     * @return {string} The feedback HTML content.
+     */
+    _getEditorContent() {
+        const textarea = this.getElement(this.selectors.FEEDBACK_INPUT);
+        if (!textarea) {
+            return '';
+        }
+        const editor = getInstanceForElementId(textarea.id);
+        if (editor) {
+            return editor.getContent();
+        }
+        return textarea.value;
+    }
+
+    /**
+     * Set the feedback content in TinyMCE or the textarea fallback.
+     *
+     * @param {string} html The HTML content to set.
+     */
+    _updateFeedbackContent(html) {
+        const textarea = this.getElement(this.selectors.FEEDBACK_INPUT);
+        if (!textarea) {
+            return;
+        }
+        const editor = getInstanceForElementId(textarea.id);
+        if (editor) {
+            editor.setContent(html || '');
+        } else {
+            textarea.value = html || '';
+        }
+    }
+
+    /**
      * Render grade data into the form.
      *
      * @param {object} args Watcher args.
      * @param {object} args.state Current state.
      */
     _renderGrade({state}) {
-        const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
-        const feedbackInput = this.getElement(this.selectors.FEEDBACK_INPUT);
+        // Render advanced grading first — _renderRubric/_renderGuide call
+        // _updateRubricTotal/_updateGuideTotal which sync a computed total
+        // into the grade input. We then overwrite with the server-authoritative
+        // grade value so manual overrides are not lost.
+        this._renderAdvancedGrading(state);
 
+        const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput && state.grade) {
             gradeInput.value = state.grade.grade !== null ? state.grade.grade : '';
+
+            // When advanced grading is active and manual override is not allowed,
+            // make the grade input readonly so teachers must use the rubric/guide.
+            const hasAdvancedGrading = this._gradingDefinition !== null;
+            const allowOverride = state.ui?.allowmanualgradeoverride !== false;
+            gradeInput.readOnly = hasAdvancedGrading && !allowOverride;
         }
 
-        if (feedbackInput && state.grade) {
-            feedbackInput.value = state.grade.feedback || '';
+        // Use draft-ready content (with rewritten file URLs) when available.
+        if (state.grade && state.grade.feedbackdraft !== undefined) {
+            this._updateFeedbackContent(state.grade.feedbackdraft);
+        } else if (state.grade) {
+            this._updateFeedbackContent(state.grade.feedback || '');
         }
-
-        // Render advanced grading (rubric / marking guide).
-        this._renderAdvancedGrading(state);
     }
 
     /**
@@ -273,10 +319,13 @@ export default class extends BaseComponent {
 
             // Click to insert into feedback.
             item.addEventListener('click', () => {
-                const feedbackInput = this.getElement(this.selectors.FEEDBACK_INPUT);
-                if (feedbackInput) {
-                    const currentVal = feedbackInput.value;
-                    feedbackInput.value = currentVal
+                const textarea = this.getElement(this.selectors.FEEDBACK_INPUT);
+                const editor = textarea ? getInstanceForElementId(textarea.id) : null;
+                if (editor) {
+                    editor.insertContent('<p>' + this._escapeHtml(comment.content) + '</p>');
+                } else if (textarea) {
+                    const currentVal = textarea.value;
+                    textarea.value = currentVal
                         ? currentVal + '\n' + comment.content
                         : comment.content;
                 }
@@ -585,11 +634,11 @@ export default class extends BaseComponent {
                 this._updateGuideTotal();
             });
 
-            const remarkInput = document.createElement('input');
-            remarkInput.type = 'text';
+            const remarkInput = document.createElement('textarea');
+            remarkInput.rows = 3;
             remarkInput.className = 'form-control form-control-sm flex-grow-1';
             remarkInput.placeholder = 'Remark';
-            remarkInput.value = currentFill[criterion.id]?.remark ?? '';
+            remarkInput.textContent = currentFill[criterion.id]?.remark ?? '';
             remarkInput.dataset.criterionid = criterion.id;
 
             this._guideRemarks[criterion.id] = remarkInput.value;
@@ -693,10 +742,9 @@ export default class extends BaseComponent {
     _handleSaveGrade() {
         const state = this.reactive.state;
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
-        const feedbackInput = this.getElement(this.selectors.FEEDBACK_INPUT);
 
         const grade = gradeInput ? gradeInput.value : '';
-        const feedback = feedbackInput ? feedbackInput.value : '';
+        const feedback = this._getEditorContent();
         const advancedGradingData = this._collectAdvancedGradingData();
 
         this.reactive.dispatch(
@@ -705,7 +753,9 @@ export default class extends BaseComponent {
             state.currentUser.id,
             grade,
             feedback,
+            state.ui.draftitemid,
             advancedGradingData,
+            state.ui.feedbackfilesdraftid,
         );
     }
 

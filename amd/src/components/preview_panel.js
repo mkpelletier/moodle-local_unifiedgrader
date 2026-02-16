@@ -218,6 +218,7 @@ export default class extends BaseComponent {
                 parseInt(state.currentUser.id, 10),
                 parseInt(file.fileid, 10),
             );
+            this._pdfViewer.setFileInfo(file);
             this._pdfViewer.loadPdf(file.previewurl || file.url);
         } else if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
             // Use styled media player page for audio/video.

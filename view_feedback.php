@@ -156,14 +156,94 @@ if ($gradedata['grade'] !== null) {
     $gradedisplay = round($gradedata['grade'], 2) . ' / ' . round($activityinfo['maxgrade'], 2);
 }
 
+// Create assign object (needed for feedback file rewriting and submission comments).
+$assign = new \assign($context, $cm, $course);
+
+// Rewrite @@PLUGINFILE@@ URLs in feedback text so embedded files (videos, images) load.
+$feedback = $gradedata['feedback'];
+if (!empty($feedback)) {
+    $grade = $assign->get_user_grade($userid, false);
+    if ($grade) {
+        $feedback = file_rewrite_pluginfile_urls(
+            $feedback,
+            'pluginfile.php',
+            $context->id,
+            'assignfeedback_comments',
+            'feedback',
+            (int) $grade->id,
+        );
+    }
+}
+
+// Check for feedback files (assignfeedback_file plugin).
+$feedbackfiles = [];
+$hasfeedbackfiles = false;
+$grade = $assign->get_user_grade($userid, false) ?: null;
+if ($grade && $adapter->has_feedback_plugin('file')) {
+    $fs = get_file_storage();
+    $files = $fs->get_area_files(
+        $context->id,
+        'assignfeedback_file',
+        'feedback_files',
+        (int) $grade->id,
+        'sortorder, filename',
+        false,
+    );
+    foreach ($files as $file) {
+        $downloadurl = moodle_url::make_pluginfile_url(
+            $file->get_contextid(),
+            $file->get_component(),
+            $file->get_filearea(),
+            $file->get_itemid(),
+            $file->get_filepath(),
+            $file->get_filename(),
+            true,
+        );
+        $feedbackfiles[] = [
+            'filename' => $file->get_filename(),
+            'filesize' => display_size($file->get_filesize()),
+            'url' => $downloadurl->out(false),
+            'iconurl' => $OUTPUT->image_url(file_file_icon($file, 24))->out(false),
+        ];
+    }
+    $hasfeedbackfiles = !empty($feedbackfiles);
+}
+
+// Check for submission comments feature.
+$hascommentsfeature = false;
+$commentcount = 0;
+$canpostcomments = false;
+$submission = $assign->get_user_submission($userid, false);
+if ($submission) {
+    foreach ($assign->get_submission_plugins() as $plugin) {
+        if ($plugin->get_type() === 'comments' && $plugin->is_enabled()) {
+            $hascommentsfeature = true;
+            require_once($CFG->dirroot . '/comment/lib.php');
+            $commentoptions = new \stdClass();
+            $commentoptions->context = $context;
+            $commentoptions->component = 'assignsubmission_comments';
+            $commentoptions->itemid = $submission->id;
+            $commentoptions->area = 'submission_comments';
+            $commentoptions->course = $course;
+            $commentoptions->cm = $cm;
+            $commentobj = new \comment($commentoptions);
+            $commentcount = $commentobj->count();
+            $canpostcomments = $commentobj->can_post();
+            break;
+        }
+    }
+}
+
+$showrightcolumn = !empty($feedback) || $hasfeedbackfiles || $hascommentsfeature;
+
 // Prepare template context.
 $templatedata = [
     'cmid' => $cmid,
     'activityname' => $activityinfo['name'],
     'activityurl' => (new moodle_url('/mod/assign/view.php', ['id' => $cm->id]))->out(false),
     'gradedisplay' => $gradedisplay,
-    'feedback' => $gradedata['feedback'],
-    'hasfeedback' => !empty($gradedata['feedback']),
+    'feedback' => $feedback,
+    'hasfeedback' => !empty($feedback),
     'selectedfileid' => $selectedfile['fileid'],
     'selectedfileurl' => $selectedpdfurl,
     'selectedfilename' => $selectedfile['filename'],
@@ -173,6 +253,13 @@ $templatedata = [
     'hasannotatedpdf' => $hasannotatedpdf,
     'annotatedpdfurl' => $hasannotatedpdf ? $annotatedpdfmap[$selectedfile['fileid']] : '',
     'annotatedpdfmapjson' => json_encode($annotatedpdfmap),
+    'userid' => $userid,
+    'hasfeedbackfiles' => $hasfeedbackfiles,
+    'feedbackfiles' => $feedbackfiles,
+    'hascommentsfeature' => $hascommentsfeature,
+    'commentcount' => $commentcount,
+    'canpostcomments' => $canpostcomments,
+    'showrightcolumn' => $showrightcolumn,
 ];
 
 // Output.

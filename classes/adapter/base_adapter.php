@@ -95,6 +95,7 @@ abstract class base_adapter {
      * @param string $feedback HTML feedback text.
      * @param int $feedbackformat Text format constant.
      * @param array $advancedgradingdata Optional rubric/marking guide fill data.
+     * @param int $draftitemid Draft area item ID for feedback file uploads (0 = no files).
      * @return bool Success.
      */
     abstract public function save_grade(
@@ -103,6 +104,8 @@ abstract class base_adapter {
         string $feedback,
         int $feedbackformat = FORMAT_HTML,
         array $advancedgradingdata = [],
+        int $draftitemid = 0,
+        int $feedbackfilesdraftid = 0,
     ): bool;
 
     /**
@@ -146,6 +149,47 @@ abstract class base_adapter {
      */
     public function get_plagiarism_links(int $userid): array {
         return [];
+    }
+
+    /**
+     * Prepare the feedback draft area for a student.
+     *
+     * Clears the shared draft area and repopulates it with the student's
+     * existing feedback files, returning display-ready HTML with draft URLs.
+     *
+     * Subclasses should override this for activity types that support
+     * file-backed feedback (e.g., assignfeedback_comments).
+     *
+     * @param int $userid The student user ID.
+     * @param int $draftitemid The shared draft area item ID.
+     * @return array With key 'feedbackhtml' containing HTML with draft URLs.
+     */
+    public function prepare_feedback_draft(int $userid, int $draftitemid): array {
+        return ['feedbackhtml' => ''];
+    }
+
+    /**
+     * Prepare the feedback files draft area for a student.
+     *
+     * Clears the shared draft area and repopulates it with the student's
+     * existing feedback files from assignfeedback_file storage.
+     *
+     * @param int $userid The student user ID.
+     * @param int $draftitemid The shared draft area item ID.
+     * @return array With key 'filecount'.
+     */
+    public function prepare_feedback_files_draft(int $userid, int $draftitemid): array {
+        return ['filecount' => 0];
+    }
+
+    /**
+     * Check if a feedback plugin of the given type is enabled.
+     *
+     * @param string $type Plugin type identifier (e.g. 'file', 'comments').
+     * @return bool
+     */
+    public function has_feedback_plugin(string $type): bool {
+        return false;
     }
 
     /**

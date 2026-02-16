@@ -49,6 +49,10 @@ class save_grade extends external_api {
             'feedback' => new external_value(PARAM_RAW, 'Feedback HTML', VALUE_DEFAULT, ''),
             'feedbackformat' => new external_value(PARAM_INT, 'Feedback format', VALUE_DEFAULT, FORMAT_HTML),
             'advancedgradingdata' => new external_value(PARAM_RAW, 'Advanced grading data (JSON)', VALUE_DEFAULT, ''),
+            'draftitemid' => new external_value(PARAM_INT, 'Draft area item ID for feedback files', VALUE_DEFAULT, 0),
+            'feedbackfilesdraftid' => new external_value(
+                PARAM_INT, 'Draft area item ID for feedback files (assignfeedback_file)', VALUE_DEFAULT, 0,
+            ),
         ]);
     }
 
@@ -70,6 +74,8 @@ class save_grade extends external_api {
         string $feedback = '',
         int $feedbackformat = FORMAT_HTML,
         string $advancedgradingdata = '',
+        int $draftitemid = 0,
+        int $feedbackfilesdraftid = 0,
     ): array {
         $params = self::validate_parameters(self::execute_parameters(), [
             'cmid' => $cmid,
@@ -78,6 +84,8 @@ class save_grade extends external_api {
             'feedback' => $feedback,
             'feedbackformat' => $feedbackformat,
             'advancedgradingdata' => $advancedgradingdata,
+            'draftitemid' => $draftitemid,
+            'feedbackfilesdraftid' => $feedbackfilesdraftid,
         ]);
 
         $context = \context_module::instance($params['cmid']);
@@ -98,6 +106,8 @@ class save_grade extends external_api {
             $params['feedback'],
             $params['feedbackformat'],
             $advanceddata,
+            $params['draftitemid'],
+            $params['feedbackfilesdraftid'],
         );
 
         return ['success' => $success];

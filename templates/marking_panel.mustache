@@ -98,6 +98,21 @@
         <div class="card-body p-0" data-region="rubric-body"></div>
     </div>
 
+    {{! Feedback files section (shown when assignfeedback_file plugin is enabled) }}
+    {{#hasfeedbackfileplugin}}
+    <div data-region="feedback-files-section" class="card mb-3">
+        <div class="card-header py-2">
+            <h6 class="mb-0">
+                <i class="fa fa-files-o me-1"></i>
+                {{#str}} feedbackfiles, local_unifiedgrader {{/str}}
+            </h6>
+        </div>
+        <div class="card-body" data-region="feedback-files-body">
+            {{{feedbackfileshtml}}}
+        </div>
+    </div>
+    {{/hasfeedbackfileplugin}}
+
     {{! Teacher notes section }}
     {{#canviewnotes}}
     <div data-region="notes-section" class="card mb-3">

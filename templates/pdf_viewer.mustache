@@ -19,10 +19,14 @@
         <div data-region="pdf-page-wrapper" class="d-flex justify-content-center py-2">
             <div data-region="pdf-canvas-wrapper" class="position-relative" style="display: inline-block;">
                 <canvas data-region="pdf-canvas"></canvas>
+                {{! PDF.js text layer for text selection }}
+                <div data-region="pdf-text-layer"></div>
                 {{! Fabric.js annotation canvas gets layered on top (Phase 4B) }}
                 <canvas data-region="annotation-canvas"
                         class="position-absolute top-0 start-0"
                         style="pointer-events: none;"></canvas>
+                {{! PDF.js link overlay for clickable hyperlinks }}
+                <div data-region="pdf-link-layer"></div>
             </div>
         </div>
 

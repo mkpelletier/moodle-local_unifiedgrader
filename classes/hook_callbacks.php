@@ -29,13 +29,14 @@ defined('MOODLE_INTERNAL') || die();
 class hook_callbacks {
 
     /**
-     * Inject a visible "View Annotated Feedback" banner for students on
-     * graded assignment pages.
+     * Inject grade button overrides for teachers and feedback banners for students.
      *
-     * Uses a PSR-14 output hook to load a JS module that creates a Bootstrap
-     * card at the top of the main content area. Students don't have a secondary
-     * navigation bar on the assignment view, so this banner is the primary way
-     * they discover the annotated feedback viewer.
+     * For teachers: loads a JS module that redirects the default "Grade" /
+     * "Grade users" button to the Unified Grader instead of the legacy interface.
+     *
+     * For students: loads a JS module that creates a visible "View Annotated
+     * Feedback" banner on graded assignment pages (students don't have a
+     * secondary navigation bar, so this banner is how they discover the viewer).
      *
      * NOTE: Do NOT use isset($PAGE->context) — moodle_page lacks __isset(),
      * so isset() always returns false for magic properties. Use try/catch.
@@ -65,18 +66,40 @@ class hook_callbacks {
             return;
         }
 
-        if (!$cm || $cm->modname !== 'assign') {
+        if (!$cm) {
             return;
         }
 
-        if (!get_config('local_unifiedgrader', 'enable_assign')) {
+        $modname = $cm->modname;
+        $supported = ['assign', 'forum'];
+        if (!in_array($modname, $supported)) {
+            return;
+        }
+
+        if (!get_config('local_unifiedgrader', 'enable_' . $modname)) {
             return;
         }
 
         $cangrade = has_capability('local/unifiedgrader:grade', $context);
-        $canviewfeedback = has_capability('local/unifiedgrader:viewfeedback', $context);
 
-        if ($cangrade || !$canviewfeedback) {
+        // Teacher: override the default Grade button to redirect to our grader.
+        if ($cangrade) {
+            $gradeurl = new \moodle_url('/local/unifiedgrader/grade.php', ['cmid' => $cm->id]);
+            $PAGE->requires->js_call_amd(
+                'local_unifiedgrader/grade_button_override',
+                'init',
+                [$gradeurl->out(false), $modname],
+            );
+            return;
+        }
+
+        // Student: show feedback banner (assignments only).
+        if ($modname !== 'assign') {
+            return;
+        }
+
+        $canviewfeedback = has_capability('local/unifiedgrader:viewfeedback', $context);
+        if (!$canviewfeedback) {
             return;
         }
 
