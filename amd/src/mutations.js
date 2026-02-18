@@ -459,21 +459,212 @@ export default class {
     }
 
     /**
+     * Perform a submission status action (revert to draft, remove, lock, unlock).
+     *
+     * @param {object} stateManager The reactive state manager.
+     * @param {number} cmid Course module ID.
+     * @param {number} userid Student user ID.
+     * @param {string} action Action identifier.
+     */
+    async submissionAction(stateManager, cmid, userid, action) {
+        stateManager.setReadOnly(false);
+        stateManager.state.ui.loading = true;
+        stateManager.setReadOnly(true);
+
+        try {
+            await Ajax.call([{
+                methodname: 'local_unifiedgrader_submission_action',
+                args: {cmid, userid, action},
+            }])[0];
+
+            // Refresh submission data, grade data, and participant list.
+            const draftitemid = stateManager.state.ui.draftitemid;
+            const feedbackfilesdraftid = stateManager.state.ui.feedbackfilesdraftid;
+            const refreshCalls = [
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_submission_data',
+                    args: {cmid, userid},
+                }])[0],
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_grade_data',
+                    args: {cmid, userid},
+                }])[0],
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_participants',
+                    args: {
+                        cmid,
+                        status: stateManager.state.filters.status,
+                        group: stateManager.state.filters.group,
+                        search: stateManager.state.filters.search,
+                        sort: stateManager.state.filters.sort,
+                        sortdir: stateManager.state.filters.sortdir,
+                    },
+                }])[0],
+            ];
+
+            if (draftitemid) {
+                refreshCalls.push(Ajax.call([{
+                    methodname: 'local_unifiedgrader_prepare_feedback_draft',
+                    args: {cmid, userid, draftitemid},
+                }])[0]);
+            }
+
+            if (feedbackfilesdraftid) {
+                refreshCalls.push(Ajax.call([{
+                    methodname: 'local_unifiedgrader_prepare_feedback_files_draft',
+                    args: {cmid, userid, draftitemid: feedbackfilesdraftid},
+                }])[0]);
+            }
+
+            const results = await Promise.all(refreshCalls);
+            const [submissionData, gradeData, participants] = results;
+            const feedbackDraft = (draftitemid ? results[3] : null) || {feedbackhtml: ''};
+
+            stateManager.setReadOnly(false);
+            Object.assign(stateManager.state.submission, submissionData);
+            Object.assign(stateManager.state.grade, gradeData);
+            stateManager.state.grade.feedbackdraft = feedbackDraft.feedbackhtml;
+            stateManager.state.participants = participants;
+            stateManager.state.submissionComments.count = submissionData.commentcount || 0;
+            stateManager.state.submissionComments.loaded = false;
+            stateManager.state.ui.loading = false;
+            stateManager.setReadOnly(true);
+
+            this._refreshFileManager(stateManager);
+        } catch (error) {
+            Notification.exception(error);
+            stateManager.setReadOnly(false);
+            stateManager.state.ui.loading = false;
+            stateManager.setReadOnly(true);
+        }
+    }
+
+    /**
+     * Save feedback files from the draft area to permanent storage.
+     *
+     * @param {object} stateManager The reactive state manager.
+     * @param {number} cmid Course module ID.
+     * @param {number} userid User ID.
+     * @param {number} feedbackfilesdraftid Draft area item ID.
+     */
+    async saveFeedbackFiles(stateManager, cmid, userid, feedbackfilesdraftid) {
+        stateManager.setReadOnly(false);
+        stateManager.state.ui.savingFiles = true;
+        stateManager.setReadOnly(true);
+
+        try {
+            await Ajax.call([{
+                methodname: 'local_unifiedgrader_save_feedback_files',
+                args: {cmid, userid, draftitemid: feedbackfilesdraftid},
+            }])[0];
+
+            // Re-prepare the draft area to refresh the filemanager widget.
+            await Ajax.call([{
+                methodname: 'local_unifiedgrader_prepare_feedback_files_draft',
+                args: {cmid, userid, draftitemid: feedbackfilesdraftid},
+            }])[0];
+
+            stateManager.setReadOnly(false);
+            stateManager.state.ui.savingFiles = false;
+            stateManager.setReadOnly(true);
+
+            this._refreshFileManager(stateManager);
+        } catch (error) {
+            Notification.exception(error);
+            stateManager.setReadOnly(false);
+            stateManager.state.ui.savingFiles = false;
+            stateManager.setReadOnly(true);
+        }
+    }
+
+    /**
      * Refresh the feedback files filemanager widget.
      *
      * Called after the draft area has been re-prepared (student switch or save).
-     * Uses Moodle's YUI-based M.form_filemanager to reload file list from server.
+     * Moodle 5.0 does not expose the YUI filemanager instance via M.form_filemanager.instances,
+     * so we call the draft files AJAX API directly and update the DOM.
      *
      * @param {object} stateManager The reactive state manager.
      */
     _refreshFileManager(stateManager) {
         const clientId = stateManager.state.ui.feedbackfilesclientid;
-        if (!clientId) {
+        const draftItemId = stateManager.state.ui.feedbackfilesdraftid;
+        if (!clientId || !draftItemId) {
             return;
         }
-        // M.form_filemanager is initialized by Moodle's YUI filemanager module.
-        if (typeof M !== 'undefined' && M.form_filemanager?.instances?.[clientId]) {
-            M.form_filemanager.instances[clientId].refresh('/');
+
+        const fmEl = document.getElementById('filemanager-' + clientId);
+        if (!fmEl) {
+            return;
         }
+
+        // Call Moodle's draft files API to get the current file listing.
+        const body = new URLSearchParams({
+            action: 'list',
+            filepath: '/',
+            clientid: clientId,
+            itemid: String(draftItemId),
+            sesskey: window.M.cfg.sesskey,
+        });
+
+        fetch(window.M.cfg.wwwroot + '/repository/draftfiles_ajax.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: body.toString(),
+        })
+        .then(r => r.json())
+        .then(data => {
+            const files = data.list || [];
+            const hasFiles = files.length > 0;
+
+            // Toggle container state classes (matches what the YUI widget does).
+            fmEl.classList.toggle('fm-nofiles', !hasFiles);
+            fmEl.classList.toggle('fm-noitems', !hasFiles);
+
+            // Update the file listing inside .fp-content.
+            const content = fmEl.querySelector('.fp-content');
+            if (!content) {
+                return;
+            }
+            content.innerHTML = '';
+
+            files.forEach(file => {
+                const span = document.createElement('span');
+                span.className = 'fp-file fp-hascontextmenu fp-file-saved';
+                span.tabIndex = 0;
+
+                const a = document.createElement('a');
+                a.href = '#';
+
+                const thumb = document.createElement('div');
+                thumb.className = 'fp-thumbnail';
+                const img = document.createElement('img');
+                img.src = file.realthumbnail || file.thumbnail || file.icon || '';
+                img.alt = '';
+                thumb.appendChild(img);
+
+                // Green check badge to indicate the file is saved.
+                const badge = document.createElement('i');
+                badge.className = 'fa fa-check-circle fp-saved-badge';
+                badge.setAttribute('aria-hidden', 'true');
+                thumb.appendChild(badge);
+
+                a.appendChild(thumb);
+
+                const fnField = document.createElement('div');
+                fnField.className = 'fp-filename-field';
+                const fnP = document.createElement('p');
+                fnP.className = 'fp-filename';
+                fnP.textContent = file.fullname || file.filename || '';
+                fnField.appendChild(fnP);
+                a.appendChild(fnField);
+
+                span.appendChild(a);
+                content.appendChild(span);
+            });
+        })
+        .catch(() => {
+            // Silently ignore — draft area listing failures are non-critical.
+        });
     }
 }

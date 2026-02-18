@@ -87,13 +87,8 @@ if ($cm->modname === 'forum') {
     );
     $PAGE->set_heading($course->fullname);
     $PAGE->set_pagelayout('standard');
-
-    // Navbar breadcrumb.
-    $PAGE->navbar->add(
-        format_string($cm->name),
-        new moodle_url('/mod/forum/view.php', ['id' => $cm->id]),
-    );
-    $PAGE->navbar->add(get_string('view_feedback', 'local_unifiedgrader'));
+    $PAGE->activityheader->disable();
+    $PAGE->add_body_class('local-unifiedgrader-feedback-page');
 
     // Format grade display.
     $gradedisplay = '';
@@ -238,62 +233,64 @@ $activityinfo = $adapter->get_activity_info();
 $pdffiles = array_values(array_filter($submissionfiles, function ($f) {
     return $f['mimetype'] === 'application/pdf' || !empty($f['convertible']);
 }));
+$haspdffiles = !empty($pdffiles);
 
-if (empty($pdffiles)) {
-    // No PDF files — show message.
-    $PAGE->set_url(new moodle_url('/local/unifiedgrader/view_feedback.php', ['cmid' => $cmid]));
-    $PAGE->set_context($context);
-    $PAGE->set_title(get_string('view_feedback', 'local_unifiedgrader'));
-    $PAGE->set_heading($course->fullname);
-    echo $OUTPUT->header();
-    echo $OUTPUT->notification(
-        get_string('no_annotated_files', 'local_unifiedgrader'),
-        'info',
-    );
-    echo $OUTPUT->footer();
-    exit;
-}
+// Determine which file to show (for PDF submissions).
+$selectedfile = null;
+$selectedpdfurl = '';
+$hasannotatedpdf = false;
+$annotatedpdfmap = [];
 
-// Determine which file to show.
-$selectedfile = $pdffiles[0];
-if ($fileid) {
-    foreach ($pdffiles as $pdf) {
-        if ($pdf['fileid'] === $fileid) {
-            $selectedfile = $pdf;
-            break;
+if ($haspdffiles) {
+    $selectedfile = $pdffiles[0];
+    if ($fileid) {
+        foreach ($pdffiles as $pdf) {
+            if ($pdf['fileid'] === $fileid) {
+                $selectedfile = $pdf;
+                break;
+            }
         }
     }
-}
 
-// Check for flattened annotated PDFs in file storage.
-$fs = get_file_storage();
-$annotatedpdfmap = [];
-foreach ($pdffiles as $pdf) {
-    $apdf = $fs->get_file(
-        $context->id,
-        'local_unifiedgrader',
-        'annotatedpdf',
-        $pdf['fileid'],
-        '/' . $userid . '/',
-        'annotated.pdf',
-    );
-    if ($apdf && !$apdf->is_directory()) {
-        $annotatedpdfmap[$pdf['fileid']] = moodle_url::make_pluginfile_url(
+    // Check for flattened annotated PDFs in file storage.
+    $fs = get_file_storage();
+    foreach ($pdffiles as $pdf) {
+        $apdf = $fs->get_file(
             $context->id,
             'local_unifiedgrader',
             'annotatedpdf',
             $pdf['fileid'],
             '/' . $userid . '/',
             'annotated.pdf',
-        )->out(false);
+        );
+        if ($apdf && !$apdf->is_directory()) {
+            $annotatedpdfmap[$pdf['fileid']] = moodle_url::make_pluginfile_url(
+                $context->id,
+                'local_unifiedgrader',
+                'annotatedpdf',
+                $pdf['fileid'],
+                '/' . $userid . '/',
+                'annotated.pdf',
+            )->out(false);
+        }
     }
+
+    // Always use the original PDF in the interactive viewer (annotations are
+    // rendered as a Fabric.js overlay with hover tooltips for comments).
+    // The flattened annotated PDF is only used for the download button.
+    $selectedpdfurl = $selectedfile['previewurl'];
+    $hasannotatedpdf = isset($annotatedpdfmap[$selectedfile['fileid']]);
 }
 
-// Always use the original PDF in the interactive viewer (annotations are
-// rendered as a Fabric.js overlay with hover tooltips for comments).
-// The flattened annotated PDF is only used for the download button.
-$selectedpdfurl = $selectedfile['previewurl'];
-$hasannotatedpdf = isset($annotatedpdfmap[$selectedfile['fileid']]);
+// For non-PDF submissions, build an iframe URL to preview_submission.php
+// (same renderer used by the teacher's grading interface).
+$submissionpreviewurl = '';
+if (!$haspdffiles) {
+    $submissionpreviewurl = (new moodle_url('/local/unifiedgrader/preview_submission.php', [
+        'cmid' => $cmid,
+        'userid' => $userid,
+    ]))->out(false);
+}
 
 // Set up the page.
 $PAGE->set_url(new moodle_url('/local/unifiedgrader/view_feedback.php', ['cmid' => $cmid]));
@@ -304,19 +301,104 @@ $PAGE->set_title(
 );
 $PAGE->set_heading($course->fullname);
 $PAGE->set_pagelayout('standard');
-
-// Navbar breadcrumb.
-$PAGE->navbar->add(
-    format_string($cm->name),
-    new moodle_url('/mod/assign/view.php', ['id' => $cm->id]),
-);
-$PAGE->navbar->add(get_string('view_feedback', 'local_unifiedgrader'));
+$PAGE->activityheader->disable();
+$PAGE->add_body_class('local-unifiedgrader-feedback-page');
 
 // Format grade display.
 $gradedisplay = '';
 if ($gradedata['grade'] !== null) {
     $gradedisplay = round($gradedata['grade'], 2) . ' / ' . round($activityinfo['maxgrade'], 2);
 }
+
+// Parse rubric/guide data for template.
+$gradingdefinition = null;
+$rubricdata = null;
+$hasrubric = false;
+$hasguide = false;
+$rubriccriteria = [];
+$guidecriteria = [];
+$rubrictotal = 0;
+$guidetotal = 0;
+$guidemaxtotal = 0;
+
+if (!empty($gradedata['gradingdefinition'])) {
+    $gradingdefinition = json_decode($gradedata['gradingdefinition'], true);
+}
+if (!empty($gradedata['rubricdata'])) {
+    $rubricdata = json_decode($gradedata['rubricdata'], true);
+}
+
+if ($gradingdefinition && !empty($gradingdefinition['criteria'])) {
+    if ($gradingdefinition['method'] === 'rubric') {
+        $hasrubric = true;
+        $fillmap = [];
+        if ($rubricdata && !empty($rubricdata['criteria'])) {
+            foreach ($rubricdata['criteria'] as $critid => $critdata) {
+                if (!empty($critdata['levelid'])) {
+                    $fillmap[(int) $critid] = (int) $critdata['levelid'];
+                }
+            }
+        }
+        foreach ($gradingdefinition['criteria'] as $criterion) {
+            $levels = [];
+            $selectedscore = null;
+            foreach ($criterion['levels'] as $level) {
+                $isselected = isset($fillmap[$criterion['id']])
+                    && $fillmap[$criterion['id']] === $level['id'];
+                $levels[] = [
+                    'score' => $level['score'],
+                    'definition' => $level['definition'],
+                    'selected' => $isselected,
+                ];
+                if ($isselected) {
+                    $selectedscore = $level['score'];
+                }
+            }
+            $rubriccriteria[] = [
+                'description' => $criterion['description'],
+                'levels' => $levels,
+                'selectedscore' => $selectedscore,
+                'hasselection' => $selectedscore !== null,
+            ];
+            if ($selectedscore !== null) {
+                $rubrictotal += $selectedscore;
+            }
+        }
+    } else if ($gradingdefinition['method'] === 'guide') {
+        $hasguide = true;
+        $fillmap = [];
+        if ($rubricdata && !empty($rubricdata['criteria'])) {
+            foreach ($rubricdata['criteria'] as $critid => $critdata) {
+                $fillmap[(int) $critid] = [
+                    'score' => $critdata['score'] ?? '',
+                    'remark' => $critdata['remark'] ?? '',
+                ];
+            }
+        }
+        foreach ($gradingdefinition['criteria'] as $criterion) {
+            $fill = $fillmap[$criterion['id']] ?? ['score' => '', 'remark' => ''];
+            $score = $fill['score'] !== '' ? (float) $fill['score'] : null;
+            $guidecriteria[] = [
+                'shortname' => $criterion['shortname'],
+                'description' => $criterion['description'] ?? '',
+                'maxscore' => $criterion['maxscore'],
+                'score' => $score,
+                'hasscore' => $score !== null,
+                'remark' => $fill['remark'],
+                'hasremark' => !empty($fill['remark']),
+            ];
+            if ($score !== null) {
+                $guidetotal += $score;
+            }
+            $guidemaxtotal += (float) $criterion['maxscore'];
+        }
+    }
+}
+
+$hasadvancedgrading = $hasrubric || $hasguide;
+$gradingmethodname = $hasrubric
+    ? get_string('rubric', 'local_unifiedgrader')
+    : ($hasguide ? get_string('markingguide', 'local_unifiedgrader') : '');
 
 // Create assign object (needed for feedback file rewriting and submission comments).
 $assign = new \assign($context, $cm, $course);
@@ -365,7 +447,7 @@ if ($grade && $adapter->has_feedback_plugin('file')) {
             'filename' => $file->get_filename(),
             'filesize' => display_size($file->get_filesize()),
             'url' => $downloadurl->out(false),
-            'iconurl' => $OUTPUT->image_url(file_file_icon($file, 24))->out(false),
+            'iconurl' => $OUTPUT->image_url(file_file_icon($file))->out(false),
         ];
     }
     $hasfeedbackfiles = !empty($feedbackfiles);
@@ -396,7 +478,7 @@ if ($submission) {
     }
 }
 
-$showrightcolumn = !empty($feedback) || $hasfeedbackfiles || $hascommentsfeature;
+$showrightcolumn = !empty($feedback) || $hasadvancedgrading;
 
 // Prepare template context.
 $templatedata = [
@@ -406,22 +488,36 @@ $templatedata = [
     'gradedisplay' => $gradedisplay,
     'feedback' => $feedback,
     'hasfeedback' => !empty($feedback),
-    'selectedfileid' => $selectedfile['fileid'],
+    'haspdffiles' => $haspdffiles,
+    'selectedfileid' => $selectedfile ? $selectedfile['fileid'] : 0,
     'selectedfileurl' => $selectedpdfurl,
-    'selectedfilename' => $selectedfile['filename'],
+    'selectedfilename' => $selectedfile ? $selectedfile['filename'] : '',
     'pdffiles' => $pdffiles,
     'hasmultiplefiles' => count($pdffiles) > 1,
     'pdffilesjson' => json_encode($pdffiles),
     'hasannotatedpdf' => $hasannotatedpdf,
     'annotatedpdfurl' => $hasannotatedpdf ? $annotatedpdfmap[$selectedfile['fileid']] : '',
+    'downloadfilename' => clean_filename($course->shortname . '-' . $activityinfo['name'] . '.pdf'),
     'annotatedpdfmapjson' => json_encode($annotatedpdfmap),
+    'submissionpreviewurl' => $submissionpreviewurl,
     'userid' => $userid,
     'hasfeedbackfiles' => $hasfeedbackfiles,
     'feedbackfiles' => $feedbackfiles,
+    'feedbackfilecount' => count($feedbackfiles),
+    'feedbackfilesjson' => json_encode($feedbackfiles),
     'hascommentsfeature' => $hascommentsfeature,
     'commentcount' => $commentcount,
     'canpostcomments' => $canpostcomments,
     'showrightcolumn' => $showrightcolumn,
+    'hasrubric' => $hasrubric,
+    'rubriccriteria' => $rubriccriteria,
+    'rubrictotal' => $rubrictotal,
+    'hasguide' => $hasguide,
+    'guidecriteria' => $guidecriteria,
+    'guidetotal' => round($guidetotal, 2),
+    'guidemaxtotal' => round($guidemaxtotal, 2),
+    'hasadvancedgrading' => $hasadvancedgrading,
+    'gradingmethodname' => $gradingmethodname,
 ];
 
 // Output.

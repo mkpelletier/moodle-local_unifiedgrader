@@ -63,6 +63,9 @@ export default class extends BaseComponent {
             FEEDBACK_EDITOR_WRAPPER: '[data-region="feedback-editor-wrapper"]',
             EDIT_FEEDBACK_BTN: '[data-action="edit-feedback"]',
             DELETE_FEEDBACK_BTN: '[data-action="delete-feedback"]',
+            SAVE_FEEDBACK_FILES_BTN: '[data-action="save-feedback-files"]',
+            LATE_INDICATOR: '[data-region="late-indicator"]',
+            LATE_TEXT: '[data-region="late-text"]',
         };
         this._editingFeedback = false;
         this._gradingDefinition = null;
@@ -78,6 +81,7 @@ export default class extends BaseComponent {
      */
     getWatchers() {
         return [
+            {watch: 'submission:updated', handler: this._renderLateIndicator},
             {watch: 'submission:updated', handler: this._renderPlagiarism},
             {watch: 'grade:updated', handler: this._renderGrade},
             {watch: 'state.notes:updated', handler: this._renderNotes},
@@ -140,6 +144,12 @@ export default class extends BaseComponent {
         const deleteFeedbackBtn = this.getElement(this.selectors.DELETE_FEEDBACK_BTN);
         if (deleteFeedbackBtn) {
             deleteFeedbackBtn.addEventListener('click', () => this._handleDeleteFeedback());
+        }
+
+        // Save feedback files button.
+        const saveFeedbackFilesBtn = this.getElement(this.selectors.SAVE_FEEDBACK_FILES_BTN);
+        if (saveFeedbackFilesBtn) {
+            saveFeedbackFilesBtn.addEventListener('click', () => this._handleSaveFeedbackFiles());
         }
 
         // Add note button.
@@ -713,11 +723,11 @@ export default class extends BaseComponent {
             header.appendChild(maxEl);
             row.appendChild(header);
 
-            // Description for markers.
+            // Description for markers (HTML sanitized server-side by format_text).
             if (criterion.descriptionmarkers) {
                 const markerDesc = document.createElement('div');
                 markerDesc.className = 'small text-muted mb-2';
-                markerDesc.textContent = criterion.descriptionmarkers;
+                markerDesc.innerHTML = criterion.descriptionmarkers;
                 row.appendChild(markerDesc);
             }
 
@@ -869,6 +879,24 @@ export default class extends BaseComponent {
     }
 
     /**
+     * Handle save feedback files action.
+     */
+    _handleSaveFeedbackFiles() {
+        const state = this.reactive.state;
+        const feedbackfilesdraftid = state.ui.feedbackfilesdraftid;
+        if (!feedbackfilesdraftid) {
+            return;
+        }
+
+        this.reactive.dispatch(
+            'saveFeedbackFiles',
+            state.activity.cmid,
+            state.currentUser.id,
+            feedbackfilesdraftid,
+        );
+    }
+
+    /**
      * Handle save comment to library.
      */
     _handleSaveComment() {
@@ -926,6 +954,55 @@ export default class extends BaseComponent {
 
         const state = this.reactive.state;
         this.reactive.dispatch('deleteNote', state.activity.cmid, state.currentUser.id, noteid);
+    }
+
+    /**
+     * Render the late submission indicator.
+     *
+     * Compares submission.timemodified with activity.duedate to determine
+     * if the submission was late, and displays the duration.
+     *
+     * @param {object} args Watcher args.
+     * @param {object} args.state Current state.
+     */
+    _renderLateIndicator({state}) {
+        const indicator = this.getElement(this.selectors.LATE_INDICATOR);
+        if (!indicator) {
+            return;
+        }
+
+        const duedate = state.activity.duedate || 0;
+        const submitted = state.submission.timemodified || 0;
+
+        if (!duedate || !submitted || submitted <= duedate) {
+            indicator.classList.add('d-none');
+            return;
+        }
+
+        // Calculate the late duration.
+        const diffSeconds = submitted - duedate;
+        const days = Math.floor(diffSeconds / 86400);
+        const hours = Math.floor((diffSeconds % 86400) / 3600);
+        const minutes = Math.floor((diffSeconds % 3600) / 60);
+
+        let parts = [];
+        if (days > 0) {
+            parts.push(days + (days === 1 ? ' day' : ' days'));
+        }
+        if (hours > 0) {
+            parts.push(hours + (hours === 1 ? ' hour' : ' hours'));
+        }
+        // Show minutes only when less than 1 day late.
+        if (days === 0 && minutes > 0) {
+            parts.push(minutes + (minutes === 1 ? ' min' : ' mins'));
+        }
+        const durationText = parts.join(' ') || '< 1 min';
+
+        const textEl = this.getElement(this.selectors.LATE_TEXT);
+        if (textEl) {
+            textEl.textContent = 'Late: ' + durationText;
+        }
+        indicator.classList.remove('d-none');
     }
 
     /**

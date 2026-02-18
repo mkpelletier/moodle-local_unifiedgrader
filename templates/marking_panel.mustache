@@ -8,6 +8,14 @@
 }}
 <div data-region="marking-content" class="p-3">
 
+    {{! Late submission indicator (shown by JS when submission is past due date) }}
+    <div data-region="late-indicator" class="d-none mb-3">
+        <span class="badge bg-warning text-dark w-100 py-2 d-flex align-items-center justify-content-center gap-1">
+            <i class="fa fa-clock-o" aria-hidden="true"></i>
+            <span data-region="late-text"></span>
+        </span>
+    </div>
+
     {{! Plagiarism section (shown by JS when plagiarism links exist) }}
     <div data-region="plagiarism-section" class="d-none card mb-3">
         <div class="card-header py-2">
@@ -122,11 +130,15 @@
     {{! Feedback files section (shown when assignfeedback_file plugin is enabled) }}
     {{#hasfeedbackfileplugin}}
     <div data-region="feedback-files-section" class="card mb-3">
-        <div class="card-header py-2">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
             <h6 class="mb-0">
                 <i class="fa fa-files-o me-1"></i>
                 {{#str}} feedbackfiles, local_unifiedgrader {{/str}}
             </h6>
+            <button data-action="save-feedback-files" class="btn btn-sm btn-primary" type="button">
+                <i class="fa fa-save me-1"></i>
+                {{#str}} save {{/str}}
+            </button>
         </div>
         <div class="card-body" data-region="feedback-files-body">
             {{{feedbackfileshtml}}}

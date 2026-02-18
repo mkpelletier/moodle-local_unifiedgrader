@@ -64,6 +64,12 @@ export default class AnnotationToolbar {
                 return;
             }
 
+            // Pen width selection.
+            if (btn.dataset.penwidth) {
+                this._selectPenWidth(btn);
+                return;
+            }
+
             // Tool selection.
             if (btn.dataset.tool) {
                 this._selectTool(btn);
@@ -110,30 +116,92 @@ export default class AnnotationToolbar {
     _selectTool(btn) {
         const tool = btn.dataset.tool;
         const stamp = btn.dataset.stamp || null;
+        const shape = btn.dataset.shape || null;
 
         // If clicking the same stamp, or a different tool, update.
         // For stamps, also set the stamp type.
         if (stamp) {
             this._layer.setStampType(stamp);
-            // If switching from a non-stamp tool, set to stamp.
             if (this._activeTool !== 'stamp') {
                 this._layer.setTool('stamp');
+            }
+        } else if (shape) {
+            this._layer.setShapeType(shape);
+            if (this._activeTool !== 'shape') {
+                this._layer.setTool('shape');
             }
         } else {
             this._layer.setTool(tool);
         }
 
-        this._activeTool = stamp ? 'stamp' : tool;
+        this._activeTool = stamp ? 'stamp' : (shape ? 'shape' : tool);
 
-        // Update visual active state — tools.
+        // Update visual active state — tools in the btn-group.
         const toolBtns = this._el.querySelectorAll('[data-region="tool-selector"] button');
         toolBtns.forEach((b) => b.classList.toggle('active', b.dataset.tool === this._activeTool));
+
+        // Update pen button (outside the btn-group).
+        const penBtn = this._el.querySelector('[data-region="pen-width-wrapper"] > button[data-tool="pen"]');
+        if (penBtn) {
+            penBtn.classList.toggle('active', this._activeTool === 'pen');
+        }
+
+        // Update shape button (outside the btn-group).
+        const shapeBtn = this._el.querySelector('[data-region="shape-wrapper"] > button[data-tool="shape"]');
+        if (shapeBtn) {
+            shapeBtn.classList.toggle('active', this._activeTool === 'shape');
+        }
 
         // Update stamp buttons.
         const stampBtns = this._el.querySelectorAll('[data-region="stamp-selector"] button');
         stampBtns.forEach((b) => {
             b.classList.toggle('active', stamp !== null && b.dataset.stamp === stamp);
         });
+
+        // Update shape popout buttons.
+        const shapeBtns = this._el.querySelectorAll('[data-region="shape-popout"] button');
+        shapeBtns.forEach((b) => {
+            b.classList.toggle('active', shape !== null && b.dataset.shape === shape);
+        });
+
+        // Show/hide pen width popout.
+        this._updatePenWidthPopout();
+        // Show/hide shape popout.
+        this._updateShapePopout();
+    }
+
+    /**
+     * Show the pen width popout when pen is active, hide otherwise.
+     */
+    _updatePenWidthPopout() {
+        const popout = this._el.querySelector('[data-region="pen-width-popout"]');
+        if (popout) {
+            popout.classList.toggle('d-none', this._activeTool !== 'pen');
+        }
+    }
+
+    /**
+     * Show the shape popout when shape tool is active, hide otherwise.
+     */
+    _updateShapePopout() {
+        const popout = this._el.querySelector('[data-region="shape-popout"]');
+        if (popout) {
+            popout.classList.toggle('d-none', this._activeTool !== 'shape');
+        }
+    }
+
+    /**
+     * Handle pen width button click.
+     *
+     * @param {HTMLElement} btn The clicked pen width button.
+     */
+    _selectPenWidth(btn) {
+        const width = parseInt(btn.dataset.penwidth, 10);
+        this._layer.setBrushWidth(width);
+
+        // Update active state on width buttons.
+        const widthBtns = this._el.querySelectorAll('[data-region="pen-width-popout"] button');
+        widthBtns.forEach((b) => b.classList.toggle('active', b.dataset.penwidth === btn.dataset.penwidth));
     }
 
     /**

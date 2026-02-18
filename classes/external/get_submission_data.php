@@ -97,6 +97,7 @@ class get_submission_data extends external_api {
             'timemodified' => new external_value(PARAM_INT, 'Time modified'),
             'attemptnumber' => new external_value(PARAM_INT, 'Attempt number'),
             'commentcount' => new external_value(PARAM_INT, 'Number of submission comments', VALUE_DEFAULT, 0),
+            'locked' => new external_value(PARAM_BOOL, 'Whether submission changes are locked', VALUE_DEFAULT, false),
             'plagiarismlinks' => new external_multiple_structure(
                 new external_single_structure([
                     'label' => new external_value(PARAM_TEXT, 'Label for the plagiarism link (filename or Online text)'),

@@ -55,11 +55,13 @@ $string['savinggrade'] = 'Saving grade...';
 $string['gradesaved'] = 'Grade saved';
 $string['error_saving'] = 'Error saving grade.';
 $string['feedback'] = 'Feedback';
+$string['overall_feedback'] = 'Overall Feedback';
 $string['feedback_saved'] = 'Feedback (saved)';
 $string['edit_feedback'] = 'Edit';
 $string['delete_feedback'] = 'Delete';
 $string['confirm_delete_feedback'] = 'Are you sure you want to delete this feedback? The grade will be preserved.';
 $string['maxgrade'] = '/ {$a}';
+$string['expand'] = 'Expand';
 
 // Submissions.
 $string['submission'] = 'Submission';
@@ -82,6 +84,7 @@ $string['filter_submitted'] = 'Submitted';
 $string['filter_needsgrading'] = 'Needs grading';
 $string['filter_notsubmitted'] = 'Not submitted';
 $string['filter_graded'] = 'Graded';
+$string['filter_late'] = 'Late';
 $string['filter_allgroups'] = 'All groups';
 $string['studentcount'] = '{$a->current} of {$a->total}';
 
@@ -92,6 +95,7 @@ $string['status_graded'] = 'Graded';
 $string['status_nosubmission'] = 'No submission';
 $string['status_needsgrading'] = 'Needs grading';
 $string['status_new'] = 'Not submitted';
+$string['status_late'] = 'Late: {$a}';
 
 // Teacher notes.
 $string['notes'] = 'Teacher notes';
@@ -158,6 +162,7 @@ $string['conversion_failed'] = 'This file could not be converted to PDF for prev
 $string['converting_file'] = 'Converting document to PDF...';
 $string['conversion_timeout'] = 'Document conversion is taking too long. Please try again later.';
 $string['download_annotated_pdf'] = 'Download annotated PDF';
+$string['download_original_submission'] = 'Download original submission: {$a}';
 
 // Privacy.
 $string['privacy:metadata:notes'] = 'Private teacher notes stored per student per activity in the Unified Grader.';
@@ -184,6 +189,7 @@ $string['pdf_nextpage'] = 'Next page';
 $string['pdf_zoomin'] = 'Zoom in';
 $string['pdf_zoomout'] = 'Zoom out';
 $string['pdf_zoomfit'] = 'Fit to width';
+$string['pdf_search'] = 'Search in document';
 
 // Annotation tools.
 $string['annotate_tools'] = 'Annotation tools';
@@ -191,6 +197,9 @@ $string['annotate_select'] = 'Select';
 $string['annotate_comment'] = 'Comment';
 $string['annotate_highlight'] = 'Highlight';
 $string['annotate_pen'] = 'Pen';
+$string['annotate_pen_fine'] = 'Fine';
+$string['annotate_pen_medium'] = 'Medium';
+$string['annotate_pen_thick'] = 'Thick';
 $string['annotate_stamps'] = 'Stamps';
 $string['annotate_stamp_check'] = 'Checkmark stamp';
 $string['annotate_stamp_cross'] = 'Cross stamp';
@@ -200,6 +209,11 @@ $string['annotate_yellow'] = 'Yellow';
 $string['annotate_green'] = 'Green';
 $string['annotate_blue'] = 'Blue';
 $string['annotate_black'] = 'Black';
+$string['annotate_shape'] = 'Shapes';
+$string['annotate_shape_rect'] = 'Rectangle';
+$string['annotate_shape_circle'] = 'Circle';
+$string['annotate_shape_arrow'] = 'Arrow';
+$string['annotate_shape_line'] = 'Line';
 $string['annotate_undo'] = 'Undo';
 $string['annotate_redo'] = 'Redo';
 $string['annotate_delete'] = 'Delete selected';
@@ -222,6 +236,7 @@ $string['view_forum_feedback'] = 'View Forum Feedback';
 $string['forum_your_posts'] = 'Your forum posts';
 $string['forum_no_posts'] = 'You have not made any posts in this forum.';
 $string['forum_feedback_banner'] = 'Your teacher has graded your forum participation.';
+$string['forum_wordcount'] = '{$a} words';
 
 // Post grades.
 $string['grades_posted'] = 'Grades posted';
@@ -234,3 +249,18 @@ $string['schedule_post'] = 'Post on a date';
 $string['schedule_post_btn'] = 'Schedule';
 $string['grades_scheduled'] = 'Posting {$a}';
 $string['schedule_must_be_future'] = 'The scheduled date must be in the future.';
+
+// Submission status actions.
+$string['action_revert_to_draft'] = 'Revert to draft';
+$string['action_remove_submission'] = 'Remove submission';
+$string['action_lock'] = 'Prevent submission changes';
+$string['action_unlock'] = 'Allow submission changes';
+$string['action_edit_submission'] = 'Edit submission';
+$string['action_grant_extension'] = 'Grant extension';
+$string['action_submit_for_grading'] = 'Submit for grading';
+$string['confirm_revert_to_draft'] = 'Are you sure you want to revert this submission to draft status?';
+$string['confirm_remove_submission'] = 'Are you sure you want to remove this submission? This cannot be undone.';
+$string['confirm_lock_submission'] = 'Prevent this student from making submission changes?';
+$string['confirm_unlock_submission'] = 'Allow this student to make submission changes?';
+$string['confirm_submit_for_grading'] = 'Submit this draft on behalf of the student?';
+$string['invalidaction'] = 'Invalid submission action.';

@@ -59,6 +59,11 @@ export default class extends BaseComponent {
      * @param {object} state Current state.
      */
     stateReady(state) {
+        // Submission comments are only supported for assignments.
+        if (state.activity.type !== 'assign') {
+            this.element.classList.add('d-none');
+            return;
+        }
         this._setupEventListeners();
         this._updateBadge(state.submissionComments.count);
     }

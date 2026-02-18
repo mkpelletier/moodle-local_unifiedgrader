@@ -109,6 +109,7 @@ class get_participants extends external_api {
                 'status' => new external_value(PARAM_TEXT, 'Submission status'),
                 'submittedat' => new external_value(PARAM_INT, 'Submission timestamp'),
                 'gradevalue' => new external_value(PARAM_FLOAT, 'Current grade', VALUE_OPTIONAL),
+                'locked' => new external_value(PARAM_BOOL, 'Whether submission changes are locked', VALUE_DEFAULT, false),
             ]),
         );
     }

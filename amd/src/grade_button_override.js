@@ -38,6 +38,23 @@ export const init = (gradeUrl, modname) => {
         if (btn && btn.href && btn.href.includes('action=grader')) {
             btn.href = gradeUrl;
         }
+
+        // Rewrite "Grade" links in the submissions table (action menu kebab items).
+        // Each link points to /mod/assign/view.php?id=X&action=grader&userid=Y.
+        // We rewrite to /local/unifiedgrader/grade.php?cmid=X&userid=Y.
+        document.querySelectorAll('a[href*="action=grader"]').forEach((link) => {
+            try {
+                const url = new URL(link.href);
+                const userid = url.searchParams.get('userid');
+                if (userid) {
+                    link.href = gradeUrl + '&userid=' + encodeURIComponent(userid);
+                } else {
+                    link.href = gradeUrl;
+                }
+            } catch {
+                // Ignore malformed URLs.
+            }
+        });
     } else if (modname === 'forum') {
         // The forum "Grade users" button has data-grade-action="launch" and
         // triggers mod_forum/grades/grader JS. Use a capturing listener to

@@ -159,7 +159,12 @@ class forum_adapter extends base_adapter {
 
             // Apply status filter.
             if (!empty($filters['status']) && $filters['status'] !== 'all') {
-                if ($entry['status'] !== $filters['status']) {
+                if ($filters['status'] === 'late') {
+                    $duedate = (int) $this->forum->get_due_date();
+                    if (!$duedate || !$entry['submittedat'] || $entry['submittedat'] <= $duedate) {
+                        continue;
+                    }
+                } else if ($entry['status'] !== $filters['status']) {
                     continue;
                 }
             }
@@ -586,10 +591,13 @@ class forum_adapter extends base_adapter {
                 );
                 $postdate = userdate($post->created);
                 $subject = format_string($post->subject);
+                $wordcount = count_words(html_to_text($formattedmessage, 0, false));
+                $wordcountlabel = get_string('forum_wordcount', 'local_unifiedgrader', $wordcount);
 
                 $html .= '<div class="card mb-2">';
-                $html .= '<div class="card-header py-1 small text-muted">';
-                $html .= '<strong>' . $subject . '</strong> &mdash; ' . $postdate;
+                $html .= '<div class="card-header py-1 small text-muted d-flex justify-content-between align-items-center">';
+                $html .= '<span><strong>' . $subject . '</strong> &mdash; ' . $postdate . '</span>';
+                $html .= '<span class="ms-2 text-nowrap">' . $wordcountlabel . '</span>';
                 $html .= '</div>';
                 $html .= '<div class="card-body py-2">' . $formattedmessage . '</div>';
                 $html .= '</div>';

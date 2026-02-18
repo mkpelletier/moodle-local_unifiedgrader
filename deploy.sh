@@ -24,4 +24,8 @@ echo "Copying built files back to dev folder..."
 cp -R "$PLUGIN_DIR/amd/build" "$DEV_DIR/amd/"
 
 echo ""
+echo "Purging Moodle caches..."
+php "$MOODLE_DIR/admin/cli/purge_caches.php"
+
+echo ""
 echo "Done!"

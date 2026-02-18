@@ -94,6 +94,12 @@ class hook_callbacks {
         }
 
         // Student: show feedback banner for graded activities.
+        // Skip if already on a Unified Grader page — the banner is only for discovery.
+        $pagepath = $PAGE->url->get_path();
+        if (strpos($pagepath, '/local/unifiedgrader/') !== false) {
+            return;
+        }
+
         $canviewfeedback = has_capability('local/unifiedgrader:viewfeedback', $context);
         if (!$canviewfeedback) {
             return;

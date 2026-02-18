@@ -14,7 +14,8 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Student navigator component - handles student selection, filtering, and navigation.
+ * Student navigator component - handles student selection, filtering,
+ * navigation, and submission status actions dropdown.
  *
  * @module     local_unifiedgrader/components/student_navigator
  * @copyright  2026 South African Theological Seminary
@@ -22,6 +23,7 @@
  */
 
 import {BaseComponent} from 'core/reactive';
+import {get_strings as getStrings} from 'core/str';
 
 export default class extends BaseComponent {
 
@@ -47,6 +49,8 @@ export default class extends BaseComponent {
         this._searchTimeout = null;
         this._filtersVisible = false;
         this._container = null;
+        /** @type {?object} Prefetched lang strings for status actions. */
+        this._strings = null;
     }
 
     /**
@@ -66,12 +70,47 @@ export default class extends BaseComponent {
      *
      * @param {object} state Current state.
      */
-    stateReady(state) {
+    async stateReady(state) {
         this._container = this.element.closest('.local-unifiedgrader-container');
         this._setupEventListeners();
         this._initGroupSelector(state);
+
+        // Prefetch action strings for assign activities.
+        if (state.activity.type === 'assign') {
+            await this._prefetchStrings();
+        }
+
         this._renderParticipants({state});
         this._updateCurrentStudent({state});
+    }
+
+    /**
+     * Prefetch lang strings for submission status action labels and confirmations.
+     */
+    async _prefetchStrings() {
+        const keys = [
+            'action_revert_to_draft',
+            'action_remove_submission',
+            'action_lock',
+            'action_unlock',
+            'action_edit_submission',
+            'action_grant_extension',
+            'action_submit_for_grading',
+            'confirm_revert_to_draft',
+            'confirm_remove_submission',
+            'confirm_lock_submission',
+            'confirm_unlock_submission',
+            'confirm_submit_for_grading',
+        ];
+        try {
+            const values = await getStrings(keys.map(key => ({key, component: 'local_unifiedgrader'})));
+            this._strings = {};
+            keys.forEach((key, i) => {
+                this._strings[key] = values[i];
+            });
+        } catch {
+            // Strings not available — dropdown will fall back to plain badge.
+        }
     }
 
     /**
@@ -149,6 +188,16 @@ export default class extends BaseComponent {
                 this._navigateStudent(1);
             }
         });
+
+        // Close status action dropdown on outside click.
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('[data-region="student-status-wrapper"]')) {
+                const menu = this._container?.querySelector('.local-unifiedgrader-status-menu.show');
+                if (menu) {
+                    menu.classList.remove('show');
+                }
+            }
+        });
     }
 
     /**
@@ -217,8 +266,31 @@ export default class extends BaseComponent {
             statusBadge.className = 'badge ' + this._getStatusBadgeClass(p.status);
             statusBadge.textContent = this._getStatusShortLabel(p.status);
 
+            // Show padlock icon for locked submissions.
+            if (p.locked) {
+                const lockIcon = document.createElement('i');
+                lockIcon.className = 'fa fa-lock ms-1';
+                lockIcon.style.fontSize = '0.7em';
+                statusBadge.appendChild(lockIcon);
+            }
+
             item.appendChild(nameSpan);
-            item.appendChild(statusBadge);
+
+            // Wrap optional late dot + status badge together.
+            const statusWrapper = document.createElement('span');
+            statusWrapper.className = 'd-flex align-items-center gap-1';
+
+            // Show a red dot for late submissions (before the badge).
+            const duedate = state.activity.duedate || 0;
+            if (duedate && p.submittedat > 0 && p.submittedat > duedate) {
+                const lateDot = document.createElement('span');
+                lateDot.className = 'rounded-circle bg-danger d-inline-block';
+                lateDot.style.cssText = 'width: 6px; height: 6px; flex-shrink: 0;';
+                statusWrapper.appendChild(lateDot);
+            }
+
+            statusWrapper.appendChild(statusBadge);
+            item.appendChild(statusWrapper);
 
             item.addEventListener('click', () => {
                 this._selectStudent(p.id);
@@ -273,7 +345,7 @@ export default class extends BaseComponent {
         const avatar = this._container.querySelector('[data-region="student-avatar"]');
         const nameEl = this._container.querySelector('[data-region="student-name-header"]');
         const dateEl = this._container.querySelector('[data-region="student-submitted-date"]');
-        const statusBadge = this._container.querySelector('[data-region="student-status-badge"]');
+        const wrapper = this._container.querySelector('[data-region="student-status-wrapper"]');
 
         if (nameEl) {
             nameEl.textContent = student ? student.fullname : '--';
@@ -298,22 +370,242 @@ export default class extends BaseComponent {
             }
         }
 
-        if (statusBadge && student) {
-            const statusMap = {
-                submitted: {label: 'Submitted', cls: 'bg-success'},
-                graded: {label: 'Graded', cls: 'bg-info'},
-                draft: {label: 'Draft', cls: 'bg-warning'},
-                nosubmission: {label: 'No submission', cls: 'bg-secondary'},
-                new: {label: 'Not submitted', cls: 'bg-secondary'},
-            };
-            const info = statusMap[student.status] || {label: student.status, cls: 'bg-secondary'};
-            statusBadge.textContent = info.label;
-            statusBadge.className = 'badge ' + info.cls;
-        } else if (statusBadge) {
-            statusBadge.textContent = '';
-            statusBadge.className = 'badge bg-secondary';
+        if (wrapper && student) {
+            this._buildStatusDropdown(wrapper, student);
+        } else if (wrapper) {
+            wrapper.innerHTML = '<span class="badge bg-secondary"></span>';
         }
     }
+
+    // ──────────────────────────────────────────────
+    //  Status actions dropdown
+    // ──────────────────────────────────────────────
+
+    /**
+     * Build the status badge as a dropdown (for assign) or a plain badge.
+     *
+     * @param {HTMLElement} wrapper The status wrapper element.
+     * @param {object} student Participant data with status and locked fields.
+     */
+    _buildStatusDropdown(wrapper, student) {
+        const state = this.reactive.state;
+        const isAssign = state.activity.type === 'assign';
+        const statusInfo = this._getStatusInfo(student.status);
+
+        // For non-assign activities or if strings aren't loaded, show plain badge.
+        if (!isAssign || !this._strings) {
+            wrapper.innerHTML = '';
+            const badge = document.createElement('span');
+            badge.className = 'badge ' + statusInfo.cls;
+            badge.textContent = statusInfo.label;
+            wrapper.appendChild(badge);
+            return;
+        }
+
+        const actions = this._getActionsForStatus(student.status, !!student.locked);
+        if (actions.length === 0) {
+            wrapper.innerHTML = '';
+            const badge = document.createElement('span');
+            badge.className = 'badge ' + statusInfo.cls;
+            badge.textContent = statusInfo.label;
+            wrapper.appendChild(badge);
+            return;
+        }
+
+        // Build Bootstrap 5 dropdown.
+        const dropdown = document.createElement('div');
+        dropdown.className = 'dropdown d-inline-block';
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'badge border-0 ' + statusInfo.cls;
+        toggle.style.cursor = 'pointer';
+
+        // Badge text + optional lock icon + dropdown caret.
+        const labelText = document.createTextNode(statusInfo.label + ' ');
+        toggle.appendChild(labelText);
+        if (student.locked) {
+            const lockIcon = document.createElement('i');
+            lockIcon.className = 'fa fa-lock me-1';
+            toggle.appendChild(lockIcon);
+        }
+        const caret = document.createElement('i');
+        caret.className = 'fa fa-caret-down';
+        caret.style.fontSize = '0.8em';
+        toggle.appendChild(caret);
+
+        const menu = document.createElement('ul');
+        menu.className = 'dropdown-menu local-unifiedgrader-status-menu';
+        menu.style.minWidth = '220px';
+
+        actions.forEach((action) => {
+            const li = document.createElement('li');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'dropdown-item small';
+
+            const icon = document.createElement('i');
+            icon.className = 'fa ' + action.icon + ' fa-fw me-1';
+            btn.appendChild(icon);
+            btn.appendChild(document.createTextNode(action.label));
+
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                menu.classList.remove('show');
+                this._handleStatusAction(action, student);
+            });
+
+            li.appendChild(btn);
+            menu.appendChild(li);
+        });
+
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.classList.toggle('show');
+        });
+
+        dropdown.appendChild(toggle);
+        dropdown.appendChild(menu);
+
+        wrapper.innerHTML = '';
+        wrapper.appendChild(dropdown);
+    }
+
+    /**
+     * Get status display info (label and CSS class).
+     *
+     * @param {string} status Submission status string.
+     * @return {object} Object with label and cls properties.
+     */
+    _getStatusInfo(status) {
+        const map = {
+            submitted: {label: 'Submitted', cls: 'bg-success'},
+            graded: {label: 'Graded', cls: 'bg-info'},
+            draft: {label: 'Draft', cls: 'bg-warning'},
+            nosubmission: {label: 'No submission', cls: 'bg-secondary'},
+            new: {label: 'Not submitted', cls: 'bg-secondary'},
+        };
+        return map[status] || {label: status, cls: 'bg-secondary'};
+    }
+
+    /**
+     * Get available actions for a given submission status.
+     *
+     * @param {string} status Submission status.
+     * @param {boolean} locked Whether the submission is locked.
+     * @return {object[]} Array of action objects.
+     */
+    _getActionsForStatus(status, locked) {
+        const s = this._strings;
+        if (!s) {
+            return [];
+        }
+
+        const defs = {
+            edit_submission: {
+                id: 'edit_submission', label: s.action_edit_submission,
+                icon: 'fa-pencil', type: 'redirect',
+            },
+            grant_extension: {
+                id: 'grant_extension', label: s.action_grant_extension,
+                icon: 'fa-calendar-plus-o', type: 'redirect',
+            },
+            submit_for_grading: {
+                id: 'submit', label: s.action_submit_for_grading,
+                icon: 'fa-check-circle', type: 'ajax', confirm: s.confirm_submit_for_grading,
+            },
+            revert_to_draft: {
+                id: 'revert_to_draft', label: s.action_revert_to_draft,
+                icon: 'fa-undo', type: 'ajax', confirm: s.confirm_revert_to_draft,
+            },
+            remove: {
+                id: 'remove', label: s.action_remove_submission,
+                icon: 'fa-trash', type: 'ajax', confirm: s.confirm_remove_submission,
+            },
+            lock: {
+                id: 'lock', label: s.action_lock,
+                icon: 'fa-lock', type: 'ajax', confirm: s.confirm_lock_submission,
+            },
+            unlock: {
+                id: 'unlock', label: s.action_unlock,
+                icon: 'fa-unlock', type: 'ajax', confirm: s.confirm_unlock_submission,
+            },
+        };
+
+        switch (status) {
+            case 'submitted':
+                return [defs.grant_extension, defs.revert_to_draft, defs.remove];
+            case 'draft':
+                if (locked) {
+                    return [
+                        defs.unlock, defs.grant_extension, defs.remove,
+                    ];
+                }
+                return [
+                    defs.edit_submission, defs.lock, defs.grant_extension,
+                    defs.submit_for_grading, defs.remove,
+                ];
+            case 'nosubmission':
+            case 'new':
+                return [defs.edit_submission, defs.grant_extension];
+            case 'graded':
+                return [defs.revert_to_draft, defs.grant_extension, defs.remove];
+            default:
+                return [];
+        }
+    }
+
+    /**
+     * Handle a status action (AJAX or redirect).
+     *
+     * @param {object} action Action definition.
+     * @param {object} student Participant data.
+     */
+    _handleStatusAction(action, student) {
+        if (action.type === 'redirect') {
+            this._handleRedirectAction(action.id, student);
+            return;
+        }
+
+        // AJAX action — confirm first.
+        if (action.confirm && !window.confirm(action.confirm)) {
+            return;
+        }
+
+        const state = this.reactive.state;
+        this.reactive.dispatch('submissionAction', state.activity.cmid, student.id, action.id);
+    }
+
+    /**
+     * Navigate to a Moodle assign page for redirect actions.
+     *
+     * @param {string} actionId Action identifier.
+     * @param {object} student Participant data.
+     */
+    _handleRedirectAction(actionId, student) {
+        const state = this.reactive.state;
+        const cmid = state.activity.cmid;
+        const userid = student.id;
+        const base = M.cfg.wwwroot + '/mod/assign/view.php';
+
+        let url;
+        switch (actionId) {
+            case 'edit_submission':
+                url = base + '?id=' + cmid + '&userid=' + userid + '&action=editsubmission';
+                break;
+            case 'grant_extension':
+                url = base + '?id=' + cmid + '&userid=' + userid + '&action=grantextension';
+                break;
+            default:
+                return;
+        }
+
+        window.location.href = url;
+    }
+
+    // ──────────────────────────────────────────────
+    //  Navigation and filtering
+    // ──────────────────────────────────────────────
 
     /**
      * Update the student counter display.

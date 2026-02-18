@@ -28,8 +28,11 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-import {TOOLS, CUSTOM_PROPS, DEFAULT_COLOR, createCommentMarker, createHighlight, createStamp} from
-    'local_unifiedgrader/annotation/types';
+import {
+    TOOLS, CUSTOM_PROPS, DEFAULT_COLOR, SHAPES,
+    createCommentMarker, createHighlight, createStamp,
+    createShapeRect, createShapeEllipse, createShapeLine, createShapeArrow,
+} from 'local_unifiedgrader/annotation/types';
 
 export default class AnnotationLayer {
 
@@ -52,6 +55,10 @@ export default class AnnotationLayer {
         this._currentColor = DEFAULT_COLOR;
         /** @type {string} */
         this._currentStamp = 'CHECK';
+        /** @type {number} */
+        this._brushWidth = 3;
+        /** @type {string} */
+        this._currentShape = SHAPES.RECT;
         /** @type {number} */
         this._canvasWidth = 0;
         /** @type {number} */
@@ -76,6 +83,12 @@ export default class AnnotationLayer {
         this._dragStart = null;
         /** @type {boolean} */
         this._isDragging = false;
+
+        // Shape drag state.
+        /** @type {?object} */
+        this._tempShape = null;
+        /** @type {?object} */
+        this._lastPointer = null;
 
         // Comment popup and tooltip.
         /** @type {?HTMLElement} */
@@ -136,7 +149,7 @@ export default class AnnotationLayer {
             this._canvas.isDrawingMode = true;
             this._canvas.freeDrawingBrush = new this._fabric.PencilBrush(this._canvas);
             this._canvas.freeDrawingBrush.color = this._currentColor;
-            this._canvas.freeDrawingBrush.width = 3;
+            this._canvas.freeDrawingBrush.width = this._brushWidth;
         } else {
             this._canvas.isDrawingMode = false;
         }
@@ -166,12 +179,33 @@ export default class AnnotationLayer {
     }
 
     /**
+     * Set the pen brush width.
+     *
+     * @param {number} width Brush width in pixels.
+     */
+    setBrushWidth(width) {
+        this._brushWidth = width;
+        if (this._canvas && this._canvas.isDrawingMode && this._canvas.freeDrawingBrush) {
+            this._canvas.freeDrawingBrush.width = width;
+        }
+    }
+
+    /**
      * Set the active stamp type.
      *
      * @param {string} stampType Key from STAMPS (CHECK, CROSS, QUESTION).
      */
     setStampType(stampType) {
         this._currentStamp = stampType;
+    }
+
+    /**
+     * Set the active shape type.
+     *
+     * @param {string} shapeType Key from SHAPES (RECT, CIRCLE, ARROW, LINE).
+     */
+    setShapeType(shapeType) {
+        this._currentShape = shapeType;
     }
 
     /**
@@ -452,6 +486,9 @@ export default class AnnotationLayer {
             case TOOLS.STAMP:
                 this._placeStamp(pointer);
                 break;
+            case TOOLS.SHAPE:
+                this._startShape(pointer);
+                break;
         }
     }
 
@@ -461,29 +498,36 @@ export default class AnnotationLayer {
      * @param {object} opt Fabric event options.
      */
     _onMouseMove(opt) {
-        if (this._currentTool !== TOOLS.HIGHLIGHT || !this._isDragging || !this._tempRect) {
+        if (!this._isDragging) {
             return;
         }
-        const pointer = this._canvas.getViewportPoint(opt.e);
-        const left = Math.min(this._dragStart.x, pointer.x);
-        const top = Math.min(this._dragStart.y, pointer.y);
-        const width = Math.abs(pointer.x - this._dragStart.x);
-        const height = Math.abs(pointer.y - this._dragStart.y);
 
-        this._tempRect.set({left, top, width, height});
-        this._canvas.requestRenderAll();
+        const pointer = this._canvas.getViewportPoint(opt.e);
+
+        if (this._currentTool === TOOLS.HIGHLIGHT && this._tempRect) {
+            const left = Math.min(this._dragStart.x, pointer.x);
+            const top = Math.min(this._dragStart.y, pointer.y);
+            const width = Math.abs(pointer.x - this._dragStart.x);
+            const height = Math.abs(pointer.y - this._dragStart.y);
+            this._tempRect.set({left, top, width, height});
+            this._canvas.requestRenderAll();
+        } else if (this._currentTool === TOOLS.SHAPE && this._tempShape) {
+            this._lastPointer = {x: pointer.x, y: pointer.y};
+            this._updateTempShape(pointer);
+            this._canvas.requestRenderAll();
+        }
     }
 
     /**
      * Handle mouse up to finalise highlight drag.
      */
     _onMouseUp() {
-        if (this._currentTool !== TOOLS.HIGHLIGHT || !this._isDragging) {
+        if (!this._isDragging) {
             return;
         }
         this._isDragging = false;
 
-        if (this._tempRect) {
+        if (this._currentTool === TOOLS.HIGHLIGHT && this._tempRect) {
             const width = this._tempRect.width || 0;
             const height = this._tempRect.height || 0;
 
@@ -498,6 +542,8 @@ export default class AnnotationLayer {
                 this._notifyChange();
             }
             this._tempRect = null;
+        } else if (this._currentTool === TOOLS.SHAPE && this._tempShape) {
+            this._finalizeShape();
         }
     }
 
@@ -579,6 +625,119 @@ export default class AnnotationLayer {
         this._tempRect.selectable = false;
         this._tempRect.evented = false;
         this._canvas.add(this._tempRect);
+    }
+
+    /**
+     * Start drawing a shape via drag.
+     *
+     * @param {object} pointer {x, y} canvas position.
+     */
+    _startShape(pointer) {
+        this._isDragging = true;
+        this._dragStart = {x: pointer.x, y: pointer.y};
+        this._lastPointer = {x: pointer.x, y: pointer.y};
+
+        const color = this._currentColor;
+        const type = this._currentShape;
+
+        if (type === SHAPES.RECT) {
+            this._tempShape = createShapeRect(this._fabric, pointer.x, pointer.y, 0, 0, color);
+        } else if (type === SHAPES.CIRCLE) {
+            this._tempShape = createShapeEllipse(this._fabric, pointer.x, pointer.y, 0, 0, color);
+        } else {
+            // LINE and ARROW both preview as a simple line during drag.
+            this._tempShape = createShapeLine(this._fabric, pointer.x, pointer.y, pointer.x, pointer.y, color);
+        }
+
+        if (this._tempShape) {
+            this._tempShape.selectable = false;
+            this._tempShape.evented = false;
+            this._canvas.add(this._tempShape);
+        }
+    }
+
+    /**
+     * Update the temporary shape during drag.
+     *
+     * @param {object} pointer Current mouse position {x, y}.
+     */
+    _updateTempShape(pointer) {
+        const shape = this._tempShape;
+        const type = this._currentShape;
+
+        if (type === SHAPES.RECT) {
+            const left = Math.min(this._dragStart.x, pointer.x);
+            const top = Math.min(this._dragStart.y, pointer.y);
+            const width = Math.abs(pointer.x - this._dragStart.x);
+            const height = Math.abs(pointer.y - this._dragStart.y);
+            shape.set({left, top, width, height});
+        } else if (type === SHAPES.CIRCLE) {
+            const left = Math.min(this._dragStart.x, pointer.x);
+            const top = Math.min(this._dragStart.y, pointer.y);
+            const width = Math.abs(pointer.x - this._dragStart.x);
+            const height = Math.abs(pointer.y - this._dragStart.y);
+            shape.set({left, top, rx: width / 2, ry: height / 2});
+        } else {
+            // LINE and ARROW — update endpoint.
+            shape.set({x1: this._dragStart.x, y1: this._dragStart.y, x2: pointer.x, y2: pointer.y});
+        }
+    }
+
+    /**
+     * Finalise the shape after drag ends.
+     */
+    _finalizeShape() {
+        const shape = this._tempShape;
+        this._tempShape = null;
+
+        if (!shape) {
+            return;
+        }
+
+        const type = this._currentShape;
+
+        // Minimum size check for rect and circle.
+        if (type === SHAPES.RECT || type === SHAPES.CIRCLE) {
+            const w = shape.width || (shape.rx ? shape.rx * 2 : 0);
+            const h = shape.height || (shape.ry ? shape.ry * 2 : 0);
+            if (w < 5 && h < 5) {
+                this._canvas.remove(shape);
+                return;
+            }
+        }
+
+        // Minimum length check for line and arrow.
+        if (type === SHAPES.LINE || type === SHAPES.ARROW) {
+            const dx = this._lastPointer.x - this._dragStart.x;
+            const dy = this._lastPointer.y - this._dragStart.y;
+            if (Math.sqrt(dx * dx + dy * dy) < 5) {
+                this._canvas.remove(shape);
+                return;
+            }
+        }
+
+        // For arrow: replace the temp line with a proper arrow path.
+        if (type === SHAPES.ARROW) {
+            this._canvas.remove(shape);
+            const arrow = createShapeArrow(
+                this._fabric,
+                this._dragStart.x, this._dragStart.y,
+                this._lastPointer.x, this._lastPointer.y,
+                this._currentColor
+            );
+            this._canvas.add(arrow);
+            arrow.setCoords();
+            this._undoStack.push({type: 'add', object: arrow});
+            this._redoStack = [];
+            this._notifyChange();
+            return;
+        }
+
+        // Finalise rect, circle, line.
+        shape.setCoords();
+        this._undoStack.push({type: 'add', object: shape});
+        this._redoStack = [];
+        this._notifyChange();
     }
 
     /**

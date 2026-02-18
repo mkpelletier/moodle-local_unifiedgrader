@@ -16,9 +16,9 @@
 /**
  * Standalone submission comments widget for the student feedback view.
  *
- * This module manages loading, displaying, posting, and deleting submission
- * comments in the student feedback view (view_feedback.php). It uses the same
- * web services as the teacher grading interface but does not depend on the
+ * Displays a chat icon in the header bar with a messenger-style popout panel
+ * for viewing, posting, and deleting submission comments. Uses the same web
+ * services as the teacher grading interface but does not depend on the
  * Moodle reactive framework.
  *
  * @module     local_unifiedgrader/feedback_comments
@@ -32,6 +32,18 @@ import Notification from 'core/notification';
 /** @type {number} Current logged-in user ID. */
 let currentUserId = 0;
 
+/** @type {boolean} Whether the popout is visible. */
+let popoutVisible = false;
+
+/** @type {?Function} Outside-click handler reference for cleanup. */
+let outsideClickHandler = null;
+
+/** @type {boolean} Whether comments have been loaded at least once. */
+let commentsLoaded = false;
+
+/** @type {?HTMLElement} The container element (cached). */
+let containerEl = null;
+
 /**
  * Initialise the feedback comments widget.
  *
@@ -39,38 +51,157 @@ let currentUserId = 0;
  * @param {number} userid Student user ID.
  */
 export const init = (cmid, userid) => {
-    const container = document.querySelector('[data-region="feedback-comments"]');
-    if (!container) {
+    containerEl = document.querySelector('[data-region="feedback-comments"]');
+    if (!containerEl) {
         return;
     }
 
     currentUserId = parseInt(M.cfg.userId, 10);
 
-    const listEl = container.querySelector('[data-region="comments-list"]');
-    const input = container.querySelector('[data-region="comment-input"]');
-    const postBtn = container.querySelector('[data-action="post-comment"]');
-
-    // Load comments on init.
-    loadComments(cmid, userid, listEl, container);
-
-    // Wire input events.
-    if (input && postBtn) {
-        input.addEventListener('input', () => {
-            postBtn.disabled = !input.value.trim();
-        });
-
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && input.value.trim()) {
-                e.preventDefault();
-                postComment(cmid, userid, input, postBtn, listEl, container);
-            }
-        });
-
-        postBtn.addEventListener('click', () => {
-            postComment(cmid, userid, input, postBtn, listEl, container);
+    // Wire toggle button.
+    const toggleBtn = containerEl.querySelector('[data-action="toggle-comments"]');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            togglePopout(cmid, userid);
         });
     }
 };
+
+/**
+ * Toggle the comments popout panel.
+ *
+ * @param {number} cmid Course module ID.
+ * @param {number} userid Student user ID.
+ */
+function togglePopout(cmid, userid) {
+    if (popoutVisible) {
+        hidePopout();
+    } else {
+        showPopout(cmid, userid);
+    }
+}
+
+/**
+ * Show the comments popout and load comments if needed.
+ *
+ * @param {number} cmid Course module ID.
+ * @param {number} userid Student user ID.
+ */
+function showPopout(cmid, userid) {
+    const popout = containerEl.querySelector('[data-region="comments-popout"]');
+    if (!popout) {
+        return;
+    }
+
+    popoutVisible = true;
+    popout.classList.remove('d-none');
+    buildPopoutStructure(popout, cmid, userid);
+
+    if (!commentsLoaded) {
+        const listEl = popout.querySelector('[data-region="comments-list"]');
+        loadComments(cmid, userid, listEl);
+    }
+
+    // Close popout when clicking outside — delayed to avoid current click.
+    outsideClickHandler = (e) => {
+        if (!containerEl.contains(e.target)) {
+            hidePopout();
+        }
+    };
+    setTimeout(() => {
+        document.addEventListener('click', outsideClickHandler);
+    }, 0);
+}
+
+/**
+ * Hide the comments popout.
+ */
+function hidePopout() {
+    const popout = containerEl.querySelector('[data-region="comments-popout"]');
+    if (popout) {
+        popout.classList.add('d-none');
+    }
+    popoutVisible = false;
+    if (outsideClickHandler) {
+        document.removeEventListener('click', outsideClickHandler);
+        outsideClickHandler = null;
+    }
+}
+
+/**
+ * Build the popout's internal structure if not already present.
+ *
+ * @param {HTMLElement} popout The popout container element.
+ * @param {number} cmid Course module ID.
+ * @param {number} userid Student user ID.
+ */
+function buildPopoutStructure(popout, cmid, userid) {
+    if (popout.querySelector('[data-region="comments-list"]')) {
+        return;
+    }
+
+    const header = document.createElement('div');
+    header.className = 'comments-header d-flex justify-content-between align-items-center';
+    header.innerHTML =
+        '<span class="fw-semibold small">Submission comments</span>' +
+        '<button type="button" class="btn-close" data-action="close-comments"' +
+        ' aria-label="Close" style="font-size: 0.6rem;"></button>';
+
+    const listContainer = document.createElement('div');
+    listContainer.setAttribute('data-region', 'comments-list');
+    listContainer.innerHTML =
+        '<div class="text-center text-muted py-4">' +
+        '<div class="spinner-border spinner-border-sm" role="status"></div>' +
+        '</div>';
+
+    const formContainer = document.createElement('div');
+    formContainer.setAttribute('data-region', 'comments-form');
+    formContainer.innerHTML =
+        '<div class="d-flex gap-2 align-items-end">' +
+            '<input type="text" data-region="comment-input"' +
+                ' class="form-control form-control-sm rounded-pill" placeholder="Type a message...">' +
+            '<button type="button" data-action="post-comment"' +
+                ' class="btn btn-primary btn-sm rounded-circle' +
+                ' d-flex align-items-center justify-content-center"' +
+                ' style="width: 32px; height: 32px; flex-shrink: 0;" disabled>' +
+                '<i class="fa fa-paper-plane" style="font-size: 0.75rem;"></i>' +
+            '</button>' +
+        '</div>';
+
+    popout.innerHTML = '';
+    popout.appendChild(header);
+    popout.appendChild(listContainer);
+    popout.appendChild(formContainer);
+
+    // Wire close button.
+    const closeBtn = header.querySelector('[data-action="close-comments"]');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            hidePopout();
+        });
+    }
+
+    // Wire up the post button and input.
+    const input = formContainer.querySelector('[data-region="comment-input"]');
+    const postBtn = formContainer.querySelector('[data-action="post-comment"]');
+
+    input.addEventListener('input', () => {
+        postBtn.disabled = !input.value.trim();
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+            e.preventDefault();
+            postComment(cmid, userid, input, postBtn, listContainer);
+        }
+    });
+
+    postBtn.addEventListener('click', () => {
+        postComment(cmid, userid, input, postBtn, listContainer);
+    });
+}
 
 /**
  * Load comments from the server and render them.
@@ -78,9 +209,8 @@ export const init = (cmid, userid) => {
  * @param {number} cmid Course module ID.
  * @param {number} userid Student user ID.
  * @param {HTMLElement} listEl The comments list container element.
- * @param {HTMLElement} container The card container element.
  */
-async function loadComments(cmid, userid, listEl, container) {
+async function loadComments(cmid, userid, listEl) {
     try {
         const result = await Ajax.call([{
             methodname: 'local_unifiedgrader_get_submission_comments',
@@ -88,7 +218,8 @@ async function loadComments(cmid, userid, listEl, container) {
         }])[0];
 
         renderComments(result.comments, listEl, cmid, userid);
-        updateBadge(container, result.count);
+        updateBadge(result.count);
+        commentsLoaded = true;
     } catch (error) {
         Notification.exception(error);
     }
@@ -188,9 +319,8 @@ function createBubble(comment, cmid, userid, listEl) {
  * @param {HTMLInputElement} input The text input element.
  * @param {HTMLButtonElement} postBtn The post button element.
  * @param {HTMLElement} listEl The comments list container element.
- * @param {HTMLElement} container The card container element.
  */
-async function postComment(cmid, userid, input, postBtn, listEl, container) {
+async function postComment(cmid, userid, input, postBtn, listEl) {
     const content = input.value.trim();
     if (!content) {
         return;
@@ -205,7 +335,7 @@ async function postComment(cmid, userid, input, postBtn, listEl, container) {
             args: {cmid, userid, content},
         }])[0];
 
-        await loadComments(cmid, userid, listEl, container);
+        await loadComments(cmid, userid, listEl);
     } catch (error) {
         Notification.exception(error);
     }
@@ -226,8 +356,7 @@ async function deleteComment(cmid, userid, commentid, listEl) {
             args: {cmid, commentid},
         }])[0];
 
-        const container = listEl.closest('[data-region="feedback-comments"]');
-        await loadComments(cmid, userid, listEl, container);
+        await loadComments(cmid, userid, listEl);
     } catch (error) {
         Notification.exception(error);
     }
@@ -236,29 +365,20 @@ async function deleteComment(cmid, userid, commentid, listEl) {
 /**
  * Update the comment count badge.
  *
- * @param {HTMLElement} container The card container element.
  * @param {number} count Comment count.
  */
-function updateBadge(container, count) {
-    if (!container) {
+function updateBadge(count) {
+    if (!containerEl) {
         return;
     }
-    let badge = container.querySelector('[data-region="comment-count-badge"]');
+    const badge = containerEl.querySelector('[data-region="comment-count-badge"]');
+    if (!badge) {
+        return;
+    }
     if (count > 0) {
-        if (!badge) {
-            // Create badge if it doesn't exist (e.g. was 0 on initial render).
-            const header = container.querySelector('.card-header');
-            if (header) {
-                badge = document.createElement('span');
-                badge.className = 'badge bg-secondary';
-                badge.setAttribute('data-region', 'comment-count-badge');
-                header.appendChild(badge);
-            }
-        }
-        if (badge) {
-            badge.textContent = count;
-        }
-    } else if (badge) {
-        badge.remove();
+        badge.textContent = count;
+        badge.classList.remove('d-none');
+    } else {
+        badge.classList.add('d-none');
     }
 }

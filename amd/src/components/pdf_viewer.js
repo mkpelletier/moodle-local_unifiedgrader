@@ -74,6 +74,13 @@ export default class PdfViewer extends BaseComponent {
             ERROR_MESSAGE: '[data-region="pdf-error"]',
             TEXT_LAYER: '[data-region="pdf-text-layer"]',
             LINK_LAYER: '[data-region="pdf-link-layer"]',
+            SEARCH_BAR: '[data-region="pdf-search-bar"]',
+            SEARCH_INPUT: '[data-action="search-input"]',
+            SEARCH_COUNT: '[data-region="search-count"]',
+            SEARCH_PREV: '[data-action="search-prev"]',
+            SEARCH_NEXT: '[data-action="search-next"]',
+            SEARCH_CLOSE: '[data-action="search-close"]',
+            SEARCH_TOGGLE: '[data-action="search-toggle"]',
         };
 
         /** @type {?object} PDF.js document proxy. */
@@ -130,6 +137,20 @@ export default class PdfViewer extends BaseComponent {
         this._fileInfo = null;
         /** @type {Map<number, number>} Cached word counts per file ID. */
         this._wordCountCache = new Map();
+
+        // Text search state.
+        /** @type {boolean} Whether the search bar is open. */
+        this._searchOpen = false;
+        /** @type {string} Current search query. */
+        this._searchQuery = '';
+        /** @type {Array<{page: number}>} All matches across all pages. */
+        this._searchMatches = [];
+        /** @type {number} Index of the active match in _searchMatches (-1 = none). */
+        this._searchIndex = -1;
+        /** @type {Map<number, {fullText: string, itemRanges: Array}>} Cached text per page. */
+        this._pageTextCache = new Map();
+        /** @type {?number} Debounce timer for search input. */
+        this._searchDebounceTimer = null;
     }
 
     /**
@@ -173,6 +194,55 @@ export default class PdfViewer extends BaseComponent {
         if (zoomFitBtn) {
             zoomFitBtn.addEventListener('click', () => this._zoomFitToWidth());
         }
+
+        // Keyboard shortcuts for page navigation and search (works in both read-only and edit modes).
+        // Bound to document because the PDF canvas doesn't reliably receive keyboard focus.
+        this._onPageKeyDown = (e) => {
+            // Ctrl+F / Cmd+F — open search bar (intercept browser find).
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                // Only intercept when our PDF viewer is visible.
+                if (this._pdfDoc) {
+                    e.preventDefault();
+                    this._toggleSearch();
+                }
+                return;
+            }
+
+            // Escape — close search bar if open.
+            if (e.key === 'Escape' && this._searchOpen) {
+                e.preventDefault();
+                this._closeSearch();
+                return;
+            }
+
+            // Skip page navigation when focus is inside an input, textarea, or contenteditable element.
+            const tag = e.target.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) {
+                return;
+            }
+            switch (e.key) {
+                case 'PageDown':
+                    this._goToPage(this._currentPage + 1);
+                    e.preventDefault();
+                    break;
+                case 'PageUp':
+                    this._goToPage(this._currentPage - 1);
+                    e.preventDefault();
+                    break;
+                case 'Home':
+                    this._goToPage(1);
+                    e.preventDefault();
+                    break;
+                case 'End':
+                    this._goToPage(this._totalPages);
+                    e.preventDefault();
+                    break;
+            }
+        };
+        document.addEventListener('keydown', this._onPageKeyDown);
+
+        // Search bar controls.
+        this._bindSearchControls();
 
         // Skip editing shortcuts and save handlers in read-only mode.
         if (!this._readOnly) {
@@ -475,6 +545,10 @@ export default class PdfViewer extends BaseComponent {
             this._dirty = false;
             this._loadedPageNums = new Set();
             this._pdfBytes = null;
+
+            // Clear search state for the new document.
+            this._pageTextCache.clear();
+            this._closeSearch();
             if (this._saveTimer) {
                 clearTimeout(this._saveTimer);
                 this._saveTimer = null;
@@ -672,6 +746,11 @@ export default class PdfViewer extends BaseComponent {
                         this._scheduleSave();
                     }
                 }
+            }
+
+            // Re-apply search highlights if a search is active.
+            if (this._searchQuery) {
+                this._highlightSearchMatches();
             }
 
             // Dispatch event for external listeners.
@@ -1131,6 +1210,359 @@ export default class PdfViewer extends BaseComponent {
             enabled ? 'AFTER' : 'BEFORE', 'canvas-container');
     }
 
+    // ──────────────────────────────────────────────
+    //  In-document text search
+    // ──────────────────────────────────────────────
+
+    /**
+     * Bind event listeners for the search bar controls.
+     */
+    _bindSearchControls() {
+        const toggleBtn = this.getElement(this.selectors.SEARCH_TOGGLE);
+        const closeBtn = this.getElement(this.selectors.SEARCH_CLOSE);
+        const prevBtn = this.getElement(this.selectors.SEARCH_PREV);
+        const nextBtn = this.getElement(this.selectors.SEARCH_NEXT);
+        const input = this.getElement(this.selectors.SEARCH_INPUT);
+
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => this._toggleSearch());
+        }
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this._closeSearch());
+        }
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => this._navigateSearchMatch(-1));
+        }
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => this._navigateSearchMatch(1));
+        }
+        if (input) {
+            input.addEventListener('input', () => {
+                if (this._searchDebounceTimer) {
+                    clearTimeout(this._searchDebounceTimer);
+                }
+                this._searchDebounceTimer = setTimeout(() => {
+                    this._searchDebounceTimer = null;
+                    this._performSearch();
+                }, 300);
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                        this._navigateSearchMatch(-1);
+                    } else {
+                        this._navigateSearchMatch(1);
+                    }
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this._closeSearch();
+                }
+            });
+        }
+    }
+
+    /**
+     * Toggle the search bar open/closed.
+     */
+    _toggleSearch() {
+        if (this._searchOpen) {
+            this._closeSearch();
+        } else {
+            this._openSearch();
+        }
+    }
+
+    /**
+     * Open the search bar and focus the input.
+     */
+    _openSearch() {
+        const bar = this.getElement(this.selectors.SEARCH_BAR);
+        const input = this.getElement(this.selectors.SEARCH_INPUT);
+        if (!bar) {
+            return;
+        }
+
+        bar.classList.remove('d-none');
+        bar.classList.add('d-flex');
+        this._searchOpen = true;
+
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    }
+
+    /**
+     * Close the search bar and clear all search state and highlights.
+     */
+    _closeSearch() {
+        const bar = this.getElement(this.selectors.SEARCH_BAR);
+        const input = this.getElement(this.selectors.SEARCH_INPUT);
+        if (bar) {
+            bar.classList.add('d-none');
+            bar.classList.remove('d-flex');
+        }
+
+        this._searchOpen = false;
+        this._searchQuery = '';
+        this._searchMatches = [];
+        this._searchIndex = -1;
+        if (this._searchDebounceTimer) {
+            clearTimeout(this._searchDebounceTimer);
+            this._searchDebounceTimer = null;
+        }
+        this._clearSearchHighlights();
+        this._updateSearchCount();
+
+        if (input) {
+            input.value = '';
+        }
+    }
+
+    /**
+     * Extract and cache text content for a given page.
+     *
+     * @param {number} pageNum Page number (1-based).
+     * @returns {Promise<{fullText: string, itemRanges: Array<{start: number, end: number, itemIndex: number}>}>}
+     */
+    async _getPageText(pageNum) {
+        if (this._pageTextCache.has(pageNum)) {
+            return this._pageTextCache.get(pageNum);
+        }
+
+        if (!this._pdfDoc) {
+            return {fullText: '', itemRanges: []};
+        }
+
+        const page = await this._pdfDoc.getPage(pageNum);
+        const textContent = await page.getTextContent();
+
+        let fullText = '';
+        const itemRanges = [];
+
+        for (let i = 0; i < textContent.items.length; i++) {
+            const item = textContent.items[i];
+            const str = item.str;
+            if (str.length === 0) {
+                continue;
+            }
+            const start = fullText.length;
+            fullText += str;
+            itemRanges.push({start, end: fullText.length, itemIndex: i});
+        }
+
+        const result = {fullText, itemRanges};
+        this._pageTextCache.set(pageNum, result);
+        return result;
+    }
+
+    /**
+     * Perform a search across all pages using the current input value.
+     *
+     * Stores matches as {page} only — highlighting is done separately
+     * from the actual DOM spans to avoid index mapping issues.
+     */
+    async _performSearch() {
+        const input = this.getElement(this.selectors.SEARCH_INPUT);
+        const query = input ? input.value.trim() : '';
+
+        if (!query) {
+            this._searchQuery = '';
+            this._searchMatches = [];
+            this._searchIndex = -1;
+            this._clearSearchHighlights();
+            this._updateSearchCount();
+            return;
+        }
+
+        this._searchQuery = query;
+        const queryLower = query.toLowerCase();
+        const matches = [];
+
+        for (let pageNum = 1; pageNum <= this._totalPages; pageNum++) {
+            const {fullText} = await this._getPageText(pageNum);
+            const textLower = fullText.toLowerCase();
+
+            let pos = 0;
+            while ((pos = textLower.indexOf(queryLower, pos)) !== -1) {
+                matches.push({page: pageNum});
+                pos += 1;
+            }
+        }
+
+        this._searchMatches = matches;
+        this._searchIndex = matches.length > 0 ? 0 : -1;
+        this._updateSearchCount();
+
+        // Navigate to the first match.
+        if (this._searchIndex >= 0) {
+            const match = this._searchMatches[this._searchIndex];
+            if (match.page !== this._currentPage) {
+                this._goToPage(match.page);
+            } else {
+                this._highlightSearchMatches();
+            }
+        } else {
+            this._clearSearchHighlights();
+        }
+    }
+
+    /**
+     * Navigate to the next or previous search match.
+     *
+     * @param {number} delta 1 for next, -1 for previous.
+     */
+    _navigateSearchMatch(delta) {
+        if (this._searchMatches.length === 0) {
+            return;
+        }
+
+        // If no active match yet but there are matches, start at 0.
+        if (this._searchIndex < 0) {
+            this._searchIndex = 0;
+        } else {
+            this._searchIndex = (this._searchIndex + delta + this._searchMatches.length)
+                % this._searchMatches.length;
+        }
+
+        this._updateSearchCount();
+
+        const match = this._searchMatches[this._searchIndex];
+        if (match.page !== this._currentPage) {
+            // Page change will trigger _highlightSearchMatches via _renderPage.
+            this._goToPage(match.page);
+        } else {
+            this._highlightSearchMatches();
+        }
+    }
+
+    /**
+     * Highlight search matches on the current page by searching within
+     * the actual DOM text-layer spans. This avoids index-mapping issues
+     * between getTextContent() items and rendered spans.
+     */
+    _highlightSearchMatches() {
+        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
+        if (!textLayerDiv) {
+            return;
+        }
+
+        const spans = textLayerDiv.querySelectorAll('span');
+        if (spans.length === 0) {
+            return;
+        }
+
+        // Clear previous highlights.
+        spans.forEach((span) => {
+            span.style.backgroundColor = '';
+        });
+
+        if (!this._searchQuery || this._searchMatches.length === 0) {
+            return;
+        }
+
+        // Build concatenated text from the actual DOM spans.
+        let fullText = '';
+        const spanRanges = [];
+        spans.forEach((span, idx) => {
+            const start = fullText.length;
+            fullText += span.textContent;
+            spanRanges.push({start, end: fullText.length, idx});
+        });
+
+        // Find all matches in the DOM-derived text (case-insensitive).
+        const queryLower = this._searchQuery.toLowerCase();
+        const textLower = fullText.toLowerCase();
+
+        // Determine which local match on this page should be "active".
+        // Count global matches on pages before the current one.
+        let activeLocalIndex = -1;
+        if (this._searchIndex >= 0 && this._searchMatches[this._searchIndex]?.page === this._currentPage) {
+            let firstOnPage = -1;
+            for (let i = 0; i < this._searchMatches.length; i++) {
+                if (this._searchMatches[i].page === this._currentPage) {
+                    firstOnPage = i;
+                    break;
+                }
+            }
+            if (firstOnPage >= 0) {
+                activeLocalIndex = this._searchIndex - firstOnPage;
+            }
+        }
+
+        let pos = 0;
+        let localIndex = 0;
+        while ((pos = textLower.indexOf(queryLower, pos)) !== -1) {
+            const matchEnd = pos + queryLower.length;
+            const isActive = (localIndex === activeLocalIndex);
+            const bgColor = isActive
+                ? 'rgba(255, 150, 0, 0.5)'
+                : 'rgba(255, 220, 0, 0.35)';
+
+            // Find which DOM spans overlap with this character range.
+            let firstSpan = null;
+            for (const range of spanRanges) {
+                if (range.end > pos && range.start < matchEnd) {
+                    spans[range.idx].style.backgroundColor = bgColor;
+                    if (!firstSpan) {
+                        firstSpan = spans[range.idx];
+                    }
+                }
+            }
+
+            // Scroll the active match into view.
+            if (isActive && firstSpan) {
+                firstSpan.scrollIntoView({block: 'center', behavior: 'smooth'});
+            }
+
+            pos += 1;
+            localIndex++;
+        }
+    }
+
+    /**
+     * Remove all search highlight styling from text layer spans.
+     */
+    _clearSearchHighlights() {
+        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
+        if (!textLayerDiv) {
+            return;
+        }
+        const spans = textLayerDiv.querySelectorAll('span');
+        spans.forEach((span) => {
+            span.style.backgroundColor = '';
+        });
+    }
+
+    /**
+     * Update the search count display and prev/next button states.
+     */
+    _updateSearchCount() {
+        const countEl = this.getElement(this.selectors.SEARCH_COUNT);
+        const prevBtn = this.getElement(this.selectors.SEARCH_PREV);
+        const nextBtn = this.getElement(this.selectors.SEARCH_NEXT);
+
+        if (countEl) {
+            if (!this._searchQuery) {
+                countEl.textContent = '';
+            } else if (this._searchMatches.length === 0) {
+                countEl.textContent = '0 results';
+            } else {
+                countEl.textContent = (this._searchIndex + 1) + ' of ' + this._searchMatches.length;
+            }
+        }
+
+        const hasMatches = this._searchMatches.length > 0;
+        if (prevBtn) {
+            prevBtn.disabled = !hasMatches;
+        }
+        if (nextBtn) {
+            nextBtn.disabled = !hasMatches;
+        }
+    }
+
     /**
      * Show or hide the loading spinner.
      *
@@ -1220,6 +1652,10 @@ export default class PdfViewer extends BaseComponent {
             window.removeEventListener('beforeunload', this._onBeforeUnload);
             this._onBeforeUnload = null;
         }
+        if (this._onPageKeyDown) {
+            document.removeEventListener('keydown', this._onPageKeyDown);
+            this._onPageKeyDown = null;
+        }
         if (this._onKeyDown) {
             document.removeEventListener('keydown', this._onKeyDown);
             this._onKeyDown = null;
@@ -1248,6 +1684,15 @@ export default class PdfViewer extends BaseComponent {
         }
         this._pdfBytes = null;
         this._currentUrl = null;
+
+        // Clear search state.
+        if (this._searchDebounceTimer) {
+            clearTimeout(this._searchDebounceTimer);
+            this._searchDebounceTimer = null;
+        }
+        this._pageTextCache.clear();
+        this._searchMatches = [];
+
         super.destroy();
     }
 }

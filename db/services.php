@@ -151,9 +151,21 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_save_feedback_files' => [
+        'classname' => 'local_unifiedgrader\external\save_feedback_files',
+        'description' => 'Save feedback files from draft area to permanent storage.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
     'local_unifiedgrader_set_grades_posted' => [
         'classname' => 'local_unifiedgrader\external\set_grades_posted',
         'description' => 'Post or unpost grades for an activity (hide/unhide grade item).',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_submission_action' => [
+        'classname' => 'local_unifiedgrader\external\submission_action',
+        'description' => 'Perform a submission status action (revert to draft, remove, lock, unlock).',
         'type' => 'write',
         'ajax' => true,
     ],

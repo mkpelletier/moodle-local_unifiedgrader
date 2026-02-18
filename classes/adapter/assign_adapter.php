@@ -108,6 +108,9 @@ class assign_adapter extends base_adapter {
             $userpicture->size = 64;
             $profileimageurl = $userpicture->get_url($PAGE)->out(false);
 
+            $flags = $this->assign->get_user_flags($participant->id, false);
+            $locked = ($flags && !empty($flags->locked));
+
             $entry = [
                 'id' => (int) $participant->id,
                 'fullname' => $fullname,
@@ -117,11 +120,17 @@ class assign_adapter extends base_adapter {
                 'submittedat' => $submission ? (int) $submission->timemodified : 0,
                 'gradevalue' => ($grade && $grade->grade !== null && $grade->grade >= 0)
                     ? (float) $grade->grade : null,
+                'locked' => $locked,
             ];
 
             // Apply status filter.
             if (!empty($filters['status']) && $filters['status'] !== 'all') {
-                if ($entry['status'] !== $filters['status']) {
+                if ($filters['status'] === 'late') {
+                    $duedate = (int) $instance->duedate;
+                    if (!$duedate || !$entry['submittedat'] || $entry['submittedat'] <= $duedate) {
+                        continue;
+                    }
+                } else if ($entry['status'] !== $filters['status']) {
                     continue;
                 }
             }
@@ -167,6 +176,8 @@ class assign_adapter extends base_adapter {
      */
     public function get_submission_data(int $userid): array {
         $submission = $this->assign->get_user_submission($userid, false);
+        $flags = $this->assign->get_user_flags($userid, false);
+        $locked = ($flags && !empty($flags->locked));
 
         if (!$submission) {
             return [
@@ -179,6 +190,7 @@ class assign_adapter extends base_adapter {
                 'timemodified' => 0,
                 'attemptnumber' => 0,
                 'commentcount' => 0,
+                'locked' => $locked,
             ];
         }
 
@@ -206,6 +218,7 @@ class assign_adapter extends base_adapter {
             'timemodified' => (int) $submission->timemodified,
             'attemptnumber' => (int) $submission->attemptnumber,
             'commentcount' => $commentcount,
+            'locked' => $locked,
         ];
     }
 
@@ -822,10 +835,38 @@ class assign_adapter extends base_adapter {
     }
 
     /**
+     * Save feedback files for a student from the draft area.
+     *
+     * Creates the grade record if it doesn't exist, then moves files from
+     * the draft area to permanent storage.
+     *
+     * @param int $userid Student user ID.
+     * @param int $feedbackfilesdraftid Draft area item ID containing feedback files.
+     * @return array{filecount: int} Number of feedback files saved.
+     */
+    public function save_feedback_files(int $userid, int $feedbackfilesdraftid): array {
+        $gradeobj = $this->assign->get_user_grade($userid, true);
+        $this->save_feedback_files_directly($gradeobj, $userid, $feedbackfilesdraftid);
+
+        // Return the current file count.
+        $fs = get_file_storage();
+        $files = $fs->get_area_files(
+            $this->context->id,
+            'assignfeedback_file',
+            'feedback_files',
+            $gradeobj->id,
+            'id',
+            false,
+        );
+
+        return ['filecount' => count($files)];
+    }
+
+    /**
      * Save feedback files directly, bypassing the feedback plugin iteration.
      *
-     * Used by save_grade_directly() when the normal assign::save_grade() path
-     * is not available (advanced grading without criteria data).
+     * Used by save_grade_directly() and save_feedback_files() when the
+     * normal assign::save_grade() path is not available.
      *
      * @param \stdClass $gradeobj The grade record object.
      * @param int $userid The student user ID.
@@ -1011,5 +1052,62 @@ class assign_adapter extends base_adapter {
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    /**
+     * Perform a submission management action.
+     *
+     * Delegates to the underlying assign class public methods which handle
+     * their own capability checks internally.
+     *
+     * @param int $userid The student user ID.
+     * @param string $action One of: revert_to_draft, remove, lock, unlock.
+     * @return bool
+     * @throws \moodle_exception If action is invalid.
+     */
+    public function perform_submission_action(int $userid, string $action): bool {
+        switch ($action) {
+            case 'revert_to_draft':
+                return $this->assign->revert_to_draft($userid);
+            case 'remove':
+                return $this->assign->remove_submission($userid);
+            case 'lock':
+                return $this->assign->lock_submission($userid);
+            case 'unlock':
+                return $this->assign->unlock_submission($userid);
+            case 'submit':
+                return $this->submit_for_grading($userid);
+            default:
+                throw new \moodle_exception('invalidaction', 'local_unifiedgrader');
+        }
+    }
+
+    /**
+     * Submit a draft submission on behalf of a student.
+     *
+     * The assign class has no public submit method, so we update the
+     * submission status directly and fire the appropriate event.
+     *
+     * @param int $userid Student user ID.
+     * @return bool
+     */
+    protected function submit_for_grading(int $userid): bool {
+        global $DB;
+
+        $submission = $this->assign->get_user_submission($userid, false);
+        if (!$submission || $submission->status !== ASSIGN_SUBMISSION_STATUS_DRAFT) {
+            throw new \moodle_exception('invalidaction', 'local_unifiedgrader');
+        }
+
+        $submission->status = ASSIGN_SUBMISSION_STATUS_SUBMITTED;
+        $submission->timemodified = time();
+        $DB->update_record('assign_submission', $submission);
+
+        \mod_assign\event\submission_status_updated::create_from_submission(
+            $this->assign,
+            $submission,
+        )->trigger();
+
+        return true;
     }
 }

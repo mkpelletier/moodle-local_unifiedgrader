@@ -157,7 +157,12 @@ class quiz_adapter extends base_adapter {
 
             // Apply status filter.
             if (!empty($filters['status']) && $filters['status'] !== 'all') {
-                if ($entry['status'] !== $filters['status']) {
+                if ($filters['status'] === 'late') {
+                    $duedate = (int) ($this->quiz->timeclose ?? 0);
+                    if (!$duedate || !$entry['submittedat'] || $entry['submittedat'] <= $duedate) {
+                        continue;
+                    }
+                } else if ($entry['status'] !== $filters['status']) {
                     continue;
                 }
             }
@@ -529,7 +534,11 @@ class quiz_adapter extends base_adapter {
                     format_text($question->questiontext ?? '', $question->questiontextformat ?? FORMAT_HTML,
                         ['context' => $this->context])
                 ),
-                'descriptionmarkers' => $question->graderinfo ?? '',
+                'descriptionmarkers' => format_text(
+                    $question->graderinfo ?? '',
+                    $question->graderinfoformat ?? FORMAT_HTML,
+                    ['context' => $this->context],
+                ),
                 'maxscore' => $maxmark,
             ];
 
@@ -539,7 +548,7 @@ class quiz_adapter extends base_adapter {
 
             $fill[(string) $slot] = [
                 'score' => $mark !== null ? round($mark, 5) : '',
-                'remark' => $comment ?? '',
+                'remark' => html_to_text($comment ?? '', 0, false),
             ];
         }
 

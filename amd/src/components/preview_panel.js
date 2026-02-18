@@ -26,6 +26,7 @@
  */
 
 import {BaseComponent} from 'core/reactive';
+import {getString} from 'core/str';
 import PdfViewer from 'local_unifiedgrader/components/pdf_viewer';
 
 export default class extends BaseComponent {
@@ -169,19 +170,20 @@ export default class extends BaseComponent {
         wrapper.classList.remove('d-none');
 
         files.forEach((file) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'btn btn-sm btn-outline-secondary d-flex align-items-center gap-1';
-            btn.dataset.fileid = file.fileid;
+            const pill = document.createElement('span');
+            pill.className = 'btn-group btn-group-sm';
+            pill.dataset.fileid = file.fileid;
 
+            // Preview button (filename).
+            const previewBtn = document.createElement('button');
+            previewBtn.type = 'button';
+            previewBtn.className = 'btn btn-sm btn-outline-secondary d-flex align-items-center';
             const name = document.createElement('span');
             name.className = 'small text-truncate';
             name.style.maxWidth = '180px';
             name.textContent = file.filename;
-
-            btn.appendChild(name);
-
-            btn.addEventListener('click', () => {
+            previewBtn.appendChild(name);
+            previewBtn.addEventListener('click', () => {
                 if (this._isPreviewable(file)) {
                     this._previewFile(file);
                 } else {
@@ -189,7 +191,22 @@ export default class extends BaseComponent {
                 }
             });
 
-            list.appendChild(btn);
+            // Download button (icon).
+            const dlLink = document.createElement('a');
+            dlLink.href = file.url;
+            dlLink.download = file.filename;
+            dlLink.className = 'btn btn-sm btn-outline-secondary d-flex align-items-center';
+            getString('download_original_submission', 'local_unifiedgrader', file.filename)
+                .then((str) => { dlLink.title = str; })
+                .catch(() => { dlLink.title = file.filename; });
+            const dlIcon = document.createElement('i');
+            dlIcon.className = 'fa fa-download';
+            dlIcon.setAttribute('aria-hidden', 'true');
+            dlLink.appendChild(dlIcon);
+
+            pill.appendChild(previewBtn);
+            pill.appendChild(dlLink);
+            list.appendChild(pill);
         });
     }
 
@@ -253,10 +270,12 @@ export default class extends BaseComponent {
         if (!list) {
             return;
         }
-        list.querySelectorAll('button').forEach((btn) => {
-            const isActive = btn.dataset.fileid === String(fileid);
-            btn.classList.toggle('btn-outline-secondary', !isActive);
-            btn.classList.toggle('btn-primary', isActive);
+        list.querySelectorAll('[data-fileid]').forEach((pill) => {
+            const isActive = pill.dataset.fileid === String(fileid);
+            pill.querySelectorAll('button, a').forEach((el) => {
+                el.classList.toggle('btn-outline-secondary', !isActive);
+                el.classList.toggle('btn-primary', isActive);
+            });
         });
     }
 

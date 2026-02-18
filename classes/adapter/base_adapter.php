@@ -271,4 +271,18 @@ abstract class base_adapter {
         ]);
         return $item ?: null;
     }
+
+    /**
+     * Perform a submission management action.
+     *
+     * Override in concrete adapters that support submission actions.
+     *
+     * @param int $userid The student user ID.
+     * @param string $action Action identifier.
+     * @return bool
+     * @throws \moodle_exception If action is not supported.
+     */
+    public function perform_submission_action(int $userid, string $action): bool {
+        throw new \moodle_exception('invalidaction', 'local_unifiedgrader');
+    }
 }

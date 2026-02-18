@@ -32,6 +32,7 @@ export const TOOLS = {
     HIGHLIGHT: 'highlight',
     PEN: 'pen',
     STAMP: 'stamp',
+    SHAPE: 'shape',
 };
 
 /**
@@ -62,12 +63,24 @@ export const STAMPS = {
 };
 
 /**
+ * Shape types available in the shape tool popout.
+ *
+ * @type {object}
+ */
+export const SHAPES = {
+    RECT: 'rect',
+    CIRCLE: 'circle',
+    ARROW: 'arrow',
+    LINE: 'line',
+};
+
+/**
  * Custom properties stored on every Fabric.js annotation object.
  * These are included in toJSON() serialization.
  *
  * @type {string[]}
  */
-export const CUSTOM_PROPS = ['annotationType', 'annotationText', 'stampType'];
+export const CUSTOM_PROPS = ['annotationType', 'annotationText', 'stampType', 'shapeType'];
 
 /**
  * SVG path for a speech-bubble comment icon (24×22 viewbox).
@@ -167,4 +180,125 @@ export function createStamp(fabric, x, y, stampType, color) {
     text.annotationType = 'stamp';
     text.stampType = stampType;
     return text;
+}
+
+/**
+ * Create a shape rectangle (stroke outline, no fill).
+ *
+ * @param {object} fabric The Fabric.js library namespace.
+ * @param {number} left Left edge x.
+ * @param {number} top Top edge y.
+ * @param {number} width Rectangle width.
+ * @param {number} height Rectangle height.
+ * @param {string} color Stroke colour.
+ * @returns {object} Fabric.js Rect object.
+ */
+export function createShapeRect(fabric, left, top, width, height, color) {
+    const rect = new fabric.Rect({
+        left,
+        top,
+        width,
+        height,
+        fill: 'transparent',
+        stroke: color,
+        strokeWidth: 2,
+        selectable: true,
+        hasControls: true,
+        hasBorders: true,
+    });
+    rect.annotationType = 'shape';
+    rect.shapeType = SHAPES.RECT;
+    return rect;
+}
+
+/**
+ * Create a shape ellipse (stroke outline, no fill).
+ *
+ * @param {object} fabric The Fabric.js library namespace.
+ * @param {number} left Left edge x of bounding box.
+ * @param {number} top Top edge y of bounding box.
+ * @param {number} rx Horizontal radius.
+ * @param {number} ry Vertical radius.
+ * @param {string} color Stroke colour.
+ * @returns {object} Fabric.js Ellipse object.
+ */
+export function createShapeEllipse(fabric, left, top, rx, ry, color) {
+    const ellipse = new fabric.Ellipse({
+        left,
+        top,
+        rx,
+        ry,
+        fill: 'transparent',
+        stroke: color,
+        strokeWidth: 2,
+        selectable: true,
+        hasControls: true,
+        hasBorders: true,
+    });
+    ellipse.annotationType = 'shape';
+    ellipse.shapeType = SHAPES.CIRCLE;
+    return ellipse;
+}
+
+/**
+ * Create a shape line.
+ *
+ * @param {object} fabric The Fabric.js library namespace.
+ * @param {number} x1 Start x.
+ * @param {number} y1 Start y.
+ * @param {number} x2 End x.
+ * @param {number} y2 End y.
+ * @param {string} color Stroke colour.
+ * @returns {object} Fabric.js Line object.
+ */
+export function createShapeLine(fabric, x1, y1, x2, y2, color) {
+    const line = new fabric.Line([x1, y1, x2, y2], {
+        stroke: color,
+        strokeWidth: 2,
+        strokeLineCap: 'round',
+        selectable: true,
+        hasControls: true,
+        hasBorders: true,
+    });
+    line.annotationType = 'shape';
+    line.shapeType = SHAPES.LINE;
+    return line;
+}
+
+/**
+ * Create a shape arrow (line shaft with filled arrowhead).
+ *
+ * @param {object} fabric The Fabric.js library namespace.
+ * @param {number} x1 Start x.
+ * @param {number} y1 Start y.
+ * @param {number} x2 End x (arrowhead tip).
+ * @param {number} y2 End y (arrowhead tip).
+ * @param {string} color Stroke and fill colour.
+ * @returns {object} Fabric.js Path object.
+ */
+export function createShapeArrow(fabric, x1, y1, x2, y2, color) {
+    const headLen = 12;
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+
+    // Arrowhead triangle corners.
+    const ax1 = x2 - headLen * Math.cos(angle - Math.PI / 6);
+    const ay1 = y2 - headLen * Math.sin(angle - Math.PI / 6);
+    const ax2 = x2 - headLen * Math.cos(angle + Math.PI / 6);
+    const ay2 = y2 - headLen * Math.sin(angle + Math.PI / 6);
+
+    const pathStr = `M ${x1} ${y1} L ${x2} ${y2} M ${ax1} ${ay1} L ${x2} ${y2} L ${ax2} ${ay2} Z`;
+
+    const arrow = new fabric.Path(pathStr, {
+        fill: color,
+        stroke: color,
+        strokeWidth: 2,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+        selectable: true,
+        hasControls: true,
+        hasBorders: true,
+    });
+    arrow.annotationType = 'shape';
+    arrow.shapeType = SHAPES.ARROW;
+    return arrow;
 }

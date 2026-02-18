@@ -46,7 +46,16 @@ $userid = required_param('userid', PARAM_INT);
 [$course, $cm] = get_course_and_cm_from_cmid($cmid);
 require_login($course, false, $cm);
 $context = context_module::instance($cm->id);
-require_capability('local/unifiedgrader:grade', $context);
+
+// Teachers can preview any student's submission; students can only view their own.
+$cangrade = has_capability('local/unifiedgrader:grade', $context);
+$canviewfeedback = has_capability('local/unifiedgrader:viewfeedback', $context);
+if (!$cangrade && !$canviewfeedback) {
+    throw new required_capability_exception($context, 'local/unifiedgrader:grade', 'nopermissions', '');
+}
+if (!$cangrade && (int) $userid !== (int) $USER->id) {
+    throw new moodle_exception('nopermissions', '', '', get_string('viewfeedback', 'local_unifiedgrader'));
+}
 
 // Set up a minimal embedded page (no navigation chrome).
 $PAGE->set_url(new moodle_url('/local/unifiedgrader/preview_submission.php', [

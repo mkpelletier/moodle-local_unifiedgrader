@@ -168,6 +168,31 @@
     box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.2);
 }
 
+/* Student feedback view — use full available width, eliminate extra margins/padding. */
+.local-unifiedgrader-feedback-page .main-inner {
+    max-width: 100% !important;
+    margin-bottom: 0 !important;
+}
+
+.local-unifiedgrader-feedback-page #region-main {
+    max-width: 100% !important;
+}
+
+.local-unifiedgrader-feedback-page #page-content {
+    padding-bottom: 0 !important;
+}
+
+/* Student feedback view — hide breadcrumbs, page heading, and secondary nav.
+   Our header bar has a back arrow and activity name, so these are redundant. */
+.local-unifiedgrader-feedback-page #page-navbar,
+.local-unifiedgrader-feedback-page .breadcrumb-wrapper,
+.local-unifiedgrader-feedback-page nav[aria-label="breadcrumb"],
+.local-unifiedgrader-feedback-page #page-header,
+.local-unifiedgrader-feedback-page .secondary-navigation,
+.local-unifiedgrader-feedback-page #page-footer {
+    display: none !important;
+}
+
 /* Student feedback view — responsive media in feedback panel. */
 .local-unifiedgrader-feedback .card-body video,
 .local-unifiedgrader-feedback .card-body audio,
@@ -431,4 +456,67 @@
 /* Student feedback view — comments card. */
 .local-unifiedgrader-feedback [data-region="feedback-comments"] [data-region="comments-list"] {
     min-height: 80px;
+}
+
+/* Student feedback view — popouts anchored to right (icons are in top-right header). */
+.local-unifiedgrader-feedback .local-unifiedgrader-comments-popout,
+.local-unifiedgrader-feedback .local-unifiedgrader-files-popout {
+    left: auto;
+    right: 0;
+}
+
+/* Feedback files filemanager — constrain thumbnails rendered by our custom refresh. */
+.local-unifiedgrader-container .filemanager .fp-content .fp-file {
+    display: inline-block;
+    text-align: center;
+    width: 110px;
+    vertical-align: top;
+    padding: 0.25rem;
+    cursor: pointer;
+}
+
+.local-unifiedgrader-container .filemanager .fp-content .fp-thumbnail img {
+    max-width: 64px;
+    max-height: 64px;
+}
+
+.local-unifiedgrader-container .filemanager .fp-content .fp-thumbnail {
+    position: relative;
+    display: inline-block;
+}
+
+.local-unifiedgrader-container .filemanager .fp-content .fp-saved-badge {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    font-size: 1rem;
+    color: #198754;
+    background: #fff;
+    border-radius: 50%;
+    line-height: 1;
+}
+
+.local-unifiedgrader-container .filemanager .fp-content .fp-filename {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    max-width: 100px;
+    margin: 0 auto;
+}
+
+/* Feedback files popout. */
+.local-unifiedgrader-files-popout {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 340px;
+    max-width: calc(100vw - 2rem);
+    max-height: 400px;
+    z-index: 200;
+    background: #fff;
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+    overflow-y: auto;
 }
