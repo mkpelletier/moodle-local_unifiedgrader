@@ -76,6 +76,7 @@ class assign_adapter extends base_adapter {
             'gradingmethod' => $gradingmethod ?: 'simple',
             'teamsubmission' => (bool) $instance->teamsubmission,
             'blindmarking' => (bool) $instance->blindmarking,
+            'canmanageoverrides' => has_capability('mod/assign:manageoverrides', $this->context),
         ];
     }
 
@@ -91,6 +92,16 @@ class assign_adapter extends base_adapter {
         $groupid = $filters['group'] ?? 0;
         $participants = $this->assign->list_participants($groupid, false);
         $instance = $this->assign->get_instance();
+
+        // Batch-load user overrides to avoid N+1 queries.
+        global $DB;
+        $overrideuserids = $DB->get_fieldset_select(
+            'assign_overrides',
+            'userid',
+            'assignid = :assignid AND userid IS NOT NULL',
+            ['assignid' => $instance->id],
+        );
+        $overrideset = array_flip($overrideuserids);
 
         $result = [];
         foreach ($participants as $participant) {
@@ -121,16 +132,12 @@ class assign_adapter extends base_adapter {
                 'gradevalue' => ($grade && $grade->grade !== null && $grade->grade >= 0)
                     ? (float) $grade->grade : null,
                 'locked' => $locked,
+                'hasoverride' => isset($overrideset[$participant->id]),
             ];
 
             // Apply status filter.
             if (!empty($filters['status']) && $filters['status'] !== 'all') {
-                if ($filters['status'] === 'late') {
-                    $duedate = (int) $instance->duedate;
-                    if (!$duedate || !$entry['submittedat'] || $entry['submittedat'] <= $duedate) {
-                        continue;
-                    }
-                } else if ($entry['status'] !== $filters['status']) {
+                if (!$this->matches_filter($filters['status'], $entry, (int) $instance->duedate)) {
                     continue;
                 }
             }
@@ -754,6 +761,74 @@ class assign_adapter extends base_adapter {
         }
 
         return $results;
+    }
+
+    /**
+     * Get the user-level override for a student.
+     *
+     * @param int $userid The student user ID.
+     * @return array|null Override data or null.
+     */
+    public function get_user_override(int $userid): ?array {
+        global $DB;
+
+        $instance = $this->assign->get_instance();
+        $record = $DB->get_record('assign_overrides', [
+            'assignid' => $instance->id,
+            'userid' => $userid,
+        ]);
+
+        if (!$record) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $record->id,
+            'duedate' => $record->duedate !== null ? (int) $record->duedate : null,
+            'cutoffdate' => $record->cutoffdate !== null ? (int) $record->cutoffdate : null,
+            'allowsubmissionsfromdate' => $record->allowsubmissionsfromdate !== null
+                ? (int) $record->allowsubmissionsfromdate : null,
+            'timelimit' => $record->timelimit !== null ? (int) $record->timelimit : null,
+        ];
+    }
+
+    /**
+     * Delete the user-level override for a student.
+     *
+     * @param int $userid The student user ID.
+     * @return bool True on success.
+     */
+    public function delete_user_override(int $userid): bool {
+        global $DB;
+
+        $instance = $this->assign->get_instance();
+        $record = $DB->get_record('assign_overrides', [
+            'assignid' => $instance->id,
+            'userid' => $userid,
+        ]);
+
+        if (!$record) {
+            return true;
+        }
+
+        $DB->delete_records('assign_overrides', ['id' => $record->id]);
+
+        // Fire the user override deleted event.
+        \mod_assign\event\user_override_deleted::create([
+            'objectid' => $record->id,
+            'context' => $this->context,
+            'relateduserid' => $userid,
+            'other' => ['assignid' => $instance->id],
+        ])->trigger();
+
+        // Clear the override cache.
+        $cachekey = "{$instance->id}_u_{$userid}";
+        \cache::make('mod_assign', 'overrides')->delete($cachekey);
+
+        // Update calendar events for this user.
+        $this->assign->update_calendar($this->cm->id);
+
+        return true;
     }
 
     /**

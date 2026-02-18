@@ -169,4 +169,10 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_delete_user_override' => [
+        'classname' => 'local_unifiedgrader\external\delete_user_override',
+        'description' => 'Delete a user-level override for an activity.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
 ];

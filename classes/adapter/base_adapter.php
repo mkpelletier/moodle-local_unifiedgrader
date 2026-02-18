@@ -297,4 +297,63 @@ abstract class base_adapter {
     public function perform_submission_action(int $userid, string $action): bool {
         throw new \moodle_exception('invalidaction', 'local_unifiedgrader');
     }
+
+    /**
+     * Get the user-level override for a student.
+     *
+     * Subclasses should override this for activity types that support
+     * per-user overrides (assign, quiz).
+     *
+     * @param int $userid The student user ID.
+     * @return array|null Override data array with 'id' key, or null if no override.
+     */
+    public function get_user_override(int $userid): ?array {
+        return null;
+    }
+
+    /**
+     * Delete the user-level override for a student.
+     *
+     * Subclasses should override this for activity types that support overrides.
+     *
+     * @param int $userid The student user ID.
+     * @return bool True on success.
+     * @throws \moodle_exception If not supported.
+     */
+    public function delete_user_override(int $userid): bool {
+        throw new \moodle_exception('invalidaction', 'local_unifiedgrader');
+    }
+
+    /**
+     * Check whether a participant entry matches the selected filter.
+     *
+     * Filter semantics:
+     * - submitted:    Has been submitted (status is 'submitted' or 'graded').
+     * - notsubmitted: Not yet submitted (status is 'draft', 'new', or 'nosubmission').
+     * - graded:       Has a grade value present (any status).
+     * - needsgrading: Submitted but not yet graded (status 'submitted', no grade, or 'needsgrading').
+     * - late:         Submission timestamp exceeds the due date.
+     *
+     * @param string $filter The active filter value.
+     * @param array $entry Participant entry with 'status', 'submittedat', 'gradevalue' keys.
+     * @param int $duedate The activity due/close date timestamp.
+     * @return bool True if the entry matches the filter.
+     */
+    protected function matches_filter(string $filter, array $entry, int $duedate): bool {
+        switch ($filter) {
+            case 'submitted':
+                return in_array($entry['status'], ['submitted', 'graded']);
+            case 'notsubmitted':
+                return in_array($entry['status'], ['draft', 'new', 'nosubmission']);
+            case 'graded':
+                return $entry['gradevalue'] !== null;
+            case 'needsgrading':
+                return in_array($entry['status'], ['submitted', 'needsgrading'])
+                    && $entry['gradevalue'] === null;
+            case 'late':
+                return $duedate > 0 && $entry['submittedat'] > 0 && $entry['submittedat'] > $duedate;
+            default:
+                return $entry['status'] === $filter;
+        }
+    }
 }

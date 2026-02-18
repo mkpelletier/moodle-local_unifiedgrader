@@ -114,6 +114,16 @@
                                             {{selectedscore}} pts
                                         </div>
                                     {{/hasselection}}
+                                    {{#hasremark}}
+                                        <div class="mt-2 p-2 rounded small"
+                                             style="background-color: rgba(13, 202, 240, 0.1); border: 1px solid rgba(13, 202, 240, 0.3);">
+                                            <div class="fw-semibold text-info mb-1" style="font-size: 0.7rem;">
+                                                <i class="fa fa-comment me-1" aria-hidden="true"></i>
+                                                {{#str}} teacher_remark, local_unifiedgrader {{/str}}
+                                            </div>
+                                            <div>{{{remark}}}</div>
+                                        </div>
+                                    {{/hasremark}}
                                 </div>
                             {{/rubriccriteria}}
                         </div>
@@ -144,8 +154,13 @@
                                         <div class="small text-muted mb-1">{{{description}}}</div>
                                     {{/description}}
                                     {{#hasremark}}
-                                        <div class="small fst-italic border-start border-3 border-primary ps-2 mt-1">
-                                            {{{remark}}}
+                                        <div class="mt-2 p-2 rounded small"
+                                             style="background-color: rgba(13, 202, 240, 0.1); border: 1px solid rgba(13, 202, 240, 0.3);">
+                                            <div class="fw-semibold text-info mb-1" style="font-size: 0.7rem;">
+                                                <i class="fa fa-comment me-1" aria-hidden="true"></i>
+                                                {{#str}} teacher_remark, local_unifiedgrader {{/str}}
+                                            </div>
+                                            <div>{{{remark}}}</div>
                                         </div>
                                     {{/hasremark}}
                                 </div>

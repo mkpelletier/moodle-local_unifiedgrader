@@ -62,6 +62,7 @@ export default class extends BaseComponent {
         return [
             {watch: 'state.participants:updated', handler: this._renderParticipants},
             {watch: 'currentUser:updated', handler: this._updateCurrentStudent},
+            {watch: 'submission:updated', handler: this._onSubmissionUpdated},
         ];
     }
 
@@ -75,8 +76,8 @@ export default class extends BaseComponent {
         this._setupEventListeners();
         this._initGroupSelector(state);
 
-        // Prefetch action strings for assign activities.
-        if (state.activity.type === 'assign') {
+        // Prefetch action strings for assign and quiz activities.
+        if (state.activity.type === 'assign' || state.activity.type === 'quiz') {
             await this._prefetchStrings();
         }
 
@@ -101,6 +102,10 @@ export default class extends BaseComponent {
             'confirm_lock_submission',
             'confirm_unlock_submission',
             'confirm_submit_for_grading',
+            'action_add_override',
+            'action_edit_override',
+            'action_delete_override',
+            'confirm_delete_override',
         ];
         try {
             const values = await getStrings(keys.map(key => ({key, component: 'local_unifiedgrader'})));
@@ -289,6 +294,15 @@ export default class extends BaseComponent {
                 statusWrapper.appendChild(lateDot);
             }
 
+            // Show a clock icon for users with an override.
+            if (p.hasoverride) {
+                const overrideIcon = document.createElement('i');
+                overrideIcon.className = 'fa fa-clock-o text-danger';
+                overrideIcon.style.fontSize = '0.7em';
+                overrideIcon.title = 'Override active';
+                statusWrapper.appendChild(overrideIcon);
+            }
+
             statusWrapper.appendChild(statusBadge);
             item.appendChild(statusWrapper);
 
@@ -375,6 +389,64 @@ export default class extends BaseComponent {
         } else if (wrapper) {
             wrapper.innerHTML = '<span class="badge bg-secondary"></span>';
         }
+
+        // Show/hide override indicator next to the status badge.
+        this._updateOverrideIndicator(student);
+    }
+
+    /**
+     * Show or hide an override indicator badge next to the status area.
+     *
+     * @param {object|undefined} student Current participant data.
+     */
+    _updateOverrideIndicator(student) {
+        if (!this._container) {
+            return;
+        }
+
+        const wrapper = this._container.querySelector('[data-region="student-status-wrapper"]');
+        if (!wrapper) {
+            return;
+        }
+
+        // Remove any existing override indicator.
+        const existing = wrapper.querySelector('.local-unifiedgrader-override-indicator');
+        if (existing) {
+            existing.remove();
+        }
+
+        const hasOverride = student?.hasoverride || this.reactive.state.submission?.hasoverride;
+        if (!hasOverride) {
+            return;
+        }
+
+        const indicator = document.createElement('span');
+        indicator.className = 'local-unifiedgrader-override-indicator badge bg-danger ms-1';
+        indicator.style.fontSize = '0.7em';
+        indicator.innerHTML = '<i class="fa fa-clock-o me-1"></i>Override';
+        wrapper.appendChild(indicator);
+    }
+
+    /**
+     * React to submission data updates (e.g. after override add/delete).
+     *
+     * @param {object} args Watcher args.
+     * @param {object} args.state Current state.
+     */
+    _onSubmissionUpdated({state}) {
+        const participants = [...state.participants.values()];
+        const current = participants.find(p => p.id === state.currentUser?.id);
+
+        // Rebuild the status dropdown first (it clears the wrapper),
+        // then add the override indicator after.
+        if (current) {
+            const merged = {...current, hasoverride: state.submission?.hasoverride ?? current.hasoverride};
+            const wrapper = this._container?.querySelector('[data-region="student-status-wrapper"]');
+            if (wrapper) {
+                this._buildStatusDropdown(wrapper, merged);
+            }
+            this._updateOverrideIndicator(merged);
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -382,18 +454,19 @@ export default class extends BaseComponent {
     // ──────────────────────────────────────────────
 
     /**
-     * Build the status badge as a dropdown (for assign) or a plain badge.
+     * Build the status badge as a dropdown (for assign/quiz) or a plain badge.
      *
      * @param {HTMLElement} wrapper The status wrapper element.
      * @param {object} student Participant data with status and locked fields.
      */
     _buildStatusDropdown(wrapper, student) {
         const state = this.reactive.state;
-        const isAssign = state.activity.type === 'assign';
+        const actType = state.activity.type;
+        const hasDropdown = actType === 'assign' || actType === 'quiz';
         const statusInfo = this._getStatusInfo(student.status);
 
-        // For non-assign activities or if strings aren't loaded, show plain badge.
-        if (!isAssign || !this._strings) {
+        // For unsupported activities or if strings aren't loaded, show plain badge.
+        if (!hasDropdown || !this._strings) {
             wrapper.innerHTML = '';
             const badge = document.createElement('span');
             badge.className = 'badge ' + statusInfo.cls;
@@ -402,7 +475,7 @@ export default class extends BaseComponent {
             return;
         }
 
-        const actions = this._getActionsForStatus(student.status, !!student.locked);
+        const actions = this._getActionsForStatus(student.status, !!student.locked, !!student.hasoverride);
         if (actions.length === 0) {
             wrapper.innerHTML = '';
             const badge = document.createElement('span');
@@ -493,12 +566,41 @@ export default class extends BaseComponent {
      *
      * @param {string} status Submission status.
      * @param {boolean} locked Whether the submission is locked.
+     * @param {boolean} hasOverride Whether the student has an active override.
      * @return {object[]} Array of action objects.
      */
-    _getActionsForStatus(status, locked) {
+    _getActionsForStatus(status, locked, hasOverride) {
         const s = this._strings;
         if (!s) {
             return [];
+        }
+
+        const state = this.reactive.state;
+        const actType = state.activity.type;
+
+        // Override actions (available for assign and quiz when teacher has capability).
+        const overrideActions = [];
+        if (state.activity.canmanageoverrides && (actType === 'assign' || actType === 'quiz')) {
+            if (hasOverride) {
+                overrideActions.push({
+                    id: 'edit_override', label: s.action_edit_override,
+                    icon: 'fa-clock-o', type: 'modal',
+                });
+                overrideActions.push({
+                    id: 'delete_override', label: s.action_delete_override,
+                    icon: 'fa-trash', type: 'ajax', confirm: s.confirm_delete_override,
+                });
+            } else {
+                overrideActions.push({
+                    id: 'add_override', label: s.action_add_override,
+                    icon: 'fa-clock-o', type: 'modal',
+                });
+            }
+        }
+
+        // For quiz, only override actions are available (no submission management).
+        if (actType === 'quiz') {
+            return overrideActions;
         }
 
         const defs = {
@@ -532,31 +634,38 @@ export default class extends BaseComponent {
             },
         };
 
+        let actions;
         switch (status) {
             case 'submitted':
-                return [defs.grant_extension, defs.revert_to_draft, defs.remove];
+                actions = [defs.grant_extension, defs.revert_to_draft, defs.remove];
+                break;
             case 'draft':
                 if (locked) {
-                    return [
-                        defs.unlock, defs.grant_extension, defs.remove,
+                    actions = [defs.unlock, defs.grant_extension, defs.remove];
+                } else {
+                    actions = [
+                        defs.edit_submission, defs.lock, defs.grant_extension,
+                        defs.submit_for_grading, defs.remove,
                     ];
                 }
-                return [
-                    defs.edit_submission, defs.lock, defs.grant_extension,
-                    defs.submit_for_grading, defs.remove,
-                ];
+                break;
             case 'nosubmission':
             case 'new':
-                return [defs.edit_submission, defs.grant_extension];
+                actions = [defs.edit_submission, defs.grant_extension];
+                break;
             case 'graded':
-                return [defs.revert_to_draft, defs.grant_extension, defs.remove];
+                actions = [defs.revert_to_draft, defs.grant_extension, defs.remove];
+                break;
             default:
-                return [];
+                actions = [];
         }
+
+        // Append override actions after assignment-specific actions.
+        return actions.concat(overrideActions);
     }
 
     /**
-     * Handle a status action (AJAX or redirect).
+     * Handle a status action (AJAX, redirect, or modal).
      *
      * @param {object} action Action definition.
      * @param {object} student Participant data.
@@ -567,13 +676,46 @@ export default class extends BaseComponent {
             return;
         }
 
+        if (action.type === 'modal') {
+            this._handleModalAction(action.id, student);
+            return;
+        }
+
         // AJAX action — confirm first.
         if (action.confirm && !window.confirm(action.confirm)) {
             return;
         }
 
         const state = this.reactive.state;
+
+        // Delete override uses its own mutation.
+        if (action.id === 'delete_override') {
+            this.reactive.dispatch('deleteUserOverride', state.activity.cmid, student.id);
+            return;
+        }
+
         this.reactive.dispatch('submissionAction', state.activity.cmid, student.id, action.id);
+    }
+
+    /**
+     * Handle a modal action (override add/edit).
+     *
+     * @param {string} _actionId Action identifier (unused, reserved for future modal types).
+     * @param {object} student Participant data.
+     */
+    async _handleModalAction(_actionId, student) {
+        const state = this.reactive.state;
+        const cmid = state.activity.cmid;
+        const overrideid = state.submission?.overrideid || 0;
+
+        const {openOverrideModal} = await import('local_unifiedgrader/override_modal');
+        const saved = await openOverrideModal(cmid, student.id, overrideid);
+
+        if (saved) {
+            // Refresh the student data and participant list to pick up the new override state.
+            this.reactive.dispatch('loadStudent', cmid, student.id);
+            this.reactive.dispatch('updateFilters', cmid, {});
+        }
     }
 
     /**

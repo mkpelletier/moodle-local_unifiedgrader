@@ -69,6 +69,12 @@ class get_submission_data extends external_api {
         $adapter = adapter_factory::create($params['cmid']);
         $data = $adapter->get_submission_data($params['userid']);
         $data['plagiarismlinks'] = $adapter->get_plagiarism_links($params['userid']);
+
+        // Add override info.
+        $override = $adapter->get_user_override($params['userid']);
+        $data['hasoverride'] = $override !== null;
+        $data['overrideid'] = $override ? (int) $override['id'] : 0;
+
         return $data;
     }
 
@@ -107,6 +113,8 @@ class get_submission_data extends external_api {
                 VALUE_DEFAULT,
                 [],
             ),
+            'hasoverride' => new external_value(PARAM_BOOL, 'Whether user has an override', VALUE_DEFAULT, false),
+            'overrideid' => new external_value(PARAM_INT, 'Override ID (0 if none)', VALUE_DEFAULT, 0),
         ]);
     }
 }

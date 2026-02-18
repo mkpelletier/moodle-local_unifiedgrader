@@ -540,6 +540,58 @@ export default class {
     }
 
     /**
+     * Delete a user-level override and refresh submission data.
+     *
+     * @param {object} stateManager The reactive state manager.
+     * @param {number} cmid Course module ID.
+     * @param {number} userid Student user ID.
+     */
+    async deleteUserOverride(stateManager, cmid, userid) {
+        stateManager.setReadOnly(false);
+        stateManager.state.ui.loading = true;
+        stateManager.setReadOnly(true);
+
+        try {
+            await Ajax.call([{
+                methodname: 'local_unifiedgrader_delete_user_override',
+                args: {cmid, userid},
+            }])[0];
+
+            // Refresh submission data and participant list.
+            const refreshCalls = [
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_submission_data',
+                    args: {cmid, userid},
+                }])[0],
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_participants',
+                    args: {
+                        cmid,
+                        status: stateManager.state.filters.status,
+                        group: stateManager.state.filters.group,
+                        search: stateManager.state.filters.search,
+                        sort: stateManager.state.filters.sort,
+                        sortdir: stateManager.state.filters.sortdir,
+                    },
+                }])[0],
+            ];
+
+            const [submissionData, participants] = await Promise.all(refreshCalls);
+
+            stateManager.setReadOnly(false);
+            Object.assign(stateManager.state.submission, submissionData);
+            stateManager.state.participants = participants;
+            stateManager.state.ui.loading = false;
+            stateManager.setReadOnly(true);
+        } catch (error) {
+            Notification.exception(error);
+            stateManager.setReadOnly(false);
+            stateManager.state.ui.loading = false;
+            stateManager.setReadOnly(true);
+        }
+    }
+
+    /**
      * Save feedback files from the draft area to permanent storage.
      *
      * @param {object} stateManager The reactive state manager.

@@ -89,6 +89,7 @@ class quiz_adapter extends base_adapter {
             'gradingmethod' => 'simple',
             'teamsubmission' => false,
             'blindmarking' => false,
+            'canmanageoverrides' => has_capability('mod/quiz:manageoverrides', $this->context),
         ];
     }
 
@@ -133,6 +134,15 @@ class quiz_adapter extends base_adapter {
         // Check which users have questions needing manual grading.
         $needsgrading = $this->get_users_needing_grading();
 
+        // Batch-load user overrides to avoid N+1 queries.
+        $overrideuserids = $DB->get_fieldset_select(
+            'quiz_overrides',
+            'userid',
+            'quiz = :quizid2 AND userid IS NOT NULL',
+            ['quizid2' => $this->quiz->id],
+        );
+        $overrideset = array_flip($overrideuserids);
+
         $result = [];
         foreach ($enrolledusers as $user) {
             $userid = (int) $user->id;
@@ -153,16 +163,12 @@ class quiz_adapter extends base_adapter {
                 'status' => $status,
                 'submittedat' => $stats ? (int) ($stats->lastfinish ?? 0) : 0,
                 'gradevalue' => $usergrade ? (float) $usergrade->grade : null,
+                'hasoverride' => isset($overrideset[$userid]),
             ];
 
             // Apply status filter.
             if (!empty($filters['status']) && $filters['status'] !== 'all') {
-                if ($filters['status'] === 'late') {
-                    $duedate = (int) ($this->quiz->timeclose ?? 0);
-                    if (!$duedate || !$entry['submittedat'] || $entry['submittedat'] <= $duedate) {
-                        continue;
-                    }
-                } else if ($entry['status'] !== $filters['status']) {
+                if (!$this->matches_filter($filters['status'], $entry, (int) ($this->quiz->timeclose ?? 0))) {
                     continue;
                 }
             }
@@ -408,6 +414,57 @@ class quiz_adapter extends base_adapter {
      */
     public function is_grade_released(int $userid): bool {
         return false;
+    }
+
+    /**
+     * Get the user-level override for a student.
+     *
+     * @param int $userid The student user ID.
+     * @return array|null Override data or null.
+     */
+    public function get_user_override(int $userid): ?array {
+        global $DB;
+
+        $record = $DB->get_record('quiz_overrides', [
+            'quiz' => $this->quiz->id,
+            'userid' => $userid,
+        ]);
+
+        if (!$record) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $record->id,
+            'timeopen' => $record->timeopen !== null ? (int) $record->timeopen : null,
+            'timeclose' => $record->timeclose !== null ? (int) $record->timeclose : null,
+            'timelimit' => $record->timelimit !== null ? (int) $record->timelimit : null,
+            'attempts' => $record->attempts !== null ? (int) $record->attempts : null,
+            'password' => $record->password,
+        ];
+    }
+
+    /**
+     * Delete the user-level override for a student.
+     *
+     * @param int $userid The student user ID.
+     * @return bool True on success.
+     */
+    public function delete_user_override(int $userid): bool {
+        global $DB;
+
+        $record = $DB->get_record('quiz_overrides', [
+            'quiz' => $this->quiz->id,
+            'userid' => $userid,
+        ]);
+
+        if (!$record) {
+            return true;
+        }
+
+        $this->quizobj->get_override_manager()->delete_overrides(overrideids: [$record->id]);
+
+        return true;
     }
 
     // -------------------------------------------------------------------------

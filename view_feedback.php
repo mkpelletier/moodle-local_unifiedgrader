@@ -117,21 +117,22 @@ if ($cm->modname === 'forum') {
     if ($gradingdefinition && !empty($gradingdefinition['criteria'])) {
         if ($gradingdefinition['method'] === 'rubric') {
             $hasrubric = true;
-            // Build fill map from rubricdata (criterionid => selected levelid).
+            // Build fill map from rubricdata (criterionid => {levelid, remark}).
             $fillmap = [];
             if ($rubricdata && !empty($rubricdata['criteria'])) {
                 foreach ($rubricdata['criteria'] as $critid => $critdata) {
-                    if (!empty($critdata['levelid'])) {
-                        $fillmap[(int) $critid] = (int) $critdata['levelid'];
-                    }
+                    $fillmap[(int) $critid] = [
+                        'levelid' => !empty($critdata['levelid']) ? (int) $critdata['levelid'] : 0,
+                        'remark' => $critdata['remark'] ?? '',
+                    ];
                 }
             }
             foreach ($gradingdefinition['criteria'] as $criterion) {
                 $levels = [];
                 $selectedscore = null;
+                $fill = $fillmap[$criterion['id']] ?? ['levelid' => 0, 'remark' => ''];
                 foreach ($criterion['levels'] as $level) {
-                    $isselected = isset($fillmap[$criterion['id']])
-                        && $fillmap[$criterion['id']] === $level['id'];
+                    $isselected = $fill['levelid'] && $fill['levelid'] === $level['id'];
                     $levels[] = [
                         'score' => $level['score'],
                         'definition' => $level['definition'],
@@ -146,6 +147,8 @@ if ($cm->modname === 'forum') {
                     'levels' => $levels,
                     'selectedscore' => $selectedscore,
                     'hasselection' => $selectedscore !== null,
+                    'remark' => $fill['remark'],
+                    'hasremark' => !empty($fill['remark']),
                 ];
                 if ($selectedscore !== null) {
                     $rubrictotal += $selectedscore;

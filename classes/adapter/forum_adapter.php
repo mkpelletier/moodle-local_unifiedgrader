@@ -159,12 +159,7 @@ class forum_adapter extends base_adapter {
 
             // Apply status filter.
             if (!empty($filters['status']) && $filters['status'] !== 'all') {
-                if ($filters['status'] === 'late') {
-                    $duedate = (int) $this->forum->get_due_date();
-                    if (!$duedate || !$entry['submittedat'] || $entry['submittedat'] <= $duedate) {
-                        continue;
-                    }
-                } else if ($entry['status'] !== $filters['status']) {
+                if (!$this->matches_filter($filters['status'], $entry, (int) $this->forum->get_due_date())) {
                     continue;
                 }
             }

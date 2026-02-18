@@ -81,7 +81,7 @@ $string['sortby_submittedat'] = 'Submission date';
 $string['sortby_status'] = 'Status';
 $string['filter_all'] = 'All participants';
 $string['filter_submitted'] = 'Submitted';
-$string['filter_needsgrading'] = 'Needs grading';
+$string['filter_needsgrading'] = 'Ungraded';
 $string['filter_notsubmitted'] = 'Not submitted';
 $string['filter_graded'] = 'Graded';
 $string['filter_late'] = 'Late';
@@ -153,6 +153,7 @@ $string['plagiarism_noresults'] = 'No plagiarism results available.';
 
 // Student feedback view.
 $string['assessment_criteria'] = 'Assessment criteria';
+$string['teacher_remark'] = 'Teacher feedback';
 $string['view_feedback'] = 'View feedback';
 $string['view_annotated_feedback'] = 'View Annotated Feedback';
 $string['feedback_not_available'] = 'Your feedback is not yet available. Please check back after your submission has been graded and released.';
@@ -266,3 +267,11 @@ $string['confirm_lock_submission'] = 'Prevent this student from making submissio
 $string['confirm_unlock_submission'] = 'Allow this student to make submission changes?';
 $string['confirm_submit_for_grading'] = 'Submit this draft on behalf of the student?';
 $string['invalidaction'] = 'Invalid submission action.';
+
+// Override actions.
+$string['override'] = 'Override';
+$string['action_add_override'] = 'Add override';
+$string['action_edit_override'] = 'Edit override';
+$string['action_delete_override'] = 'Delete override';
+$string['confirm_delete_override'] = 'Are you sure you want to delete this user override?';
+$string['override_saved'] = 'Override saved successfully.';
