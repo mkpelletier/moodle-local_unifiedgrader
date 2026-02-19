@@ -289,55 +289,6 @@ export default class {
     }
 
     /**
-     * Load the comment library for a course.
-     *
-     * @param {object} stateManager The reactive state manager.
-     * @param {number} courseid Course ID.
-     */
-    async loadCommentLibrary(stateManager, courseid) {
-        try {
-            const comments = await Ajax.call([{
-                methodname: 'local_unifiedgrader_get_comment_library',
-                args: {courseid},
-            }])[0];
-
-            stateManager.setReadOnly(false);
-            stateManager.state.commentLibrary = comments;
-            stateManager.setReadOnly(true);
-        } catch (error) {
-            Notification.exception(error);
-        }
-    }
-
-    /**
-     * Save a comment to the library.
-     *
-     * @param {object} stateManager The reactive state manager.
-     * @param {number} courseid Course ID.
-     * @param {string} content Comment content.
-     */
-    async saveCommentToLibrary(stateManager, courseid, content) {
-        try {
-            await Ajax.call([{
-                methodname: 'local_unifiedgrader_save_comment_to_library',
-                args: {courseid, content, commentid: 0},
-            }])[0];
-
-            // Reload the library.
-            const comments = await Ajax.call([{
-                methodname: 'local_unifiedgrader_get_comment_library',
-                args: {courseid},
-            }])[0];
-
-            stateManager.setReadOnly(false);
-            stateManager.state.commentLibrary = comments;
-            stateManager.setReadOnly(true);
-        } catch (error) {
-            Notification.exception(error);
-        }
-    }
-
-    /**
      * Load submission comments for the current student.
      *
      * @param {object} stateManager The reactive state manager.
@@ -554,6 +505,58 @@ export default class {
         try {
             await Ajax.call([{
                 methodname: 'local_unifiedgrader_delete_user_override',
+                args: {cmid, userid},
+            }])[0];
+
+            // Refresh submission data and participant list.
+            const refreshCalls = [
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_submission_data',
+                    args: {cmid, userid},
+                }])[0],
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_participants',
+                    args: {
+                        cmid,
+                        status: stateManager.state.filters.status,
+                        group: stateManager.state.filters.group,
+                        search: stateManager.state.filters.search,
+                        sort: stateManager.state.filters.sort,
+                        sortdir: stateManager.state.filters.sortdir,
+                    },
+                }])[0],
+            ];
+
+            const [submissionData, participants] = await Promise.all(refreshCalls);
+
+            stateManager.setReadOnly(false);
+            Object.assign(stateManager.state.submission, submissionData);
+            stateManager.state.participants = participants;
+            stateManager.state.ui.loading = false;
+            stateManager.setReadOnly(true);
+        } catch (error) {
+            Notification.exception(error);
+            stateManager.setReadOnly(false);
+            stateManager.state.ui.loading = false;
+            stateManager.setReadOnly(true);
+        }
+    }
+
+    /**
+     * Delete a quiz duedate extension for a user.
+     *
+     * @param {object} stateManager The reactive state manager.
+     * @param {number} cmid Course module ID.
+     * @param {number} userid Student user ID.
+     */
+    async deleteDuedateExtension(stateManager, cmid, userid) {
+        stateManager.setReadOnly(false);
+        stateManager.state.ui.loading = true;
+        stateManager.setReadOnly(true);
+
+        try {
+            await Ajax.call([{
+                methodname: 'local_unifiedgrader_delete_duedate_extension',
                 args: {cmid, userid},
             }])[0];
 

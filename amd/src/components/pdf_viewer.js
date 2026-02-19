@@ -625,6 +625,11 @@ export default class PdfViewer extends BaseComponent {
 
             // Create the annotation layer (read-only for student view).
             this._annotationLayer = new AnnotationLayer(fabricLib, annotCanvas, wrapperEl, this._readOnly);
+
+            // Pass course code for comment library integration in annotations.
+            const coursecode = this.reactive?.state?.activity?.coursecode || '';
+            this._annotationLayer.setCourseCode(coursecode);
+
             this._annotationLayer.setPageSize(
                 parseInt(annotCanvas.style.width, 10),
                 parseInt(annotCanvas.style.height, 10)

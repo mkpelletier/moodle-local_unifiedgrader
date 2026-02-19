@@ -34,8 +34,8 @@
         </div>
         <div class="card-body">
 
-            {{! Simple grading: number input }}
-            <div data-region="simple-grade" class="mb-3">
+            {{! Simple grading: number input with percentage }}
+            <div data-region="simple-grade">
                 <div class="input-group">
                     <input type="number"
                            data-action="grade-input"
@@ -45,103 +45,142 @@
                            placeholder="{{#str}} grade, local_unifiedgrader {{/str}}"
                            aria-label="{{#str}} grade, local_unifiedgrader {{/str}}">
                     <span class="input-group-text" data-region="max-grade">/ --</span>
+                    <span class="input-group-text text-muted" data-region="grade-percentage"></span>
                 </div>
             </div>
 
             {{! Advanced grading placeholder (rubric/marking guide) }}
             <div data-region="advanced-grading" class="d-none mb-3"></div>
 
-            {{! Saved feedback display (shown by JS when feedback exists and not editing) }}
-            <div data-region="feedback-display" class="d-none mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="small fw-bold text-success">
-                        <i class="fa fa-check-circle me-1"></i>
-                        {{#str}} feedback_saved, local_unifiedgrader {{/str}}
-                    </span>
-                    <div class="d-flex gap-1">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-action="edit-feedback">
-                            <i class="fa fa-pencil me-1"></i>{{#str}} edit_feedback, local_unifiedgrader {{/str}}
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-feedback">
-                            <i class="fa fa-trash me-1"></i>{{#str}} delete_feedback, local_unifiedgrader {{/str}}
-                        </button>
-                    </div>
-                </div>
-                <div data-region="feedback-display-content" class="border rounded p-3 bg-light small"></div>
-            </div>
-
-            {{! Feedback editor wrapper (shown/hidden by JS) }}
-            <div data-region="feedback-editor-wrapper">
-                <div class="mb-3">
-                    <label for="feedback-editor-{{uniqid}}" class="form-label small fw-bold">
-                        {{#str}} feedback, local_unifiedgrader {{/str}}
-                    </label>
-                    <textarea id="feedback-editor-{{uniqid}}"
-                              data-action="feedback-input"
-                              class="form-control"
-                              rows="5"
-                              placeholder="{{#str}} feedback, local_unifiedgrader {{/str}}"></textarea>
-                </div>
-
-                {{! Comment library }}
-                <div data-region="comment-library" class="mb-3">
-                    <details class="border rounded">
-                        <summary class="px-3 py-2 bg-light small fw-bold" style="cursor: pointer;">
-                            {{#str}} commentlibrary, local_unifiedgrader {{/str}}
-                        </summary>
-                        <div class="p-2">
-                            <div data-region="comment-list" class="list-group list-group-flush mb-2"
-                                 style="max-height: 200px; overflow-y: auto;">
-                                <div data-region="no-comments" class="text-muted small p-2 text-center">
-                                    {{#str}} nocomments, local_unifiedgrader {{/str}}
-                                </div>
-                            </div>
-                            <div class="input-group input-group-sm">
-                                <input type="text"
-                                       data-action="new-comment-input"
-                                       class="form-control"
-                                       placeholder="{{#str}} newcomment, local_unifiedgrader {{/str}}">
-                                <button data-action="save-comment" class="btn btn-outline-primary" type="button">
-                                    +
-                                </button>
-                            </div>
-                        </div>
-                    </details>
-                </div>
-            </div>
-
-            {{! Save button }}
-            <button data-action="save-grade" class="btn btn-primary w-100" type="button">
-                {{#str}} savefeedback, local_unifiedgrader {{/str}}
-            </button>
-
         </div>
     </div>
 
-    {{! Rubric / Marking guide section (populated by JS when advanced grading is active) }}
+    {{! Rubric / Marking guide section (collapsible, expanded by default, populated by JS) }}
     <div data-region="rubric-section" class="d-none card mb-3">
         <div class="card-header py-2 d-flex justify-content-between align-items-center">
-            <h6 class="mb-0" data-region="rubric-title"></h6>
-            <span class="badge bg-primary" data-region="rubric-total"></span>
+            <div class="d-flex align-items-center gap-2 flex-grow-1"
+                 role="button"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#rubric-collapse-{{uniqid}}"
+                 aria-expanded="true"
+                 aria-controls="rubric-collapse-{{uniqid}}"
+                 style="cursor: pointer;">
+                <h6 class="mb-0 d-flex align-items-center gap-2">
+                    <span data-region="rubric-title"></span>
+                    <span class="badge bg-primary" data-region="rubric-total"></span>
+                </h6>
+            </div>
+            <div class="d-flex align-items-center gap-2 ms-2">
+                <i class="fa fa-chevron-down collapse-icon"
+                   aria-hidden="true"
+                   role="button"
+                   data-bs-toggle="collapse"
+                   data-bs-target="#rubric-collapse-{{uniqid}}"
+                   style="cursor: pointer;"></i>
+            </div>
         </div>
-        <div class="card-body p-0" data-region="rubric-body"></div>
+        <div id="rubric-collapse-{{uniqid}}" class="collapse show">
+            <div class="card-body p-0" data-region="rubric-body"></div>
+        </div>
     </div>
 
-    {{! Feedback files section (shown when assignfeedback_file plugin is enabled) }}
+    {{! Overall Feedback section (collapsible, collapsed by default) }}
+    <div class="card mb-3" data-region="overall-feedback-section">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-2 flex-grow-1 collapsed"
+                 role="button"
+                 data-bs-toggle="collapse"
+                 data-bs-target="#feedback-collapse-{{uniqid}}"
+                 aria-expanded="false"
+                 aria-controls="feedback-collapse-{{uniqid}}"
+                 style="cursor: pointer;">
+                <h6 class="mb-0">
+                    {{#str}} overall_feedback, local_unifiedgrader {{/str}}
+                </h6>
+            </div>
+            <div class="d-flex align-items-center gap-2 ms-2">
+                <button type="button"
+                        class="btn btn-link btn-sm p-0 text-muted"
+                        data-action="toggle-comment-library"
+                        title="{{#str}} clib_title, local_unifiedgrader {{/str}}">
+                    <i class="fa fa-commenting" aria-hidden="true"></i>
+                </button>
+                <i class="fa fa-chevron-down collapse-icon"
+                   aria-hidden="true"
+                   role="button"
+                   data-bs-toggle="collapse"
+                   data-bs-target="#feedback-collapse-{{uniqid}}"
+                   style="cursor: pointer;"></i>
+            </div>
+        </div>
+        <div id="feedback-collapse-{{uniqid}}" class="collapse" data-region="feedback-collapse">
+            <div class="card-body">
+
+                {{! Saved feedback display (shown by JS when feedback exists and not editing) }}
+                <div data-region="feedback-display" class="d-none mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="small fw-bold text-success">
+                            <i class="fa fa-check-circle me-1"></i>
+                            {{#str}} feedback_saved, local_unifiedgrader {{/str}}
+                        </span>
+                        <div class="d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="edit-feedback">
+                                <i class="fa fa-pencil me-1"></i>{{#str}} edit_feedback, local_unifiedgrader {{/str}}
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-feedback">
+                                <i class="fa fa-trash me-1"></i>{{#str}} delete_feedback, local_unifiedgrader {{/str}}
+                            </button>
+                        </div>
+                    </div>
+                    <div data-region="feedback-display-content" class="border rounded p-3 bg-light small"></div>
+                </div>
+
+                {{! Feedback editor wrapper (shown/hidden by JS) }}
+                <div data-region="feedback-editor-wrapper">
+                    <div class="mb-3">
+                        <textarea id="feedback-editor-{{uniqid}}"
+                                  data-action="feedback-input"
+                                  class="form-control"
+                                  rows="10"
+                                  placeholder="{{#str}} overall_feedback, local_unifiedgrader {{/str}}"></textarea>
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    {{! Save button (standalone, always visible) }}
+    <button data-action="save-grade" class="btn btn-primary w-100 mb-3" type="button">
+        {{#str}} savefeedback, local_unifiedgrader {{/str}}
+    </button>
+
+    {{! Feedback files section (collapsible, collapsed by default) }}
     {{#hasfeedbackfileplugin}}
     <div data-region="feedback-files-section" class="card mb-3">
-        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center collapsed"
+             role="button"
+             data-bs-toggle="collapse"
+             data-bs-target="#feedbackfiles-collapse-{{uniqid}}"
+             aria-expanded="false"
+             aria-controls="feedbackfiles-collapse-{{uniqid}}">
             <h6 class="mb-0">
                 <i class="fa fa-files-o me-1"></i>
                 {{#str}} feedbackfiles, local_unifiedgrader {{/str}}
             </h6>
-            <button data-action="save-feedback-files" class="btn btn-sm btn-primary" type="button">
-                <i class="fa fa-save me-1"></i>
-                {{#str}} save {{/str}}
-            </button>
+            <i class="fa fa-chevron-down collapse-icon" aria-hidden="true"></i>
         </div>
-        <div class="card-body" data-region="feedback-files-body">
-            {{{feedbackfileshtml}}}
+        <div id="feedbackfiles-collapse-{{uniqid}}" class="collapse">
+            <div class="card-body" data-region="feedback-files-body">
+                {{{feedbackfileshtml}}}
+                <div class="mt-2 text-end">
+                    <button data-action="save-feedback-files" class="btn btn-sm btn-primary" type="button">
+                        <i class="fa fa-save me-1"></i>
+                        {{#str}} save {{/str}}
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     {{/hasfeedbackfileplugin}}

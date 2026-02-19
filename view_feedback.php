@@ -93,7 +93,10 @@ if ($cm->modname === 'forum') {
     // Format grade display.
     $gradedisplay = '';
     if ($gradedata['grade'] !== null) {
-        $gradedisplay = round($gradedata['grade'], 2) . ' / ' . round($activityinfo['maxgrade'], 2);
+        $gradevalue = round($gradedata['grade'], 2);
+        $maxgrade = round($activityinfo['maxgrade'], 2);
+        $pct = $maxgrade > 0 ? round(($gradevalue / $maxgrade) * 100) : 0;
+        $gradedisplay = $gradevalue . ' / ' . $maxgrade . ' (' . $pct . '%)';
     }
 
     // Parse rubric/guide data for template.
@@ -310,7 +313,10 @@ $PAGE->add_body_class('local-unifiedgrader-feedback-page');
 // Format grade display.
 $gradedisplay = '';
 if ($gradedata['grade'] !== null) {
-    $gradedisplay = round($gradedata['grade'], 2) . ' / ' . round($activityinfo['maxgrade'], 2);
+    $gradevalue = round($gradedata['grade'], 2);
+    $maxgrade = round($activityinfo['maxgrade'], 2);
+    $pct = $maxgrade > 0 ? round(($gradevalue / $maxgrade) * 100) : 0;
+    $gradedisplay = $gradevalue . ' / ' . $maxgrade . ' (' . $pct . '%)';
 }
 
 // Parse rubric/guide data for template.

@@ -46,6 +46,7 @@ export const init = (containerId) => {
     // Read server-rendered initial data from data attributes.
     const cmid = parseInt(container.dataset.cmid, 10);
     const courseid = parseInt(container.dataset.courseid, 10);
+    const coursecode = container.dataset.coursecode || '';
     const userid = parseInt(container.dataset.userid, 10);
     const maxgrade = parseFloat(container.dataset.maxgrade) || 100;
     const gradingmethod = container.dataset.gradingmethod || 'simple';
@@ -105,7 +106,7 @@ export const init = (containerId) => {
     // objects or "sets" (arrays of objects with mandatory `id` fields).
     // Primitives and null cannot be proxied.
     const initialState = {
-        activity: Object.assign({cmid: cmid, courseid: courseid}, activityinfo),
+        activity: Object.assign({cmid: cmid, courseid: courseid, coursecode: coursecode}, activityinfo),
         participants: participants,
         currentUser: {id: userid},
         submission: {
@@ -136,7 +137,6 @@ export const init = (containerId) => {
             loaded: false,
             comments: [],
         },
-        commentLibrary: [],
         groups: groups,
         filters: {
             status: 'all',
@@ -211,9 +211,6 @@ export const init = (containerId) => {
     if (userid) {
         reactiveInstance.dispatch('loadStudent', cmid, userid);
     }
-
-    // Load comment library.
-    reactiveInstance.dispatch('loadCommentLibrary', courseid);
 
     // Layout toggle handler.
     const layoutToggle = container.querySelector('[data-region="layout-toggle"]');

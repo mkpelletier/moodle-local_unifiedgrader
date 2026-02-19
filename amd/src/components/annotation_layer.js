@@ -33,6 +33,43 @@ import {
     createCommentMarker, createHighlight, createStamp,
     createShapeRect, createShapeEllipse, createShapeLine, createShapeArrow,
 } from 'local_unifiedgrader/annotation/types';
+import Ajax from 'core/ajax';
+
+/** Color palette for tag badges (matches comment_library_popout.js). */
+const TAG_COLORS = [
+    {bg: '#6c5ce7', text: '#fff'},
+    {bg: '#00b894', text: '#fff'},
+    {bg: '#e17055', text: '#fff'},
+    {bg: '#0984e3', text: '#fff'},
+    {bg: '#e84393', text: '#fff'},
+    {bg: '#00cec9', text: '#fff'},
+    {bg: '#a29bfe', text: '#fff'},
+    {bg: '#fdcb6e', text: '#333'},
+];
+
+/**
+ * Simple string hash for deterministic tag coloring.
+ *
+ * @param {string} str Input string.
+ * @returns {number} Non-negative integer hash.
+ */
+const hashString = (str) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i); // eslint-disable-line no-bitwise
+        hash |= 0; // eslint-disable-line no-bitwise
+    }
+    return Math.abs(hash);
+};
+
+/**
+ * Pick a color from a palette based on a key string.
+ *
+ * @param {string} key The key to hash.
+ * @param {Array} palette Array of {bg, text} color objects.
+ * @returns {{bg: string, text: string}}
+ */
+const colorFor = (key, palette) => palette[hashString(key) % palette.length];
 
 export default class AnnotationLayer {
 
@@ -90,11 +127,25 @@ export default class AnnotationLayer {
         /** @type {?object} */
         this._lastPointer = null;
 
-        // Comment popup and tooltip.
+        // Comment popup, tooltip, and picker.
         /** @type {?HTMLElement} */
         this._commentPopup = null;
         /** @type {?HTMLElement} */
         this._commentTooltip = null;
+        /** @type {?HTMLElement} */
+        this._commentPicker = null;
+        /** @type {?Function} Callback to fire when picker is dismissed externally. */
+        this._pickerCancelCallback = null;
+
+        // Comment library data (loaded on demand for the comment picker).
+        /** @type {string} */
+        this._coursecode = '';
+        /** @type {Array} */
+        this._libraryComments = [];
+        /** @type {Array} */
+        this._libraryTags = [];
+        /** @type {boolean} */
+        this._libraryLoaded = false;
 
         // Callbacks (arrays to support multiple listeners).
         /** @type {Function[]} */
@@ -139,6 +190,7 @@ export default class AnnotationLayer {
             return;
         }
         this._closeCommentPopup();
+        this._closeCommentPicker();
         this._currentTool = tool;
         if (!this._canvas) {
             return;
@@ -179,12 +231,14 @@ export default class AnnotationLayer {
             this._canvas.isDrawingMode = false;
         }
 
-        // In select mode, allow object selection. Otherwise disable it.
+        // In select and comment modes, allow object selection so existing
+        // annotations can be moved. Other tools disable selection entirely.
+        const allowSelect = (tool === TOOLS.SELECT || tool === TOOLS.COMMENT);
         this._canvas.forEachObject((obj) => {
-            obj.selectable = (tool === TOOLS.SELECT);
-            obj.evented = (tool === TOOLS.SELECT);
+            obj.selectable = allowSelect;
+            obj.evented = allowSelect;
         });
-        if (tool !== TOOLS.SELECT) {
+        if (!allowSelect) {
             this._canvas.discardActiveObject();
         }
         this._canvas.requestRenderAll();
@@ -231,6 +285,16 @@ export default class AnnotationLayer {
      */
     setShapeType(shapeType) {
         this._currentShape = shapeType;
+    }
+
+    /**
+     * Set the course code for comment library integration.
+     *
+     * @param {string} coursecode The current course code.
+     */
+    setCourseCode(coursecode) {
+        this._coursecode = coursecode || '';
+        this._libraryLoaded = false;
     }
 
     /**
@@ -471,6 +535,7 @@ export default class AnnotationLayer {
      */
     destroy() {
         this._closeCommentPopup();
+        this._closeCommentPicker();
         this._hideCommentTooltip();
         this._saveCurrentPageState();
         if (this._canvas) {
@@ -512,13 +577,18 @@ export default class AnnotationLayer {
      * @param {object} opt Fabric event options.
      */
     _onMouseDown(opt) {
-        // Ignore if clicking on an existing object in non-select mode
-        // (let Fabric handle it in select mode).
+        // In select mode, let Fabric handle object interaction.
         if (this._currentTool === TOOLS.SELECT) {
             return;
         }
         if (this._currentTool === TOOLS.PEN) {
             return; // Fabric handles drawing mode.
+        }
+
+        // If clicking on an existing object in comment mode, let Fabric
+        // handle it (select/move) instead of placing a new comment on top.
+        if (this._currentTool === TOOLS.COMMENT && opt.target) {
+            return;
         }
 
         const pointer = this._canvas.getViewportPoint(opt.e);
@@ -642,8 +712,8 @@ export default class AnnotationLayer {
         this._canvas.add(marker);
         this._canvas.requestRenderAll();
 
-        // Show popup for text entry.
-        this._showCommentPopup(pointer.x, pointer.y, '', (text) => {
+        // Show comment picker (library + free text) for new comments.
+        this._showCommentPicker(pointer.x, pointer.y, (text) => {
             if (text !== null && text.trim() !== '') {
                 marker.annotationText = text;
                 this._undoStack.push({type: 'add', object: marker});
@@ -889,6 +959,321 @@ export default class AnnotationLayer {
             this._commentPopup.remove();
             this._commentPopup = null;
         }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Comment picker (library + free text)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Show the comment picker with library comments and a free text option.
+     *
+     * @param {number} x Canvas x position.
+     * @param {number} y Canvas y position.
+     * @param {Function} callback Called with the selected/entered text or null if cancelled.
+     */
+    _showCommentPicker(x, y, callback) {
+        this._closeCommentPopup();
+        this._closeCommentPicker();
+
+        const PICKER_WIDTH = 360;
+        const PICKER_MAX_HEIGHT = 420;
+
+        const picker = document.createElement('div');
+        picker.className = 'annotation-comment-picker';
+
+        // Position to the right of the marker, clamped to both canvas
+        // bounds and the viewport so the picker never extends off-screen.
+        const wrapperRect = this._wrapperEl.getBoundingClientRect();
+        const MARGIN = 8;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        let pickerLeft = x + 20;
+        if (pickerLeft + PICKER_WIDTH > this._canvasWidth) {
+            pickerLeft = x - PICKER_WIDTH - 20;
+        }
+        if (pickerLeft < 0) {
+            pickerLeft = 0;
+        }
+        // Clamp to right edge of viewport.
+        const absLeft = wrapperRect.left + pickerLeft;
+        if (absLeft + PICKER_WIDTH > vw - MARGIN) {
+            pickerLeft = Math.max(0, (vw - MARGIN - PICKER_WIDTH) - wrapperRect.left);
+        }
+
+        let pickerTop = y - 10;
+        if (pickerTop < 0) {
+            pickerTop = 0;
+        }
+        // Clamp to bottom edge of viewport.
+        const absTop = wrapperRect.top + pickerTop;
+        if (absTop + PICKER_MAX_HEIGHT > vh - MARGIN) {
+            pickerTop = Math.max(0, (vh - MARGIN - PICKER_MAX_HEIGHT) - wrapperRect.top);
+        }
+
+        picker.style.left = pickerLeft + 'px';
+        picker.style.top = pickerTop + 'px';
+
+        // --- Library section ---
+        const librarySection = document.createElement('div');
+        librarySection.className = 'picker-library';
+
+        const tagContainer = document.createElement('div');
+        tagContainer.className = 'picker-tags d-flex flex-wrap gap-1';
+        librarySection.appendChild(tagContainer);
+
+        const listContainer = document.createElement('div');
+        listContainer.className = 'picker-list';
+        librarySection.appendChild(listContainer);
+
+        picker.appendChild(librarySection);
+
+        // --- Free text section ---
+        const freetextSection = document.createElement('div');
+        freetextSection.className = 'picker-freetext';
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'form-control form-control-sm';
+        textarea.rows = 2;
+        textarea.placeholder = 'Or write your own...';
+        freetextSection.appendChild(textarea);
+
+        const btnRow = document.createElement('div');
+        btnRow.className = 'd-flex gap-1 mt-1';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-sm btn-primary';
+        saveBtn.textContent = 'Save';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-sm btn-secondary';
+        cancelBtn.textContent = 'Cancel';
+
+        btnRow.appendChild(saveBtn);
+        btnRow.appendChild(cancelBtn);
+        freetextSection.appendChild(btnRow);
+
+        picker.appendChild(freetextSection);
+
+        this._wrapperEl.appendChild(picker);
+        this._commentPicker = picker;
+
+        // Finish helper — close picker and invoke callback.
+        const finish = (text) => {
+            this._pickerCancelCallback = null;
+            this._closeCommentPicker();
+            callback(text);
+        };
+
+        // Store a cancel callback so _closeCommentPicker() can fire it
+        // when the picker is dismissed externally (tool switch, destroy, page change).
+        this._pickerCancelCallback = () => callback(null);
+
+        // Wire button events.
+        saveBtn.addEventListener('click', () => finish(textarea.value));
+        cancelBtn.addEventListener('click', () => finish(null));
+
+        // Keyboard shortcuts on the textarea.
+        textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                finish(textarea.value);
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                finish(null);
+            }
+            e.stopPropagation();
+        });
+
+        // Also close on Escape anywhere in the picker.
+        picker.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                finish(null);
+            }
+        });
+
+        // Track active tag filter (local to this picker instance).
+        let activeTagId = 0;
+
+        const renderContent = () => {
+            this._renderPickerTags(tagContainer, activeTagId, (tagId) => {
+                activeTagId = tagId;
+                renderContent();
+            });
+            this._renderPickerComments(listContainer, activeTagId, finish);
+        };
+
+        // Load library data and render.
+        if (this._libraryLoaded) {
+            renderContent();
+        } else {
+            listContainer.innerHTML = '<div class="picker-loading">Loading comments...</div>';
+            this._loadLibraryData().then(() => {
+                renderContent();
+            });
+        }
+
+        // Focus the textarea after a tick (Fabric.js may steal focus).
+        setTimeout(() => textarea.focus(), 50);
+    }
+
+    /** Close the comment picker if open, firing the cancel callback for external dismissals. */
+    _closeCommentPicker() {
+        if (this._commentPicker) {
+            const cb = this._pickerCancelCallback;
+            this._pickerCancelCallback = null;
+            this._commentPicker.remove();
+            this._commentPicker = null;
+            // If the picker was closed externally (not via finish()), fire cancel to remove the marker.
+            if (cb) {
+                cb();
+            }
+        }
+    }
+
+    /**
+     * Load comment library data via AJAX.
+     *
+     * @returns {Promise<void>}
+     */
+    async _loadLibraryData() {
+        try {
+            const [comments, tags] = await Promise.all([
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_library_comments',
+                    args: {coursecode: this._coursecode, tagid: 0},
+                }])[0],
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_library_tags',
+                    args: {},
+                }])[0],
+            ]);
+            this._libraryComments = comments || [];
+            this._libraryTags = (tags || []).sort((a, b) => a.name.localeCompare(b.name));
+            this._libraryLoaded = true;
+        } catch (err) {
+            this._libraryComments = [];
+            this._libraryTags = [];
+            this._libraryLoaded = true;
+        }
+    }
+
+    /**
+     * Render tag filter chips inside the picker.
+     *
+     * @param {HTMLElement} container The tag container element.
+     * @param {number} activeTagId Currently active tag ID (0 = all).
+     * @param {Function} onTagClick Called with the tag ID when a chip is clicked.
+     */
+    _renderPickerTags(container, activeTagId, onTagClick) {
+        container.innerHTML = '';
+
+        if (this._libraryTags.length === 0) {
+            return;
+        }
+
+        // "All" chip.
+        const allChip = document.createElement('span');
+        allChip.className = activeTagId === 0
+            ? 'badge bg-primary' : 'badge bg-light text-dark border';
+        allChip.style.cursor = 'pointer';
+        allChip.style.fontSize = '0.7rem';
+        allChip.textContent = 'All';
+        allChip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onTagClick(0);
+        });
+        container.appendChild(allChip);
+
+        // Per-tag chips.
+        this._libraryTags.forEach((tag) => {
+            const chip = document.createElement('span');
+            chip.style.cursor = 'pointer';
+            chip.style.fontSize = '0.7rem';
+            if (activeTagId === tag.id) {
+                chip.className = 'badge';
+                const color = colorFor(tag.name, TAG_COLORS);
+                chip.style.backgroundColor = color.bg;
+                chip.style.color = color.text;
+            } else {
+                chip.className = 'badge bg-light text-dark border';
+            }
+            chip.textContent = tag.name;
+            chip.addEventListener('click', (e) => {
+                e.stopPropagation();
+                onTagClick(tag.id);
+            });
+            container.appendChild(chip);
+        });
+    }
+
+    /**
+     * Render filtered comment list inside the picker.
+     *
+     * @param {HTMLElement} container The list container element.
+     * @param {number} activeTagId Currently active tag ID (0 = all).
+     * @param {Function} onSelect Called with the comment content when a comment is clicked.
+     */
+    _renderPickerComments(container, activeTagId, onSelect) {
+        container.innerHTML = '';
+
+        let filtered = this._libraryComments;
+        if (activeTagId !== 0) {
+            filtered = filtered.filter((c) => c.tagids && c.tagids.includes(activeTagId));
+        }
+
+        if (filtered.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'picker-empty';
+            empty.textContent = 'No comments yet.';
+            container.appendChild(empty);
+            return;
+        }
+
+        // Build a tag lookup for tag names.
+        const tagMap = new Map();
+        this._libraryTags.forEach((t) => tagMap.set(t.id, t));
+
+        filtered.forEach((comment) => {
+            const item = document.createElement('div');
+            item.className = 'picker-comment-item';
+
+            // Truncated text.
+            const textEl = document.createElement('div');
+            const truncated = comment.content.length > 120
+                ? comment.content.substring(0, 120) + '...' : comment.content;
+            textEl.textContent = truncated;
+            item.appendChild(textEl);
+
+            // Tag pills.
+            if (comment.tagids && comment.tagids.length > 0) {
+                const pillRow = document.createElement('div');
+                pillRow.className = 'd-flex flex-wrap gap-1 mt-1';
+                comment.tagids.forEach((tid) => {
+                    const tag = tagMap.get(tid);
+                    if (tag) {
+                        const pill = document.createElement('span');
+                        pill.className = 'badge';
+                        pill.style.fontSize = '0.65rem';
+                        const color = colorFor(tag.name, TAG_COLORS);
+                        pill.style.backgroundColor = color.bg;
+                        pill.style.color = color.text;
+                        pill.textContent = tag.name;
+                        pillRow.appendChild(pill);
+                    }
+                });
+                item.appendChild(pillRow);
+            }
+
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                onSelect(comment.content);
+            });
+            container.appendChild(item);
+        });
     }
 
     // ──────────────────────────────────────────────

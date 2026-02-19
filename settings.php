@@ -58,5 +58,14 @@ if ($hassiteconfig) {
         1
     ));
 
+    $settings->add(new admin_setting_configtext(
+        'local_unifiedgrader/coursecode_regex',
+        get_string('setting_coursecode_regex', 'local_unifiedgrader'),
+        get_string('setting_coursecode_regex_desc', 'local_unifiedgrader'),
+        '',
+        PARAM_RAW,
+        40
+    ));
+
     $ADMIN->add('localplugins', $settings);
 }

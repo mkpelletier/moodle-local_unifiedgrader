@@ -223,6 +223,7 @@ $string['annotate_undo'] = 'Undo';
 $string['annotate_redo'] = 'Redo';
 $string['annotate_delete'] = 'Delete selected';
 $string['annotate_clearall'] = 'Clear all';
+$string['annotate_clear_confirm'] = 'Are you sure you want to clear all annotations on this page? This cannot be undone.';
 
 // Document info.
 $string['docinfo'] = 'Document info';
@@ -278,3 +279,58 @@ $string['action_edit_override'] = 'Edit override';
 $string['action_delete_override'] = 'Delete override';
 $string['confirm_delete_override'] = 'Are you sure you want to delete this user override?';
 $string['override_saved'] = 'Override saved successfully.';
+
+// Quiz duedate extensions.
+$string['action_delete_extension'] = 'Delete extension';
+$string['confirm_delete_extension'] = 'Are you sure you want to delete this due date extension?';
+$string['quiz_extension_original_duedate'] = 'Original due date';
+$string['quiz_extension_current_extension'] = 'Current extension';
+$string['quiz_extension_new_duedate'] = 'Extension due date';
+$string['quiz_extension_must_be_after_duedate'] = 'The extension date must be after the current due date.';
+$string['quiz_extension_plugin_missing'] = 'The quizaccess_duedate plugin is required for quiz extensions but is not installed.';
+
+// Settings: course code regex.
+$string['setting_coursecode_regex'] = 'Course code regex';
+$string['setting_coursecode_regex_desc'] = 'The Comment Library organises saved comments by course code, so teachers can reuse feedback across different offerings of the same course (e.g. semester to semester). This setting controls how course codes are extracted from Moodle course short names. Enter a PHP regex pattern that matches the code portion of your short names (e.g. <code>/[A-Z]{3}\\d{4}/</code> would extract <strong>THE2201</strong> from a short name like <em>THE2201-2026-S1</em>). Leave empty to use the full short name as the course code.';
+
+// Comment library v2.
+$string['clib_title'] = 'Comment Library';
+$string['clib_all'] = 'All';
+$string['clib_quick_add'] = 'Quick add comment...';
+$string['clib_manage'] = 'Manage Library';
+$string['clib_no_comments'] = 'No comments yet.';
+$string['clib_insert'] = 'Insert';
+$string['clib_copied'] = 'Comment copied to clipboard';
+$string['clib_my_library'] = 'My Library';
+$string['clib_shared_library'] = 'Shared Library';
+$string['clib_new_comment'] = 'New comment';
+$string['clib_edit_comment'] = 'Edit comment';
+$string['clib_delete_comment'] = 'Delete comment';
+$string['clib_confirm_delete'] = 'Are you sure you want to delete this comment?';
+$string['clib_share'] = 'Share';
+$string['clib_unshare'] = 'Unshare';
+$string['clib_import'] = 'Import';
+$string['clib_imported'] = 'Comment imported to your library';
+$string['clib_copy_to_course'] = 'Copy to course';
+$string['clib_all_courses'] = 'All courses';
+$string['clib_tags'] = 'Tags';
+$string['clib_manage_tags'] = 'Manage tags';
+$string['clib_new_tag'] = 'New tag';
+$string['clib_edit_tag'] = 'Edit tag';
+$string['clib_delete_tag'] = 'Delete tag';
+$string['clib_confirm_delete_tag'] = 'Are you sure you want to delete this tag? It will be removed from all comments.';
+$string['clib_system_tag'] = 'System default';
+$string['clib_shared_by'] = 'Shared by {$a}';
+$string['clib_no_shared'] = 'No shared comments available.';
+$string['clib_picker_freetext'] = 'Or write your own...';
+$string['clib_picker_loading'] = 'Loading comments...';
+$string['unifiedgrader:sharecomments'] = 'Share comments in the library with other teachers';
+
+// Privacy: comment library v2.
+$string['privacy:metadata:clib'] = 'Comment library entries in the Unified Grader.';
+$string['privacy:metadata:clib:userid'] = 'The teacher who owns the comment.';
+$string['privacy:metadata:clib:coursecode'] = 'The course code the comment is associated with.';
+$string['privacy:metadata:clib:content'] = 'The content of the comment.';
+$string['privacy:metadata:cltag'] = 'Comment library tags in the Unified Grader.';
+$string['privacy:metadata:cltag:userid'] = 'The teacher who owns the tag.';
+$string['privacy:metadata:cltag:name'] = 'The tag name.';

@@ -74,11 +74,22 @@ class quiz_adapter extends base_adapter {
      * @return array
      */
     public function get_activity_info(): array {
+        $hasduedateplugin = class_exists('\quizaccess_duedate\override_manager');
+
+        // Use duedate plugin's quiz-level duedate if available, otherwise fallback to timeclose.
+        $duedate = (int) ($this->quiz->timeclose ?? 0);
+        if ($hasduedateplugin) {
+            $pluginduedate = $this->get_duedate_plugin_duedate();
+            if ($pluginduedate > 0) {
+                $duedate = $pluginduedate;
+            }
+        }
+
         return [
             'id' => (int) $this->cm->id,
             'name' => format_string($this->quiz->name),
             'type' => 'quiz',
-            'duedate' => (int) ($this->quiz->timeclose ?? 0),
+            'duedate' => $duedate,
             'cutoffdate' => (int) ($this->quiz->timeclose ?? 0),
             'maxgrade' => (float) $this->quiz->grade,
             'intro' => format_text(
@@ -90,6 +101,9 @@ class quiz_adapter extends base_adapter {
             'teamsubmission' => false,
             'blindmarking' => false,
             'canmanageoverrides' => has_capability('mod/quiz:manageoverrides', $this->context),
+            'hasduedateplugin' => $hasduedateplugin,
+            'canmanageextensions' => $hasduedateplugin
+                && has_capability('quizaccess/duedate:manageoverrides', $this->context),
         ];
     }
 
@@ -150,6 +164,16 @@ class quiz_adapter extends base_adapter {
             $overrideset[(int) $ov->userid] = $ov->timeclose !== null ? (int) $ov->timeclose : null;
         }
 
+        // Batch-load duedate plugin extensions (if plugin is installed).
+        $hasduedateplugin = class_exists('\quizaccess_duedate\override_manager');
+        $duedateextensions = [];
+        if ($hasduedateplugin) {
+            $ddoverrides = \quizaccess_duedate\override_manager::get_overrides($this->quiz->id, 'user');
+            foreach ($ddoverrides as $ddo) {
+                $duedateextensions[(int) $ddo->userid] = (int) $ddo->duedate;
+            }
+        }
+
         $globaltimeclose = (int) ($this->quiz->timeclose ?? 0);
 
         $result = [];
@@ -164,8 +188,14 @@ class quiz_adapter extends base_adapter {
             $userpicture->size = 64;
             $profileimageurl = $userpicture->get_url($PAGE)->out(false);
 
-            // Effective close date: override timeclose > global timeclose.
-            $effectiveduedate = $overrideset[$userid] ?? $globaltimeclose;
+            // Effective due date: duedate plugin (if installed) > native override > global timeclose.
+            if ($hasduedateplugin) {
+                $effectiveduedate = (int) \quizaccess_duedate\override_manager::get_effective_duedate(
+                    $this->quiz->id, $userid
+                );
+            } else {
+                $effectiveduedate = $overrideset[$userid] ?? $globaltimeclose;
+            }
             $submittedat = $stats ? (int) ($stats->lastfinish ?? 0) : 0;
             $islate = $effectiveduedate > 0 && $submittedat > 0 && $submittedat > $effectiveduedate;
 
@@ -178,6 +208,7 @@ class quiz_adapter extends base_adapter {
                 'submittedat' => $submittedat,
                 'gradevalue' => $usergrade ? (float) $usergrade->grade : null,
                 'hasoverride' => isset($overrideset[$userid]),
+                'hasextension' => isset($duedateextensions[$userid]),
                 'islate' => $islate,
             ];
 
@@ -432,14 +463,22 @@ class quiz_adapter extends base_adapter {
     }
 
     /**
-     * Get the effective due date (close time) for a specific user.
+     * Get the effective due date for a specific user.
      *
-     * Checks for quiz overrides with a timeclose value.
+     * When the quizaccess_duedate plugin is installed, delegates to its override
+     * manager (which handles user overrides, group overrides, and the quiz default).
+     * Otherwise falls back to native quiz_overrides.timeclose.
      *
      * @param int $userid The user ID.
-     * @return int The effective close date timestamp (0 if no close date).
+     * @return int The effective due date timestamp (0 if no due date).
      */
     public function get_effective_duedate(int $userid): int {
+        if (class_exists('\quizaccess_duedate\override_manager')) {
+            return (int) \quizaccess_duedate\override_manager::get_effective_duedate(
+                $this->quiz->id, $userid
+            );
+        }
+
         global $DB;
 
         $globaltimeclose = (int) ($this->quiz->timeclose ?? 0);
@@ -507,8 +546,112 @@ class quiz_adapter extends base_adapter {
     }
 
     // -------------------------------------------------------------------------
+    // Duedate plugin extension methods.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Get the duedate plugin extension for a user (if any).
+     *
+     * @param int $userid The student user ID.
+     * @return array|null Array with 'id' and 'duedate', or null if none.
+     */
+    public function get_duedate_extension(int $userid): ?array {
+        if (!class_exists('\quizaccess_duedate\override_manager')) {
+            return null;
+        }
+
+        global $DB;
+        $record = $DB->get_record('quizaccess_duedate_overrides', [
+            'quizid' => $this->quiz->id,
+            'userid' => $userid,
+        ]);
+        if (!$record) {
+            return null;
+        }
+        return [
+            'id' => (int) $record->id,
+            'duedate' => (int) $record->duedate,
+        ];
+    }
+
+    /**
+     * Save a duedate plugin extension for a user (create or update).
+     *
+     * @param int $userid The student user ID.
+     * @param int $duedate Extension due date timestamp.
+     */
+    public function save_duedate_extension(int $userid, int $duedate): void {
+        if (!class_exists('\quizaccess_duedate\override_manager')) {
+            throw new \coding_exception('quizaccess_duedate plugin is not installed');
+        }
+
+        global $DB;
+
+        $data = new \stdClass();
+        $data->quizid = $this->quiz->id;
+        $data->userid = $userid;
+        $data->groupid = null;
+        $data->duedate = $duedate;
+
+        // Check for existing override to update.
+        $existing = $DB->get_record('quizaccess_duedate_overrides', [
+            'quizid' => $this->quiz->id,
+            'userid' => $userid,
+        ]);
+        if ($existing) {
+            $data->id = (int) $existing->id;
+        }
+
+        \quizaccess_duedate\override_manager::save_override($data);
+        \quizaccess_duedate\override_manager::update_calendar_event(
+            $data, $this->quiz->name, $this->course->id
+        );
+        \quizaccess_duedate\override_manager::recalculate_grades_for_override($data);
+    }
+
+    /**
+     * Delete the duedate plugin extension for a user.
+     *
+     * @param int $userid The student user ID.
+     */
+    public function delete_duedate_extension(int $userid): void {
+        if (!class_exists('\quizaccess_duedate\override_manager')) {
+            return;
+        }
+
+        global $DB;
+        $record = $DB->get_record('quizaccess_duedate_overrides', [
+            'quizid' => $this->quiz->id,
+            'userid' => $userid,
+        ]);
+        if (!$record) {
+            return;
+        }
+
+        \quizaccess_duedate\override_manager::delete_calendar_event($record);
+        \quizaccess_duedate\override_manager::delete_override((int) $record->id);
+        \quizaccess_duedate\override_manager::recalculate_grades_for_user(
+            $this->quiz->id, $userid
+        );
+    }
+
+    // -------------------------------------------------------------------------
     // Private helpers.
     // -------------------------------------------------------------------------
+
+    /**
+     * Get the quiz-level duedate from the quizaccess_duedate plugin.
+     *
+     * @return int Timestamp or 0.
+     */
+    private function get_duedate_plugin_duedate(): int {
+        global $DB;
+        $settings = $DB->get_record('quizaccess_duedate_instances', ['quizid' => $this->quiz->id]);
+        if ($settings && $settings->duedate) {
+            return (int) $settings->duedate;
+        }
+        return 0;
+    }
 
     /**
      * Get the latest finished attempt for a user.

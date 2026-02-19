@@ -60,6 +60,17 @@ class provider implements
             'content' => 'privacy:metadata:comments:content',
         ], 'privacy:metadata:comments');
 
+        $collection->add_database_table('local_unifiedgrader_clib', [
+            'userid' => 'privacy:metadata:clib:userid',
+            'coursecode' => 'privacy:metadata:clib:coursecode',
+            'content' => 'privacy:metadata:clib:content',
+        ], 'privacy:metadata:clib');
+
+        $collection->add_database_table('local_unifiedgrader_cltag', [
+            'userid' => 'privacy:metadata:cltag:userid',
+            'name' => 'privacy:metadata:cltag:name',
+        ], 'privacy:metadata:cltag');
+
         $collection->add_database_table('local_unifiedgrader_annot', [
             'cmid' => 'privacy:metadata:annotations:cmid',
             'userid' => 'privacy:metadata:annotations:userid',
@@ -250,6 +261,40 @@ class provider implements
             );
         }
 
+        // Export comment library v2 (clib).
+        $clibitems = $DB->get_records('local_unifiedgrader_clib', ['userid' => $userid]);
+        if ($clibitems) {
+            $exportdata = array_map(function($item) {
+                return [
+                    'coursecode' => $item->coursecode,
+                    'content' => $item->content,
+                    'shared' => (int) $item->shared,
+                    'timecreated' => \core_privacy\local\request\transform::datetime($item->timecreated),
+                ];
+            }, $clibitems);
+
+            writer::with_context(\context_system::instance())->export_data(
+                [get_string('clib_title', 'local_unifiedgrader')],
+                (object) ['comments' => array_values($exportdata)],
+            );
+        }
+
+        // Export comment library v2 tags.
+        $tags = $DB->get_records('local_unifiedgrader_cltag', ['userid' => $userid]);
+        if ($tags) {
+            $exportdata = array_map(function($tag) {
+                return [
+                    'name' => $tag->name,
+                    'timecreated' => \core_privacy\local\request\transform::datetime($tag->timecreated),
+                ];
+            }, $tags);
+
+            writer::with_context(\context_system::instance())->export_data(
+                [get_string('clib_title', 'local_unifiedgrader'), get_string('clib_tags', 'local_unifiedgrader')],
+                (object) ['tags' => array_values($exportdata)],
+            );
+        }
+
         // Export preferences.
         $prefs = $DB->get_record('local_unifiedgrader_prefs', ['userid' => $userid]);
         if ($prefs) {
@@ -308,6 +353,15 @@ class provider implements
         // Delete user-level data.
         $DB->delete_records('local_unifiedgrader_comments', ['userid' => $userid]);
         $DB->delete_records('local_unifiedgrader_prefs', ['userid' => $userid]);
+
+        // Delete comment library v2 data.
+        $clibids = $DB->get_fieldset_select('local_unifiedgrader_clib', 'id', 'userid = ?', [$userid]);
+        if ($clibids) {
+            [$insql, $inparams] = $DB->get_in_or_equal($clibids, SQL_PARAMS_NAMED);
+            $DB->delete_records_select('local_unifiedgrader_clmap', "commentid {$insql}", $inparams);
+        }
+        $DB->delete_records('local_unifiedgrader_clib', ['userid' => $userid]);
+        $DB->delete_records('local_unifiedgrader_cltag', ['userid' => $userid]);
     }
 
     /**
@@ -343,5 +397,15 @@ class provider implements
         // Delete user-level data.
         $DB->delete_records_list('local_unifiedgrader_comments', 'userid', $userids);
         $DB->delete_records_list('local_unifiedgrader_prefs', 'userid', $userids);
+
+        // Delete comment library v2 data.
+        [$cinsql, $cinparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'clib');
+        $clibids = $DB->get_fieldset_select('local_unifiedgrader_clib', 'id', "userid {$cinsql}", $cinparams);
+        if ($clibids) {
+            [$minsql, $minparams] = $DB->get_in_or_equal($clibids, SQL_PARAMS_NAMED, 'map');
+            $DB->delete_records_select('local_unifiedgrader_clmap', "commentid {$minsql}", $minparams);
+        }
+        $DB->delete_records_list('local_unifiedgrader_clib', 'userid', $userids);
+        $DB->delete_records_list('local_unifiedgrader_cltag', 'userid', $userids);
     }
 }

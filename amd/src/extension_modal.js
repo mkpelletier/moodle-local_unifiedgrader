@@ -31,15 +31,17 @@ import {getString} from 'core/str';
  * @param {number} cmid Course module ID.
  * @param {number} userid Student user ID.
  * @param {boolean} hasExtension Whether the user already has an extension.
+ * @param {string} activityType Activity type ('assign' or 'quiz'). Defaults to 'assign'.
  * @return {Promise<boolean>} Resolves to true if extension was saved, false if cancelled.
  */
-export const openExtensionModal = async(cmid, userid, hasExtension) => {
+export const openExtensionModal = async(cmid, userid, hasExtension, activityType = 'assign') => {
     const title = await getString(
         hasExtension ? 'action_edit_extension' : 'action_grant_extension',
         'local_unifiedgrader',
     );
 
-    const iframeUrl = M.cfg.wwwroot + '/local/unifiedgrader/extension.php'
+    const page = activityType === 'quiz' ? 'quiz_extension.php' : 'extension.php';
+    const iframeUrl = M.cfg.wwwroot + '/local/unifiedgrader/' + page
         + '?cmid=' + cmid + '&userid=' + userid;
 
     const modal = await Modal.create({

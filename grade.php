@@ -126,6 +126,7 @@ $templatedata = [
     'allowmanualgradeoverride' => !empty(get_config('local_unifiedgrader', 'allow_manual_grade_override')),
     'gradesposted' => $gradesposted,
     'gradeshidden' => $gradeshidden,
+    'coursecode' => \local_unifiedgrader\course_code_helper::extract_code($course->shortname),
 ];
 
 // TinyMCE editor setup for the feedback textarea.

@@ -26,6 +26,7 @@
  */
 
 import {get_string as getString} from 'core/str';
+import Notification from 'core/notification';
 
 export default class AnnotationToolbar {
 
@@ -91,7 +92,18 @@ export default class AnnotationToolbar {
             } else if (action === 'delete-selected') {
                 this._layer.deleteSelected();
             } else if (action === 'clear-annotations') {
-                this._layer.clearAnnotations();
+                Notification.saveCancelPromise(
+                    getString('confirm', 'moodle'),
+                    getString('annotate_clear_confirm', 'local_unifiedgrader'),
+                    getString('yes', 'moodle'),
+                ).then(() => {
+                    this._layer.clearAnnotations();
+                    this._updateActionStates();
+                    return;
+                }).catch(() => {
+                    // User cancelled — do nothing.
+                });
+                return; // Don't update action states until confirmed.
             } else if (action === 'doc-info') {
                 this._toggleDocInfo();
                 return; // Don't update action states for info toggle.

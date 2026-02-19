@@ -73,15 +73,51 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
-    'local_unifiedgrader_get_comment_library' => [
-        'classname' => 'local_unifiedgrader\external\get_comment_library',
-        'description' => 'Get reusable comments from the library.',
+    'local_unifiedgrader_get_library_comments' => [
+        'classname' => 'local_unifiedgrader\external\get_library_comments',
+        'description' => 'Get comment library entries for the current teacher.',
         'type' => 'read',
         'ajax' => true,
     ],
-    'local_unifiedgrader_save_comment_to_library' => [
-        'classname' => 'local_unifiedgrader\external\save_comment_to_library',
-        'description' => 'Add or update a comment in the library.',
+    'local_unifiedgrader_save_library_comment' => [
+        'classname' => 'local_unifiedgrader\external\save_library_comment',
+        'description' => 'Create or update a comment library entry.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_delete_library_comment' => [
+        'classname' => 'local_unifiedgrader\external\delete_library_comment',
+        'description' => 'Delete a comment library entry.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_get_library_tags' => [
+        'classname' => 'local_unifiedgrader\external\get_library_tags',
+        'description' => 'Get comment library tags for the current teacher.',
+        'type' => 'read',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_save_library_tag' => [
+        'classname' => 'local_unifiedgrader\external\save_library_tag',
+        'description' => 'Create or update a comment library tag.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_delete_library_tag' => [
+        'classname' => 'local_unifiedgrader\external\delete_library_tag',
+        'description' => 'Delete a comment library tag.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_get_shared_library' => [
+        'classname' => 'local_unifiedgrader\external\get_shared_library',
+        'description' => 'Get instance-wide shared comments from other teachers.',
+        'type' => 'read',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_import_shared_comment' => [
+        'classname' => 'local_unifiedgrader\external\import_shared_comment',
+        'description' => 'Import a shared comment into own library.',
         'type' => 'write',
         'ajax' => true,
     ],
@@ -172,6 +208,12 @@ $functions = [
     'local_unifiedgrader_delete_user_override' => [
         'classname' => 'local_unifiedgrader\external\delete_user_override',
         'description' => 'Delete a user-level override for an activity.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_delete_duedate_extension' => [
+        'classname' => 'local_unifiedgrader\external\delete_duedate_extension',
+        'description' => 'Delete a quiz duedate extension for a user.',
         'type' => 'write',
         'ajax' => true,
     ],

@@ -107,6 +107,8 @@ export default class extends BaseComponent {
             'action_edit_override',
             'action_delete_override',
             'confirm_delete_override',
+            'action_delete_extension',
+            'confirm_delete_extension',
         ];
         try {
             const values = await getStrings(keys.map(key => ({key, component: 'local_unifiedgrader'})));
@@ -301,6 +303,15 @@ export default class extends BaseComponent {
                 overrideIcon.style.fontSize = '0.7em';
                 overrideIcon.title = 'Override active';
                 statusWrapper.appendChild(overrideIcon);
+            }
+
+            // Show a calendar icon for users with a due date extension.
+            if (p.hasextension) {
+                const extIcon = document.createElement('i');
+                extIcon.className = 'fa fa-calendar-plus-o text-info';
+                extIcon.style.fontSize = '0.7em';
+                extIcon.title = 'Extension granted';
+                statusWrapper.appendChild(extIcon);
             }
 
             statusWrapper.appendChild(statusBadge);
@@ -601,9 +612,30 @@ export default class extends BaseComponent {
             }
         }
 
-        // For quiz, only override actions are available (no submission management).
+        // For quiz: extension actions (if duedate plugin) + override actions.
         if (actType === 'quiz') {
-            return overrideActions;
+            const extensionActions = [];
+            if (state.activity.canmanageextensions) {
+                if (hasExtension) {
+                    extensionActions.push({
+                        id: 'grant_extension',
+                        label: s.action_edit_extension,
+                        icon: 'fa-calendar-plus-o', type: 'modal',
+                    });
+                    extensionActions.push({
+                        id: 'delete_extension',
+                        label: s.action_delete_extension,
+                        icon: 'fa-trash', type: 'ajax', confirm: s.confirm_delete_extension,
+                    });
+                } else {
+                    extensionActions.push({
+                        id: 'grant_extension',
+                        label: s.action_grant_extension,
+                        icon: 'fa-calendar-plus-o', type: 'modal',
+                    });
+                }
+            }
+            return [...extensionActions, ...overrideActions];
         }
 
         const defs = {
@@ -698,6 +730,12 @@ export default class extends BaseComponent {
             return;
         }
 
+        // Delete duedate extension uses its own mutation.
+        if (action.id === 'delete_extension') {
+            this.reactive.dispatch('deleteDuedateExtension', state.activity.cmid, student.id);
+            return;
+        }
+
         this.reactive.dispatch('submissionAction', state.activity.cmid, student.id, action.id);
     }
 
@@ -714,7 +752,7 @@ export default class extends BaseComponent {
 
         if (actionId === 'grant_extension') {
             const {openExtensionModal} = await import('local_unifiedgrader/extension_modal');
-            saved = await openExtensionModal(cmid, student.id, !!student.hasextension);
+            saved = await openExtensionModal(cmid, student.id, !!student.hasextension, state.activity.type);
         } else {
             // Override modal (add/edit).
             const overrideid = state.submission?.overrideid || 0;

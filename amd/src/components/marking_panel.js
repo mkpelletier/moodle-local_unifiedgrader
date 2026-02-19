@@ -26,6 +26,7 @@ import Templates from 'core/templates';
 import Notification from 'core/notification';
 import {get_string as getString} from 'core/str';
 import {getInstanceForElementId} from 'editor_tiny/editor';
+import CommentLibraryPopout from 'local_unifiedgrader/components/comment_library_popout';
 
 export default class extends BaseComponent {
 
@@ -41,10 +42,6 @@ export default class extends BaseComponent {
             ADVANCED_GRADING: '[data-region="advanced-grading"]',
             FEEDBACK_INPUT: '[data-action="feedback-input"]',
             SAVE_GRADE_BTN: '[data-action="save-grade"]',
-            COMMENT_LIST: '[data-region="comment-list"]',
-            NO_COMMENTS: '[data-region="no-comments"]',
-            NEW_COMMENT_INPUT: '[data-action="new-comment-input"]',
-            SAVE_COMMENT_BTN: '[data-action="save-comment"]',
             NOTES_LIST: '[data-region="notes-list"]',
             NO_NOTES: '[data-region="no-notes"]',
             NOTE_EDITOR: '[data-region="note-editor"]',
@@ -66,12 +63,18 @@ export default class extends BaseComponent {
             SAVE_FEEDBACK_FILES_BTN: '[data-action="save-feedback-files"]',
             LATE_INDICATOR: '[data-region="late-indicator"]',
             LATE_TEXT: '[data-region="late-text"]',
+            GRADE_PERCENTAGE: '[data-region="grade-percentage"]',
+            OVERALL_FEEDBACK_SECTION: '[data-region="overall-feedback-section"]',
+            FEEDBACK_COLLAPSE: '[data-region="feedback-collapse"]',
         };
         this._editingFeedback = false;
         this._gradingDefinition = null;
         this._rubricSelections = {};
         this._guideScores = {};
         this._guideRemarks = {};
+        this._lastFocusedField = null;
+        this._clibPopout = null;
+        this._autoSaveTimer = null;
     }
 
     /**
@@ -85,7 +88,6 @@ export default class extends BaseComponent {
             {watch: 'submission:updated', handler: this._renderPlagiarism},
             {watch: 'grade:updated', handler: this._renderGrade},
             {watch: 'state.notes:updated', handler: this._renderNotes},
-            {watch: 'state.commentLibrary:updated', handler: this._renderCommentLibrary},
             {watch: 'ui:updated', handler: this._updateUI},
         ];
     }
@@ -99,12 +101,83 @@ export default class extends BaseComponent {
         this._setupEventListeners();
         this._updateMaxGrade(state);
 
+        // Listen for grade input changes to update percentage in real time.
+        const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
+        if (gradeInput) {
+            gradeInput.addEventListener('input', () => this._updatePercentage());
+        }
+
         if (state.grade) {
             this._renderGrade({state});
         }
-        if (state.commentLibrary) {
-            this._renderCommentLibrary({state});
+
+        // Initialise comment library popout.
+        const coursecode = state.activity?.coursecode || '';
+        this._clibPopout = new CommentLibraryPopout(coursecode, () => this._lastFocusedField);
+
+        // Attach toggle handlers to all comment library icon buttons.
+        this.element.querySelectorAll('[data-action="toggle-comment-library"]').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                this._clibPopout.toggle(btn);
+            });
+        });
+
+        // Track the last-focused remark textarea or score input inside the rubric/guide.
+        const rubricBody = this.getElement(this.selectors.RUBRIC_BODY);
+        if (rubricBody) {
+            rubricBody.addEventListener('focusin', (e) => {
+                if (e.target.matches('textarea, input[type="number"]')) {
+                    this._lastFocusedField = e.target;
+                }
+            });
+
+            // Auto-save when focus leaves the rubric/guide entirely.
+            // Skip if focus moves to another rubric field or the comment library popout.
+            rubricBody.addEventListener('focusout', (e) => {
+                const next = e.relatedTarget;
+                // Stay quiet if focus stays inside the rubric body.
+                if (next && rubricBody.contains(next)) {
+                    return;
+                }
+                // Stay quiet if focus moves to the comment library popout.
+                if (next && next.closest('.local-unifiedgrader-clib-popout')) {
+                    return;
+                }
+                // Stay quiet if focus moves to a comment library toggle button.
+                if (next && next.closest('[data-action="toggle-comment-library"]')) {
+                    return;
+                }
+                this._debouncedAutoSave();
+            });
         }
+
+        // Track TinyMCE (overall feedback) focus so the comment library can insert there.
+        const feedbackTextarea = this.getElement(this.selectors.FEEDBACK_INPUT);
+        if (feedbackTextarea) {
+            this._setupTinyMCEFocusTracking(feedbackTextarea);
+        }
+    }
+
+    /**
+     * Register a focus handler on the TinyMCE editor for the given textarea.
+     * Polls until the editor is ready since TinyMCE initialises asynchronously.
+     *
+     * @param {HTMLElement} textarea The underlying textarea element.
+     */
+    _setupTinyMCEFocusTracking(textarea) {
+        const tryRegister = () => {
+            const editor = getInstanceForElementId(textarea.id);
+            if (editor) {
+                editor.on('focus', () => {
+                    this._lastFocusedField = textarea;
+                });
+            } else {
+                setTimeout(tryRegister, 500);
+            }
+        };
+        setTimeout(tryRegister, 1000);
     }
 
     /**
@@ -115,23 +188,6 @@ export default class extends BaseComponent {
         const saveBtn = this.getElement(this.selectors.SAVE_GRADE_BTN);
         if (saveBtn) {
             saveBtn.addEventListener('click', () => this._handleSaveGrade());
-        }
-
-        // Save comment to library.
-        const saveCommentBtn = this.getElement(this.selectors.SAVE_COMMENT_BTN);
-        if (saveCommentBtn) {
-            saveCommentBtn.addEventListener('click', () => this._handleSaveComment());
-        }
-
-        // New comment input - save on Enter.
-        const commentInput = this.getElement(this.selectors.NEW_COMMENT_INPUT);
-        if (commentInput) {
-            commentInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    this._handleSaveComment();
-                }
-            });
         }
 
         // Edit feedback button.
@@ -230,6 +286,9 @@ export default class extends BaseComponent {
             gradeInput.readOnly = hasAdvancedGrading && !allowOverride;
         }
 
+        // Update the percentage display.
+        this._updatePercentage();
+
         // Use draft-ready content (with rewritten file URLs) when available.
         if (state.grade && state.grade.feedbackdraft !== undefined) {
             this._updateFeedbackContent(state.grade.feedbackdraft);
@@ -241,6 +300,10 @@ export default class extends BaseComponent {
         // Reset editing flag — _renderGrade fires on student switch and after save.
         this._editingFeedback = false;
         this._toggleFeedbackMode(state);
+
+        // Auto-expand the overall feedback section if feedback exists, collapse if not.
+        const feedbackHtml = state.grade?.feedbackdraft || state.grade?.feedback || '';
+        this._setFeedbackSectionExpanded(this._hasMeaningfulFeedback(feedbackHtml));
     }
 
     /**
@@ -294,6 +357,9 @@ export default class extends BaseComponent {
      */
     _handleEditFeedback() {
         this._editingFeedback = true;
+
+        // Ensure the feedback section is expanded.
+        this._setFeedbackSectionExpanded(true);
 
         const display = this.getElement(this.selectors.FEEDBACK_DISPLAY);
         const editorWrapper = this.getElement(this.selectors.FEEDBACK_EDITOR_WRAPPER);
@@ -394,67 +460,6 @@ export default class extends BaseComponent {
     }
 
     /**
-     * Render the comment library.
-     *
-     * @param {object} args Watcher args.
-     * @param {object} args.state Current state.
-     */
-    _renderCommentLibrary({state}) {
-        const commentList = this.getElement(this.selectors.COMMENT_LIST);
-        const noComments = this.getElement(this.selectors.NO_COMMENTS);
-        if (!commentList) {
-            return;
-        }
-
-        // State lists are StateMaps (extend Map), not arrays. Convert to array.
-        const comments = [...state.commentLibrary.values()];
-
-        // Clear existing comment items (but not the no-comments message).
-        commentList.querySelectorAll('.comment-item').forEach(el => el.remove());
-
-        if (comments.length === 0) {
-            if (noComments) {
-                noComments.classList.remove('d-none');
-            }
-            return;
-        }
-
-        if (noComments) {
-            noComments.classList.add('d-none');
-        }
-
-        comments.forEach((comment) => {
-            const item = document.createElement('div');
-            item.className = 'comment-item list-group-item list-group-item-action d-flex justify-content-between p-2';
-            item.style.cursor = 'pointer';
-
-            const textSpan = document.createElement('span');
-            textSpan.className = 'small flex-grow-1';
-            textSpan.textContent = comment.content.length > 80
-                ? comment.content.substring(0, 80) + '...'
-                : comment.content;
-
-            item.appendChild(textSpan);
-
-            // Click to insert into feedback.
-            item.addEventListener('click', () => {
-                const textarea = this.getElement(this.selectors.FEEDBACK_INPUT);
-                const editor = textarea ? getInstanceForElementId(textarea.id) : null;
-                if (editor) {
-                    editor.insertContent('<p>' + this._escapeHtml(comment.content) + '</p>');
-                } else if (textarea) {
-                    const currentVal = textarea.value;
-                    textarea.value = currentVal
-                        ? currentVal + '\n' + comment.content
-                        : comment.content;
-                }
-            });
-
-            commentList.appendChild(item);
-        });
-    }
-
-    /**
      * Update UI elements based on state changes.
      *
      * @param {object} args Watcher args.
@@ -488,6 +493,55 @@ export default class extends BaseComponent {
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput) {
             gradeInput.max = state.ui.maxgrade || state.activity?.maxgrade || 100;
+        }
+    }
+
+    /**
+     * Update the percentage display next to the grade input.
+     */
+    _updatePercentage() {
+        const percentEl = this.getElement(this.selectors.GRADE_PERCENTAGE);
+        if (!percentEl) {
+            return;
+        }
+
+        const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
+        const grade = gradeInput ? parseFloat(gradeInput.value) : NaN;
+        const maxgrade = parseFloat(gradeInput?.max) || 100;
+
+        if (isNaN(grade) || grade < 0) {
+            percentEl.textContent = '';
+            return;
+        }
+
+        const pct = Math.round((grade / maxgrade) * 100);
+        percentEl.textContent = '(' + pct + '%)';
+    }
+
+    /**
+     * Expand or collapse the overall feedback section.
+     *
+     * @param {boolean} expand True to expand, false to collapse.
+     */
+    _setFeedbackSectionExpanded(expand) {
+        const section = this.getElement(this.selectors.OVERALL_FEEDBACK_SECTION);
+        if (!section) {
+            return;
+        }
+        const header = section.querySelector('[data-bs-toggle="collapse"]');
+        const collapseEl = this.getElement(this.selectors.FEEDBACK_COLLAPSE);
+        if (!header || !collapseEl) {
+            return;
+        }
+
+        if (expand) {
+            collapseEl.classList.add('show');
+            header.classList.remove('collapsed');
+            header.setAttribute('aria-expanded', 'true');
+        } else {
+            collapseEl.classList.remove('show');
+            header.classList.add('collapsed');
+            header.setAttribute('aria-expanded', 'false');
         }
     }
 
@@ -618,7 +672,21 @@ export default class extends BaseComponent {
                 levelContainer.appendChild(btn);
             });
 
+            // Comment library icon for this criterion.
+            const clibBtn = document.createElement('button');
+            clibBtn.type = 'button';
+            clibBtn.className = 'btn btn-link btn-sm p-0 text-muted mt-1';
+            clibBtn.dataset.action = 'toggle-comment-library';
+            clibBtn.title = 'Comment Library';
+            clibBtn.innerHTML = '<i class="fa fa-commenting" aria-hidden="true"></i>';
+            clibBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                this._clibPopout.toggle(clibBtn);
+            });
+
             row.appendChild(levelContainer);
+            row.appendChild(clibBtn);
             body.appendChild(row);
         });
 
@@ -644,6 +712,7 @@ export default class extends BaseComponent {
         });
 
         this._updateRubricTotal();
+        this._debouncedAutoSave();
     }
 
     /**
@@ -670,11 +739,12 @@ export default class extends BaseComponent {
                 : total + ' pts (incomplete)';
         }
 
-        // Sync total into the simple grade input.
+        // Sync total into the simple grade input and update percentage.
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput) {
             gradeInput.value = total;
         }
+        this._updatePercentage();
     }
 
     /**
@@ -766,8 +836,24 @@ export default class extends BaseComponent {
                 this._guideRemarks[criterion.id] = remarkInput.value;
             });
 
+            // Comment library icon for this criterion.
+            const clibBtn = document.createElement('button');
+            clibBtn.type = 'button';
+            clibBtn.className = 'btn btn-link btn-sm p-0 text-muted align-self-start mt-1';
+            clibBtn.dataset.action = 'toggle-comment-library';
+            clibBtn.title = 'Comment Library';
+            clibBtn.innerHTML = '<i class="fa fa-commenting" aria-hidden="true"></i>';
+            clibBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                // Set last focused field to this criterion's remark textarea.
+                this._lastFocusedField = remarkInput;
+                this._clibPopout.toggle(clibBtn);
+            });
+
             controls.appendChild(scoreInput);
             controls.appendChild(remarkInput);
+            controls.appendChild(clibBtn);
             row.appendChild(controls);
             body.appendChild(row);
         });
@@ -797,11 +883,12 @@ export default class extends BaseComponent {
             totalEl.textContent = total + ' / ' + maxTotal;
         }
 
-        // Sync total into the simple grade input.
+        // Sync total into the simple grade input and update percentage.
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput) {
             gradeInput.value = total;
         }
+        this._updatePercentage();
     }
 
     /**
@@ -856,6 +943,19 @@ export default class extends BaseComponent {
     }
 
     /**
+     * Debounced auto-save — waits briefly so rapid field switches don't fire multiple saves.
+     */
+    _debouncedAutoSave() {
+        if (this._autoSaveTimer) {
+            clearTimeout(this._autoSaveTimer);
+        }
+        this._autoSaveTimer = setTimeout(() => {
+            this._autoSaveTimer = null;
+            this._handleSaveGrade();
+        }, 600);
+    }
+
+    /**
      * Handle save grade action.
      */
     _handleSaveGrade() {
@@ -894,20 +994,6 @@ export default class extends BaseComponent {
             state.currentUser.id,
             feedbackfilesdraftid,
         );
-    }
-
-    /**
-     * Handle save comment to library.
-     */
-    _handleSaveComment() {
-        const state = this.reactive.state;
-        const input = this.getElement(this.selectors.NEW_COMMENT_INPUT);
-        if (!input || !input.value.trim()) {
-            return;
-        }
-
-        this.reactive.dispatch('saveCommentToLibrary', state.activity.courseid, input.value.trim());
-        input.value = '';
     }
 
     /**
