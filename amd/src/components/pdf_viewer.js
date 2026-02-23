@@ -1120,10 +1120,11 @@ export default class PdfViewer extends BaseComponent {
         try {
             const annotations = await page.getAnnotations();
             let linkCount = 0;
+            const ALLOWED_LINK_PROTOCOLS = /^https?:|^mailto:/i;
             for (const annot of annotations) {
-                // Accept links with url or unsafeUrl.
+                // Accept links with url or unsafeUrl, but only safe protocols.
                 const linkUrl = annot.url || annot.unsafeUrl;
-                if (annot.subtype !== 'Link' || !linkUrl) {
+                if (annot.subtype !== 'Link' || !linkUrl || !ALLOWED_LINK_PROTOCOLS.test(linkUrl)) {
                     continue;
                 }
 

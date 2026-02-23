@@ -366,7 +366,7 @@ export default class extends BaseComponent {
         // Content body bubble.
         const body = document.createElement('div');
         body.className = 'comment-body';
-        body.innerHTML = comment.content;
+        body.textContent = comment.content;
         bubble.appendChild(body);
 
         return bubble;

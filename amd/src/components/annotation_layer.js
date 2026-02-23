@@ -32,6 +32,7 @@ import {
     TOOLS, CUSTOM_PROPS, DEFAULT_COLOR, SHAPES,
     createCommentMarker, createHighlight, createStamp,
     createShapeRect, createShapeEllipse, createShapeLine, createShapeArrow,
+    validateAnnotationJson,
 } from 'local_unifiedgrader/annotation/types';
 import Ajax from 'core/ajax';
 
@@ -1348,6 +1349,12 @@ export default class AnnotationLayer {
      * @returns {Promise<void>}
      */
     async _loadFromJSONWithCustomProps(json) {
+        // Validate annotation JSON structure before loading into Fabric.js.
+        if (!validateAnnotationJson(json)) {
+            window.console.warn('[annotation_layer] Skipping invalid annotation JSON');
+            return;
+        }
+
         // Deep-copy the JSON so loadFromJSON cannot mutate our source data.
         const safeCopy = JSON.parse(JSON.stringify(json));
 

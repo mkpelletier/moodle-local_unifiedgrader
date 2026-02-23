@@ -26,7 +26,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-import {CUSTOM_PROPS} from 'local_unifiedgrader/annotation/types';
+import {CUSTOM_PROPS, validateAnnotationJson} from 'local_unifiedgrader/annotation/types';
 
 /** @type {number} Default scale multiplier when viewport dimensions are unknown. */
 const DEFAULT_SCALE = 1.5;
@@ -47,6 +47,12 @@ export async function flattenAnnotatedPdf(originalPdfBytes, pageAnnotations, pag
 
     for (const [pageNum, fabricJson] of pageAnnotations) {
         if (!fabricJson.objects || fabricJson.objects.length === 0) {
+            continue;
+        }
+
+        // Validate annotation JSON before loading into Fabric.js.
+        if (!validateAnnotationJson(fabricJson)) {
+            window.console.warn('[pdf_flatten] Skipping invalid annotation JSON on page', pageNum);
             continue;
         }
 

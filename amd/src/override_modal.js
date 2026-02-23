@@ -55,6 +55,9 @@ export const openOverrideModal = async(cmid, userid, overrideid) => {
         let saved = false;
 
         const messageHandler = (event) => {
+            if (event.origin !== window.location.origin) {
+                return;
+            }
             if (!event.data || typeof event.data !== 'object') {
                 return;
             }

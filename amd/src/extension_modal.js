@@ -57,6 +57,9 @@ export const openExtensionModal = async(cmid, userid, hasExtension, activityType
         let saved = false;
 
         const messageHandler = (event) => {
+            if (event.origin !== window.location.origin) {
+                return;
+            }
             if (!event.data || typeof event.data !== 'object') {
                 return;
             }

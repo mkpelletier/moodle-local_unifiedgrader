@@ -344,7 +344,7 @@ class quiz_adapter extends base_adapter {
 
         return [
             'grade' => $hasgrade ? (float) $quizgrade->grade : null,
-            'feedback' => $feedbacktext,
+            'feedback' => format_text($feedbacktext, $feedbackformat, ['context' => $this->context]),
             'feedbackformat' => $feedbackformat,
             'rubricdata' => $rubricdata,
             'gradingdefinition' => $gradingdefinition,

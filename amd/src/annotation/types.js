@@ -83,6 +83,44 @@ export const SHAPES = {
  */
 export const CUSTOM_PROPS = ['annotationType', 'annotationText', 'stampType', 'shapeType'];
 
+/** @type {number} Maximum number of Fabric.js objects allowed per page. */
+const MAX_OBJECTS_PER_PAGE = 500;
+
+/** @type {Set<string>} Allowed Fabric.js object types for annotation data (v6 uses PascalCase). */
+const ALLOWED_FABRIC_TYPES = new Set([
+    'Rect', 'Circle', 'Ellipse', 'Path', 'Line', 'FabricText',
+    'Group', 'IText', 'Textbox', 'Polygon', 'Polyline', 'Image',
+]);
+
+/**
+ * Validate Fabric.js annotation JSON before loading.
+ *
+ * Guards against malformed or adversarial annotation data that could cause
+ * browser DoS (excessive objects, extreme coordinates) or unexpected types.
+ *
+ * @param {object} json The Fabric.js JSON to validate.
+ * @returns {boolean} True if the JSON is safe to load.
+ */
+export function validateAnnotationJson(json) {
+    if (!json || typeof json !== 'object') {
+        return false;
+    }
+    if (!Array.isArray(json.objects)) {
+        return false;
+    }
+    if (json.objects.length > MAX_OBJECTS_PER_PAGE) {
+        window.console.warn('[annotation] Rejected: too many objects (' + json.objects.length + ')');
+        return false;
+    }
+    for (const obj of json.objects) {
+        if (!obj || typeof obj !== 'object' || !ALLOWED_FABRIC_TYPES.has(obj.type)) {
+            window.console.warn('[annotation] Rejected: unknown object type "' + (obj?.type) + '"');
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * SVG path for a speech-bubble comment icon (24×22 viewbox).
  * Rounded rectangle body with a triangular tail at the bottom-left.

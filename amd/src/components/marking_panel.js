@@ -75,6 +75,7 @@ export default class extends BaseComponent {
         this._lastFocusedField = null;
         this._clibPopout = null;
         this._autoSaveTimer = null;
+        this._suppressAutoSave = false;
     }
 
     /**
@@ -561,6 +562,15 @@ export default class extends BaseComponent {
             return;
         }
 
+        // Suppress focusout auto-save during re-rendering. Without this,
+        // destroying a focused textarea via innerHTML triggers focusout →
+        // auto-save → re-render → focusout loop.
+        this._suppressAutoSave = true;
+        if (this._autoSaveTimer) {
+            clearTimeout(this._autoSaveTimer);
+            this._autoSaveTimer = null;
+        }
+
         // Parse the grading definition.
         let definition = null;
         if (state.grade?.gradingdefinition) {
@@ -574,6 +584,7 @@ export default class extends BaseComponent {
         if (!definition || !definition.criteria || definition.criteria.length === 0) {
             section.classList.add('d-none');
             this._gradingDefinition = null;
+            this._suppressAutoSave = false;
             return;
         }
 
@@ -603,6 +614,7 @@ export default class extends BaseComponent {
         }
 
         section.classList.remove('d-none');
+        this._suppressAutoSave = false;
     }
 
     /**
@@ -798,7 +810,7 @@ export default class extends BaseComponent {
             header.appendChild(maxEl);
             row.appendChild(header);
 
-            // Description for markers (HTML sanitized server-side by format_text).
+            // Description for markers (sanitized server-side via format_text in the adapter).
             if (criterion.descriptionmarkers) {
                 const markerDesc = document.createElement('div');
                 markerDesc.className = 'small text-muted mb-2';
@@ -949,14 +961,20 @@ export default class extends BaseComponent {
 
     /**
      * Debounced auto-save — waits briefly so rapid field switches don't fire multiple saves.
+     * Skips if a save is already in progress to prevent re-render → focusout → save loops.
      */
     _debouncedAutoSave() {
+        if (this._suppressAutoSave || this.reactive.state.ui.saving) {
+            return;
+        }
         if (this._autoSaveTimer) {
             clearTimeout(this._autoSaveTimer);
         }
         this._autoSaveTimer = setTimeout(() => {
             this._autoSaveTimer = null;
-            this._handleSaveGrade();
+            if (!this._suppressAutoSave && !this.reactive.state.ui.saving) {
+                this._handleSaveGrade();
+            }
         }, 600);
     }
 
@@ -964,6 +982,11 @@ export default class extends BaseComponent {
      * Handle save grade action.
      */
     _handleSaveGrade() {
+        // Cancel any pending auto-save to prevent double saves.
+        if (this._autoSaveTimer) {
+            clearTimeout(this._autoSaveTimer);
+            this._autoSaveTimer = null;
+        }
         const state = this.reactive.state;
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
 

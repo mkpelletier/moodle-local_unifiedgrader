@@ -300,7 +300,7 @@ class assign_adapter extends base_adapter {
         return [
             'grade' => ($grade && $grade->grade !== null && $grade->grade >= 0)
                 ? (float) $grade->grade : null,
-            'feedback' => $feedbacktext,
+            'feedback' => format_text($feedbacktext, $feedbackformat, ['context' => $this->context]),
             'feedbackformat' => (int) $feedbackformat,
             'rubricdata' => $rubricdata ? json_encode($rubricdata) : '',
             'gradingdefinition' => $gradingdefinition ? json_encode($gradingdefinition) : '',
@@ -1173,7 +1173,11 @@ class assign_adapter extends base_adapter {
                     'id' => (int) $criterionid,
                     'shortname' => $criterion['shortname'] ?? '',
                     'description' => $criterion['description'] ?? '',
-                    'descriptionmarkers' => $criterion['descriptionmarkers'] ?? '',
+                    'descriptionmarkers' => format_text(
+                        $criterion['descriptionmarkers'] ?? '',
+                        FORMAT_HTML,
+                        ['context' => $this->context],
+                    ),
                     'maxscore' => (float) ($criterion['maxscore'] ?? 0),
                 ];
             }
