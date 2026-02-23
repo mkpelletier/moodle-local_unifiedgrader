@@ -114,6 +114,7 @@ export const init = (containerId) => {
             userid: 0,
             status: '',
             content: '',
+            hascontent: false,
             files: [],
             onlinetext: '',
             timecreated: 0,

@@ -118,10 +118,15 @@ export default class extends BaseComponent {
 
         // Handle files.
         const files = submission.files || [];
-        const hasContent = submission.status && submission.status !== 'nosubmission';
+        const isForum = this.reactive.state.activity?.type === 'forum';
+        // Forums always have post content; for other types, rely on the backend flag
+        // that checks whether non-file submission plugins produced content.
+        const hasContent = isForum
+            ? (submission.status && submission.status !== 'nosubmission')
+            : !!submission.hascontent;
 
         if (files.length > 0) {
-            this._renderFileSelector(files, hasContent);
+            this._renderFileSelector(files, hasContent, isForum);
 
             // Auto-preview the first previewable file.
             const firstPreviewable = files.find(f => this._isPreviewable(f));
@@ -145,8 +150,9 @@ export default class extends BaseComponent {
      *
      * @param {Array} files Array of file objects.
      * @param {boolean} hasContent Whether the submission has text content (e.g. forum posts).
+     * @param {boolean} isForum Whether the current activity is a forum.
      */
-    _renderFileSelector(files, hasContent = false) {
+    _renderFileSelector(files, hasContent = false, isForum = false) {
         if (!this._container) {
             return;
         }
@@ -165,8 +171,8 @@ export default class extends BaseComponent {
 
         wrapper.classList.remove('d-none');
 
-        // Add a "Posts" pill when there is both content and file attachments,
-        // so the teacher can switch between viewing posts and previewing files.
+        // Add a content pill when there is both content and file attachments,
+        // so the teacher can switch between viewing content and previewing files.
         if (hasContent && files.length > 0) {
             const contentPill = document.createElement('span');
             contentPill.className = 'btn-group btn-group-sm';
@@ -176,13 +182,14 @@ export default class extends BaseComponent {
             contentBtn.type = 'button';
             contentBtn.className = 'btn btn-sm btn-outline-secondary d-flex align-items-center gap-1';
             const contentIcon = document.createElement('i');
-            contentIcon.className = 'fa fa-comments';
+            contentIcon.className = isForum ? 'fa fa-comments' : 'fa fa-desktop';
             contentIcon.setAttribute('aria-hidden', 'true');
             contentBtn.appendChild(contentIcon);
             const contentLabel = document.createElement('span');
             contentLabel.className = 'small';
-            contentLabel.textContent = 'Posts';
-            getString('forum_posts_pill', 'local_unifiedgrader')
+            const stringKey = isForum ? 'forum_posts_pill' : 'submission_content_pill';
+            contentLabel.textContent = isForum ? 'Posts' : 'Submission';
+            getString(stringKey, 'local_unifiedgrader')
                 .then((str) => { contentLabel.textContent = str; })
                 .catch(() => {});
             contentBtn.appendChild(contentLabel);

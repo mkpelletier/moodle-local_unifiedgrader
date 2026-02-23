@@ -223,6 +223,7 @@ class assign_adapter extends base_adapter {
                 'userid' => $userid,
                 'status' => 'nosubmission',
                 'content' => '',
+                'hascontent' => false,
                 'files' => [],
                 'onlinetext' => '',
                 'timecreated' => 0,
@@ -247,10 +248,26 @@ class assign_adapter extends base_adapter {
             $commentcount = $commentobj->count();
         }
 
+        // Check whether any non-file submission plugins have actual student content.
+        // This tells the frontend whether to offer a "Submission" content pill
+        // alongside the file selector (e.g. YouTube + file upload).
+        // Uses is_empty() rather than view() to avoid false positives from plugins
+        // that render wrapper HTML even when the student hasn't submitted anything.
+        $hascontent = false;
+        foreach ($this->assign->get_submission_plugins() as $plugin) {
+            if ($plugin->is_enabled() && $plugin->is_visible()
+                    && $plugin->get_type() !== 'file'
+                    && !$plugin->is_empty($submission)) {
+                $hascontent = true;
+                break;
+            }
+        }
+
         return [
             'userid' => $userid,
             'status' => $submission->status,
             'content' => $this->get_submission_content($submission),
+            'hascontent' => $hascontent,
             'files' => $this->get_submission_files($userid),
             'onlinetext' => $onlinetext,
             'timecreated' => (int) $submission->timecreated,

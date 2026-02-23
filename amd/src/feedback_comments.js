@@ -305,7 +305,7 @@ function createBubble(comment, cmid, userid, listEl) {
     // Content body bubble.
     const body = document.createElement('div');
     body.className = 'comment-body';
-    body.textContent = comment.content;
+    body.innerHTML = comment.content;
     bubble.appendChild(body);
 
     return bubble;

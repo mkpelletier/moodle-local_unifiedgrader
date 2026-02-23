@@ -90,6 +90,9 @@ class get_submission_data extends external_api {
             'userid' => new external_value(PARAM_INT, 'User ID'),
             'status' => new external_value(PARAM_TEXT, 'Submission status'),
             'content' => new external_value(PARAM_RAW, 'Rendered submission content HTML'),
+            'hascontent' => new external_value(
+                PARAM_BOOL, 'Whether non-file submission plugins produced content', VALUE_DEFAULT, false
+            ),
             'files' => new external_multiple_structure(
                 new external_single_structure([
                     'fileid' => new external_value(PARAM_INT, 'File ID'),

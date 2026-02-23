@@ -244,6 +244,7 @@ $string['forum_no_posts'] = 'You have not made any posts in this forum.';
 $string['forum_feedback_banner'] = 'Your teacher has graded your forum participation.';
 $string['forum_wordcount'] = '{$a} words';
 $string['forum_posts_pill'] = 'Posts';
+$string['submission_content_pill'] = 'Submission';
 $string['forum_tab_posts'] = 'Posts';
 $string['forum_tab_files'] = 'Annotated Files';
 
