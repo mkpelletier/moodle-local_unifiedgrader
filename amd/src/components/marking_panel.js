@@ -371,6 +371,11 @@ export default class extends BaseComponent {
             editorWrapper.classList.remove('d-none');
         }
 
+        // Re-populate the editor from state — TinyMCE may lose content set while hidden.
+        const state = this.reactive.state;
+        const feedbackHtml = state.grade?.feedbackdraft || state.grade?.feedback || '';
+        this._updateFeedbackContent(feedbackHtml);
+
         // Focus the TinyMCE editor after a brief delay (needed after unhiding).
         const textarea = this.getElement(this.selectors.FEEDBACK_INPUT);
         if (textarea) {

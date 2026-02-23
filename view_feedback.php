@@ -78,6 +78,56 @@ if ($cm->modname === 'forum') {
     $submissiondata = $adapter->get_submission_data($userid);
     $activityinfo = $adapter->get_activity_info();
 
+    // Get forum attachment files and filter to annotatable types (PDF + convertible).
+    $submissionfiles = $adapter->get_submission_files($userid);
+    $pdffiles = array_values(array_filter($submissionfiles, function ($f) {
+        return $f['mimetype'] === 'application/pdf' || !empty($f['convertible']);
+    }));
+    $haspdffiles = !empty($pdffiles);
+
+    $selectedfile = null;
+    $selectedpdfurl = '';
+    $hasannotatedpdf = false;
+    $annotatedpdfmap = [];
+
+    if ($haspdffiles) {
+        $selectedfile = $pdffiles[0];
+        if ($fileid) {
+            foreach ($pdffiles as $pdf) {
+                if ($pdf['fileid'] === $fileid) {
+                    $selectedfile = $pdf;
+                    break;
+                }
+            }
+        }
+
+        // Check for flattened annotated PDFs in file storage.
+        $fs = get_file_storage();
+        foreach ($pdffiles as $pdf) {
+            $apdf = $fs->get_file(
+                $context->id,
+                'local_unifiedgrader',
+                'annotatedpdf',
+                $pdf['fileid'],
+                '/' . $userid . '/',
+                'annotated.pdf',
+            );
+            if ($apdf && !$apdf->is_directory()) {
+                $annotatedpdfmap[$pdf['fileid']] = moodle_url::make_pluginfile_url(
+                    $context->id,
+                    'local_unifiedgrader',
+                    'annotatedpdf',
+                    $pdf['fileid'],
+                    '/' . $userid . '/',
+                    'annotated.pdf',
+                )->out(false);
+            }
+        }
+
+        $selectedpdfurl = $selectedfile['previewurl'];
+        $hasannotatedpdf = isset($annotatedpdfmap[$selectedfile['fileid']]);
+    }
+
     // Set up the page.
     $PAGE->set_url(new moodle_url('/local/unifiedgrader/view_feedback.php', ['cmid' => $cmid]));
     $PAGE->set_context($context);
@@ -206,6 +256,18 @@ if ($cm->modname === 'forum') {
         'hasfeedback' => !empty($feedback),
         'postcontent' => $submissiondata['content'],
         'hasposts' => !empty($submissiondata['content']),
+        'haspdffiles' => $haspdffiles,
+        'selectedfileid' => $selectedfile ? $selectedfile['fileid'] : 0,
+        'selectedfileurl' => $selectedpdfurl,
+        'selectedfilename' => $selectedfile ? $selectedfile['filename'] : '',
+        'pdffiles' => $pdffiles,
+        'hasmultiplefiles' => count($pdffiles) > 1,
+        'pdffilesjson' => json_encode($pdffiles),
+        'hasannotatedpdf' => $hasannotatedpdf,
+        'annotatedpdfurl' => $hasannotatedpdf ? $annotatedpdfmap[$selectedfile['fileid']] : '',
+        'downloadfilename' => clean_filename($course->shortname . '-' . $activityinfo['name'] . '.pdf'),
+        'annotatedpdfmapjson' => json_encode($annotatedpdfmap),
+        'userid' => $userid,
         'hasrubric' => $hasrubric,
         'rubriccriteria' => $rubriccriteria,
         'rubrictotal' => $rubrictotal,

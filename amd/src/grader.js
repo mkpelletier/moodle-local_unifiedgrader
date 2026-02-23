@@ -62,6 +62,7 @@ export const init = (containerId) => {
     const allowmanualgradeoverride = container.dataset.allowmanualgradeoverride === '1';
     const gradesPosted = container.dataset.gradesposted === '1';
     const gradesHidden = parseInt(container.dataset.gradeshidden, 10) || 0;
+    const canloginas = container.dataset.canloginas === '1';
 
     let activityinfo = {};
     let participants = [];
@@ -161,6 +162,7 @@ export const init = (containerId) => {
             allowmanualgradeoverride: allowmanualgradeoverride,
             canviewnotes: canviewnotes,
             canmanagenotes: canmanagenotes,
+            canloginas: canloginas,
         },
     };
 

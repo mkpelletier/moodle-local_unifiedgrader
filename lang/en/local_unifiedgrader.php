@@ -243,6 +243,9 @@ $string['forum_your_posts'] = 'Your forum posts';
 $string['forum_no_posts'] = 'You have not made any posts in this forum.';
 $string['forum_feedback_banner'] = 'Your teacher has graded your forum participation.';
 $string['forum_wordcount'] = '{$a} words';
+$string['forum_posts_pill'] = 'Posts';
+$string['forum_tab_posts'] = 'Posts';
+$string['forum_tab_files'] = 'Annotated Files';
 
 // Post grades.
 $string['grades_posted'] = 'Grades posted';
@@ -288,6 +291,11 @@ $string['quiz_extension_current_extension'] = 'Current extension';
 $string['quiz_extension_new_duedate'] = 'Extension due date';
 $string['quiz_extension_must_be_after_duedate'] = 'The extension date must be after the current due date.';
 $string['quiz_extension_plugin_missing'] = 'The quizaccess_duedate plugin is required for quiz extensions but is not installed.';
+
+// Student profile popout.
+$string['profile_view_full'] = 'View full profile';
+$string['profile_login_as'] = 'Login as';
+$string['profile_no_email'] = 'No email available';
 
 // Settings: course code regex.
 $string['setting_coursecode_regex'] = 'Course code regex';

@@ -88,6 +88,8 @@ $initialuserid = $userid ?: ($participants[0]['id'] ?? 0);
 $canviewall = has_capability('local/unifiedgrader:viewall', $context);
 $canviewnotes = has_capability('local/unifiedgrader:viewnotes', $context);
 $canmanagenotes = has_capability('local/unifiedgrader:managenotes', $context);
+$coursecontext = context_course::instance($course->id);
+$canloginas = has_capability('moodle/user:loginas', $coursecontext);
 
 // Grade posting status.
 $gradesposted = $adapter->are_grades_posted();
@@ -107,6 +109,7 @@ $templatedata = [
     'canviewall' => $canviewall,
     'canviewnotes' => $canviewnotes,
     'canmanagenotes' => $canmanagenotes,
+    'canloginas' => $canloginas,
     'issimplegrading' => $activityinfo['gradingmethod'] === 'simple',
     'courseshortname' => format_string($course->shortname),
     'courseurl' => (new moodle_url('/course/view.php', ['id' => $course->id]))->out(false),

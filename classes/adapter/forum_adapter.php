@@ -122,6 +122,11 @@ class forum_adapter extends base_adapter {
             true,
         );
 
+        // Exclude users who can grade — teachers should not appear in the student list.
+        // This mirrors what \assign::list_participants() does internally for assignments.
+        $graders = get_enrolled_users($this->context, 'mod/forum:grade', $groupid, 'u.id');
+        $enrolledusers = array_diff_key($enrolledusers, $graders);
+
         // Batch-load post counts and last post time per user.
         $sql = "SELECT p.userid, COUNT(p.id) AS postcount, MAX(p.created) AS lastpost
                   FROM {forum_posts} p
@@ -416,6 +421,7 @@ class forum_adapter extends base_adapter {
 
         // Get attachment files for these posts.
         $fs = get_file_storage();
+        $converter = new \core_files\converter();
         $result = [];
         foreach ($postids as $postid) {
             $files = $fs->get_area_files(
@@ -435,17 +441,34 @@ class forum_adapter extends base_adapter {
                     $file->get_filepath(),
                     $file->get_filename(),
                 );
-                $previewurl = new \moodle_url('/local/unifiedgrader/preview_file.php', [
+
+                $mimetype = $file->get_mimetype();
+                $extension = pathinfo($file->get_filename(), PATHINFO_EXTENSION);
+
+                // Check if the file can be converted to PDF (for non-PDF files).
+                $convertible = false;
+                if ($mimetype !== 'application/pdf' && $extension) {
+                    $convertible = $converter->can_convert_format_to($extension, 'pdf');
+                }
+
+                // Build preview URL: use convert=pdf for convertible files.
+                $previewparams = [
                     'fileid' => $file->get_id(),
                     'cmid' => $this->cm->id,
-                ]);
+                ];
+                if ($convertible) {
+                    $previewparams['convert'] = 'pdf';
+                }
+                $previewurl = new \moodle_url('/local/unifiedgrader/preview_file.php', $previewparams);
+
                 $result[] = [
                     'fileid' => (int) $file->get_id(),
                     'filename' => $file->get_filename(),
-                    'mimetype' => $file->get_mimetype(),
+                    'mimetype' => $mimetype,
                     'filesize' => (int) $file->get_filesize(),
                     'url' => $downloadurl->out(false),
                     'previewurl' => $previewurl->out(false),
+                    'convertible' => $convertible,
                 ];
             }
         }

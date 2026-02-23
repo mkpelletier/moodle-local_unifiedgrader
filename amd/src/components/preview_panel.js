@@ -118,8 +118,10 @@ export default class extends BaseComponent {
 
         // Handle files.
         const files = submission.files || [];
+        const hasContent = submission.status && submission.status !== 'nosubmission';
+
         if (files.length > 0) {
-            this._renderFileSelector(files);
+            this._renderFileSelector(files, hasContent);
 
             // Auto-preview the first previewable file.
             const firstPreviewable = files.find(f => this._isPreviewable(f));
@@ -132,16 +134,9 @@ export default class extends BaseComponent {
         // Show submission content in an iframe via a proper Moodle page.
         // This ensures submission plugin CSS, JS, and AMD modules load correctly
         // (e.g. ytsubmission's YouTube player and timestamped feedback interface).
-        if (submission.status && submission.status !== 'nosubmission') {
-            const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
-            const cmid = this.reactive.state.activity?.cmid;
-            const userid = submission.userid;
-            if (cmid && userid) {
-                iframe.src = `${M.cfg.wwwroot}/local/unifiedgrader/preview_submission.php`
-                    + `?cmid=${cmid}&userid=${userid}`;
-                docPreview.classList.remove('d-none');
-                return;
-            }
+        if (hasContent) {
+            this._showSubmissionContent();
+            return;
         }
     }
 
@@ -149,8 +144,9 @@ export default class extends BaseComponent {
      * Render compact file selector buttons in the right panel.
      *
      * @param {Array} files Array of file objects.
+     * @param {boolean} hasContent Whether the submission has text content (e.g. forum posts).
      */
-    _renderFileSelector(files) {
+    _renderFileSelector(files, hasContent = false) {
         if (!this._container) {
             return;
         }
@@ -168,6 +164,41 @@ export default class extends BaseComponent {
         }
 
         wrapper.classList.remove('d-none');
+
+        // Add a "Posts" pill when there is both content and file attachments,
+        // so the teacher can switch between viewing posts and previewing files.
+        if (hasContent && files.length > 0) {
+            const contentPill = document.createElement('span');
+            contentPill.className = 'btn-group btn-group-sm';
+            contentPill.dataset.fileid = 'content';
+
+            const contentBtn = document.createElement('button');
+            contentBtn.type = 'button';
+            contentBtn.className = 'btn btn-sm btn-outline-secondary d-flex align-items-center gap-1';
+            const contentIcon = document.createElement('i');
+            contentIcon.className = 'fa fa-comments';
+            contentIcon.setAttribute('aria-hidden', 'true');
+            contentBtn.appendChild(contentIcon);
+            const contentLabel = document.createElement('span');
+            contentLabel.className = 'small';
+            contentLabel.textContent = 'Posts';
+            getString('forum_posts_pill', 'local_unifiedgrader')
+                .then((str) => { contentLabel.textContent = str; })
+                .catch(() => {});
+            contentBtn.appendChild(contentLabel);
+            contentBtn.addEventListener('click', () => {
+                // Save annotations before switching to content view.
+                if (this._pdfViewer) {
+                    this._pdfViewer.saveAnnotationsNow();
+                }
+                this._showSubmissionContent();
+                this._currentFileId = null;
+                this._highlightFileButton('content');
+            });
+
+            contentPill.appendChild(contentBtn);
+            list.appendChild(contentPill);
+        }
 
         files.forEach((file) => {
             const pill = document.createElement('span');
@@ -255,6 +286,25 @@ export default class extends BaseComponent {
 
         // Highlight the active file button in the right-panel selector.
         this._highlightFileButton(file.fileid);
+    }
+
+    /**
+     * Show submission content (e.g. forum posts) in the iframe preview.
+     */
+    _showSubmissionContent() {
+        const pdfWrapper = this.getElement(this.selectors.PDF_VIEWER_WRAPPER);
+        const docPreview = this.getElement(this.selectors.DOCUMENT_PREVIEW);
+        pdfWrapper.classList.add('d-none');
+        docPreview.classList.add('d-none');
+
+        const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
+        const cmid = this.reactive.state.activity?.cmid;
+        const userid = this.reactive.state.submission?.userid;
+        if (cmid && userid) {
+            iframe.src = `${M.cfg.wwwroot}/local/unifiedgrader/preview_submission.php`
+                + `?cmid=${cmid}&userid=${userid}`;
+            docPreview.classList.remove('d-none');
+        }
     }
 
     /**

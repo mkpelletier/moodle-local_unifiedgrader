@@ -416,6 +416,18 @@
     font-weight: 500;
 }
 
+/* Student profile popout — fixed positioning set by JS for viewport clamping. */
+.local-unifiedgrader-profile-popout {
+    position: fixed;
+    width: 320px;
+    max-width: calc(100vw - 2rem);
+    z-index: 1050;
+    background: #fff;
+    border: 2px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.75rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
 /* Submission comments popout — messenger style. */
 .local-unifiedgrader-comments-popout {
     position: absolute;

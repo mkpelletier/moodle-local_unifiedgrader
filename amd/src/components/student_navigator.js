@@ -24,6 +24,7 @@
 
 import {BaseComponent} from 'core/reactive';
 import {get_strings as getStrings} from 'core/str';
+import {get_string as getString} from 'core/str';
 
 export default class extends BaseComponent {
 
@@ -45,12 +46,18 @@ export default class extends BaseComponent {
             GROUP_FILTER: '[data-region="group-filter"]',
             GROUP_SELECT: '[data-action="filter-group"]',
             PARTICIPANT_LIST: '[data-region="participant-list"]',
+            PROFILE_TOGGLE: '[data-action="toggle-profile-popout"]',
+            PROFILE_POPOUT: '[data-region="profile-popout"]',
         };
         this._searchTimeout = null;
         this._filtersVisible = false;
         this._container = null;
         /** @type {?object} Prefetched lang strings for status actions. */
         this._strings = null;
+        /** @type {boolean} Whether the profile popout is visible. */
+        this._profileVisible = false;
+        /** @type {?Function} Outside-click handler for profile popout dismissal. */
+        this._profileOutsideClickHandler = null;
     }
 
     /**
@@ -74,6 +81,7 @@ export default class extends BaseComponent {
     async stateReady(state) {
         this._container = this.element.closest('.local-unifiedgrader-container');
         this._setupEventListeners();
+        this._setupProfilePopout();
         this._initGroupSelector(state);
 
         // Prefetch action strings for assign and quiz activities.
@@ -367,6 +375,9 @@ export default class extends BaseComponent {
             return;
         }
 
+        // Close the profile popout on student switch.
+        this._hideProfilePopout();
+
         const avatar = this._container.querySelector('[data-region="student-avatar"]');
         const nameEl = this._container.querySelector('[data-region="student-name-header"]');
         const dateEl = this._container.querySelector('[data-region="student-submitted-date"]');
@@ -457,6 +468,192 @@ export default class extends BaseComponent {
                 this._buildStatusDropdown(wrapper, merged);
             }
             this._updateOverrideIndicator(merged);
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Profile popout
+    // ──────────────────────────────────────────────
+
+    /**
+     * Set up the profile popout toggle on the avatar/name area.
+     */
+    _setupProfilePopout() {
+        if (!this._container) {
+            return;
+        }
+        const toggle = this._container.querySelector('[data-action="toggle-profile-popout"]');
+        if (toggle) {
+            toggle.addEventListener('click', (e) => {
+                // Don't toggle if the click is on a link inside the popout.
+                if (e.target.closest('[data-region="profile-popout"]')) {
+                    return;
+                }
+                e.stopPropagation();
+                if (this._profileVisible) {
+                    this._hideProfilePopout();
+                } else {
+                    this._showProfilePopout();
+                }
+            });
+        }
+    }
+
+    /**
+     * Show the profile popout with the current student's info.
+     */
+    async _showProfilePopout() {
+        const popout = this._container?.querySelector('[data-region="profile-popout"]');
+        if (!popout) {
+            return;
+        }
+
+        const state = this.reactive.state;
+        const participants = [...state.participants.values()];
+        const student = participants.find(p => p.id === state.currentUser?.id);
+        if (!student) {
+            return;
+        }
+
+        // Build popout content.
+        popout.innerHTML = '';
+
+        // Top section: avatar + name + email.
+        const top = document.createElement('div');
+        top.className = 'd-flex align-items-center gap-3 p-3';
+
+        if (student.profileimageurl) {
+            const img = document.createElement('img');
+            img.src = student.profileimageurl;
+            img.alt = student.fullname;
+            img.width = 80;
+            img.height = 80;
+            img.className = 'rounded-circle';
+            img.style.objectFit = 'cover';
+            top.appendChild(img);
+        }
+
+        const info = document.createElement('div');
+        const nameEl = document.createElement('h6');
+        nameEl.className = 'mb-1';
+        nameEl.textContent = student.fullname;
+        info.appendChild(nameEl);
+
+        if (student.email) {
+            const emailLink = document.createElement('a');
+            emailLink.href = 'mailto:' + student.email;
+            emailLink.className = 'small text-muted text-decoration-none';
+            emailLink.textContent = student.email;
+            info.appendChild(emailLink);
+        } else {
+            const noEmail = document.createElement('span');
+            noEmail.className = 'small text-muted';
+            noEmail.textContent = '—';
+            getString('profile_no_email', 'local_unifiedgrader').then((s) => {
+                noEmail.textContent = s;
+                return s;
+            }).catch(() => {
+                // Ignore.
+            });
+            info.appendChild(noEmail);
+        }
+
+        top.appendChild(info);
+        popout.appendChild(top);
+
+        // Bottom section: action links.
+        const actions = document.createElement('div');
+        actions.className = 'px-3 pb-3 d-flex gap-2';
+
+        const profileLink = document.createElement('a');
+        profileLink.href = window.M.cfg.wwwroot + '/user/view.php?id=' + student.id
+            + '&course=' + state.activity.courseid;
+        profileLink.className = 'btn btn-sm btn-outline-secondary';
+        profileLink.target = '_blank';
+        profileLink.rel = 'noopener';
+        profileLink.innerHTML = '<i class="fa fa-user me-1"></i>';
+        getString('profile_view_full', 'local_unifiedgrader').then((s) => {
+            profileLink.innerHTML = '<i class="fa fa-user me-1"></i>' + s;
+            return s;
+        }).catch(() => {
+            // Ignore.
+        });
+        actions.appendChild(profileLink);
+
+        if (state.ui.canloginas) {
+            const loginLink = document.createElement('a');
+            loginLink.href = window.M.cfg.wwwroot + '/course/loginas.php?id='
+                + state.activity.courseid + '&user=' + student.id
+                + '&sesskey=' + window.M.cfg.sesskey;
+            loginLink.className = 'btn btn-sm btn-outline-secondary';
+            loginLink.innerHTML = '<i class="fa fa-sign-in me-1"></i>';
+            getString('profile_login_as', 'local_unifiedgrader').then((s) => {
+                loginLink.innerHTML = '<i class="fa fa-sign-in me-1"></i>' + s;
+                return s;
+            }).catch(() => {
+                // Ignore.
+            });
+            actions.appendChild(loginLink);
+        }
+
+        popout.appendChild(actions);
+
+        // Show the popout and position with viewport clamping.
+        popout.classList.remove('d-none');
+        this._profileVisible = true;
+
+        // Position using the toggle button's bounding rect.
+        const toggle = this._container.querySelector('[data-action="toggle-profile-popout"]');
+        if (toggle) {
+            const rect = toggle.getBoundingClientRect();
+            const POPOUT_WIDTH = 320;
+            const MARGIN = 8;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+
+            // Horizontal: align left with toggle, clamp to viewport.
+            let left = rect.left;
+            if (left + POPOUT_WIDTH > vw - MARGIN) {
+                left = vw - POPOUT_WIDTH - MARGIN;
+            }
+            left = Math.max(MARGIN, left);
+
+            // Vertical: prefer below toggle, flip above if no room.
+            const popoutHeight = popout.offsetHeight || 200;
+            let top = rect.bottom + 6;
+            if (top + popoutHeight > vh - MARGIN) {
+                const above = rect.top - 6 - popoutHeight;
+                top = above >= MARGIN ? above : Math.max(MARGIN, vh - popoutHeight - MARGIN);
+            }
+
+            popout.style.top = top + 'px';
+            popout.style.left = left + 'px';
+        }
+
+        // Outside-click dismissal (deferred to avoid catching the opening click).
+        setTimeout(() => {
+            this._profileOutsideClickHandler = (e) => {
+                if (!popout.contains(e.target)
+                    && !e.target.closest('[data-action="toggle-profile-popout"]')) {
+                    this._hideProfilePopout();
+                }
+            };
+            document.addEventListener('click', this._profileOutsideClickHandler, true);
+        }, 0);
+    }
+
+    /**
+     * Hide the profile popout.
+     */
+    _hideProfilePopout() {
+        const popout = this._container?.querySelector('[data-region="profile-popout"]');
+        if (popout) {
+            popout.classList.add('d-none');
+        }
+        this._profileVisible = false;
+        if (this._profileOutsideClickHandler) {
+            document.removeEventListener('click', this._profileOutsideClickHandler, true);
+            this._profileOutsideClickHandler = null;
         }
     }
 

@@ -59,7 +59,8 @@
      data-allowmanualgradeoverride="{{#allowmanualgradeoverride}}1{{/allowmanualgradeoverride}}{{^allowmanualgradeoverride}}0{{/allowmanualgradeoverride}}"
      data-gradesposted="{{#gradesposted}}1{{/gradesposted}}{{^gradesposted}}0{{/gradesposted}}"
      data-gradeshidden="{{gradeshidden}}"
-     data-coursecode="{{coursecode}}">
+     data-coursecode="{{coursecode}}"
+     data-canloginas="{{#canloginas}}1{{/canloginas}}{{^canloginas}}0{{/canloginas}}">
 
     {{! Header bar }}
     <div class="d-flex align-items-stretch border-bottom bg-white" style="height: 80px;">
@@ -81,34 +82,47 @@
 
         {{! Center: Current student info (populated by JS) }}
         <div class="d-flex align-items-center flex-grow-1 px-3 gap-3" data-region="student-info-header">
-            <img data-region="student-avatar"
-                 class="rounded-circle d-none"
-                 width="48" height="48"
-                 alt="">
-            <div>
-                <h4 class="mb-0 fs-6 d-flex align-items-center gap-2">
-                    <span data-region="student-name-header">--</span>
-                    <span data-region="submission-comments" class="position-relative d-inline-block">
-                        <button type="button"
-                                class="btn btn-link btn-sm p-0 text-muted"
-                                data-action="toggle-comments"
-                                title="{{#str}} submissioncomments, local_unifiedgrader {{/str}}">
-                            <i class="fa fa-comments"></i>
-                        </button>
-                        <span data-region="comment-count-badge"
-                              class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none"
-                              style="font-size: 0.6rem;">
-                            0
-                        </span>
-                        <div data-region="comments-popout"
-                             class="d-none local-unifiedgrader-comments-popout">
-                        </div>
-                    </span>
-                </h4>
-                <small class="text-muted" data-region="student-submitted-date"></small>
+            {{! Clickable avatar + name area with profile popout }}
+            <div class="d-flex align-items-center gap-3 position-relative"
+                 data-action="toggle-profile-popout"
+                 role="button"
+                 style="cursor: pointer;">
+                <img data-region="student-avatar"
+                     class="rounded-circle d-none"
+                     width="48" height="48"
+                     alt="">
+                <div>
+                    <h4 class="mb-0 fs-6">
+                        <span data-region="student-name-header">--</span>
+                    </h4>
+                    <small class="text-muted" data-region="student-submitted-date"></small>
+                </div>
+                {{! Profile popout (hidden, populated by JS) }}
+                <div data-region="profile-popout"
+                     class="d-none local-unifiedgrader-profile-popout">
+                </div>
+            </div>
+            {{! Status badge and submission comments (outside profile click area) }}
+            <div class="d-flex align-items-center gap-2">
                 <div data-region="student-status-wrapper" class="d-inline-block">
                     <span data-region="student-status-badge" class="badge bg-secondary"></span>
                 </div>
+                <span data-region="submission-comments" class="position-relative d-inline-block">
+                    <button type="button"
+                            class="btn btn-link btn-sm p-0 text-muted"
+                            data-action="toggle-comments"
+                            title="{{#str}} submissioncomments, local_unifiedgrader {{/str}}">
+                        <i class="fa fa-comments"></i>
+                    </button>
+                    <span data-region="comment-count-badge"
+                          class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none"
+                          style="font-size: 0.6rem;">
+                        0
+                    </span>
+                    <div data-region="comments-popout"
+                         class="d-none local-unifiedgrader-comments-popout">
+                    </div>
+                </span>
             </div>
         </div>
 
