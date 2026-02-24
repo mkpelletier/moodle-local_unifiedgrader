@@ -86,9 +86,12 @@ export const CUSTOM_PROPS = ['annotationType', 'annotationText', 'stampType', 's
 /** @type {number} Maximum number of Fabric.js objects allowed per page. */
 const MAX_OBJECTS_PER_PAGE = 500;
 
-/** @type {Set<string>} Allowed Fabric.js object types for annotation data (v6 uses PascalCase). */
+/** @type {Set<string>} Allowed Fabric.js object types for annotation data.
+ * Fabric.js v6 uses PascalCase class names (e.g. FabricText) but serializes
+ * with shorter type strings (e.g. "Text"). Both forms must be accepted. */
 const ALLOWED_FABRIC_TYPES = new Set([
-    'Rect', 'Circle', 'Ellipse', 'Path', 'Line', 'FabricText',
+    'Rect', 'Circle', 'Ellipse', 'Path', 'Line',
+    'FabricText', 'Text',
     'Group', 'IText', 'Textbox', 'Polygon', 'Polyline', 'Image',
 ]);
 

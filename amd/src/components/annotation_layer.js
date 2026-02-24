@@ -124,9 +124,7 @@ export default class AnnotationLayer {
         /** @type {?object} */
         this._lastPointer = null;
 
-        // Comment popup, tooltip, and picker.
-        /** @type {?HTMLElement} */
-        this._commentPopup = null;
+        // Comment tooltip and picker.
         /** @type {?HTMLElement} */
         this._commentTooltip = null;
         /** @type {?HTMLElement} */
@@ -186,7 +184,6 @@ export default class AnnotationLayer {
         if (this._readOnly) {
             return;
         }
-        this._closeCommentPopup();
         this._closeCommentPicker();
         this._currentTool = tool;
         if (!this._canvas) {
@@ -514,7 +511,6 @@ export default class AnnotationLayer {
      * to capture any unsaved annotation state.
      */
     destroy() {
-        this._closeCommentPopup();
         this._closeCommentPicker();
         this._hideCommentTooltip();
         if (this._canvas) {
@@ -564,9 +560,12 @@ export default class AnnotationLayer {
             return; // Fabric handles drawing mode.
         }
 
-        // If clicking on an existing object in comment mode, let Fabric
-        // handle it (select/move) instead of placing a new comment on top.
+        // If clicking on an existing comment in comment mode, open the
+        // picker to edit it instead of placing a new comment on top.
         if (this._currentTool === TOOLS.COMMENT && opt.target) {
+            if (opt.target.annotationType === 'comment') {
+                this._editComment(opt.target);
+            }
             return;
         }
 
@@ -668,12 +667,7 @@ export default class AnnotationLayer {
             return;
         }
         if (opt.target.annotationType === 'comment') {
-            this._showCommentPopup(opt.target.left, opt.target.top, opt.target.annotationText, (text) => {
-                if (text !== null) {
-                    opt.target.annotationText = text;
-                    this._notifyChange();
-                }
-            });
+            this._editComment(opt.target);
         }
     }
 
@@ -704,6 +698,22 @@ export default class AnnotationLayer {
                 this._canvas.requestRenderAll();
             }
         });
+    }
+
+    /**
+     * Edit an existing comment marker — opens the picker pre-filled with its text.
+     *
+     * @param {object} marker The Fabric comment marker object.
+     */
+    _editComment(marker) {
+        this._hideCommentTooltip();
+        this._showCommentPicker(marker.left, marker.top, (text) => {
+            if (text !== null && text.trim() !== '') {
+                marker.annotationText = text;
+                this._notifyChange();
+            }
+            // null (cancel) — keep the original text unchanged.
+        }, marker.annotationText || '');
     }
 
     /**
@@ -851,96 +861,6 @@ export default class AnnotationLayer {
     }
 
     // ──────────────────────────────────────────────
-    //  Comment popup
-    // ──────────────────────────────────────────────
-
-    /**
-     * Show a text input popup near a position for comment entry.
-     *
-     * @param {number} x Canvas x position.
-     * @param {number} y Canvas y position.
-     * @param {string} existingText Pre-filled text.
-     * @param {Function} callback Called with the entered text or null if cancelled.
-     */
-    _showCommentPopup(x, y, existingText, callback) {
-        this._closeCommentPopup();
-
-        const popup = document.createElement('div');
-        popup.className = 'annotation-comment-popup';
-
-        // Position to the right of the marker, clamped to canvas bounds.
-        let popupLeft = x + 20;
-        if (popupLeft + 220 > this._canvasWidth) {
-            popupLeft = x - 240;
-        }
-        let popupTop = y - 10;
-        if (popupTop < 0) {
-            popupTop = 0;
-        }
-        popup.style.left = popupLeft + 'px';
-        popup.style.top = popupTop + 'px';
-
-        const textarea = document.createElement('textarea');
-        textarea.className = 'form-control form-control-sm';
-        textarea.rows = 3;
-        textarea.placeholder = 'Enter comment...';
-        textarea.value = existingText || '';
-
-        const btnRow = document.createElement('div');
-        btnRow.className = 'd-flex gap-1 mt-1';
-
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'btn btn-sm btn-primary';
-        saveBtn.textContent = 'Save';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'btn btn-sm btn-secondary';
-        cancelBtn.textContent = 'Cancel';
-
-        btnRow.appendChild(saveBtn);
-        btnRow.appendChild(cancelBtn);
-        popup.appendChild(textarea);
-        popup.appendChild(btnRow);
-
-        this._wrapperEl.appendChild(popup);
-        this._commentPopup = popup;
-
-        // Focus after a tick (Fabric.js may steal focus).
-        setTimeout(() => textarea.focus(), 50);
-
-        const finish = (text) => {
-            this._closeCommentPopup();
-            callback(text);
-        };
-
-        saveBtn.addEventListener('click', () => finish(textarea.value));
-        cancelBtn.addEventListener('click', () => finish(null));
-
-        textarea.addEventListener('keydown', (e) => {
-            // Ctrl+Enter or Cmd+Enter to save.
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                finish(textarea.value);
-            }
-            // Escape to cancel.
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                finish(null);
-            }
-            // Stop propagation so Fabric.js / page nav don't react.
-            e.stopPropagation();
-        });
-    }
-
-    /** Close the comment popup if open. */
-    _closeCommentPopup() {
-        if (this._commentPopup) {
-            this._commentPopup.remove();
-            this._commentPopup = null;
-        }
-    }
-
-    // ──────────────────────────────────────────────
     //  Comment picker (library + free text)
     // ──────────────────────────────────────────────
 
@@ -950,9 +870,9 @@ export default class AnnotationLayer {
      * @param {number} x Canvas x position.
      * @param {number} y Canvas y position.
      * @param {Function} callback Called with the selected/entered text or null if cancelled.
+     * @param {string} [existingText=''] Pre-filled text when editing an existing comment.
      */
-    _showCommentPicker(x, y, callback) {
-        this._closeCommentPopup();
+    _showCommentPicker(x, y, callback, existingText = '') {
         this._closeCommentPicker();
 
         const PICKER_WIDTH = 360;
@@ -1015,7 +935,8 @@ export default class AnnotationLayer {
         const textarea = document.createElement('textarea');
         textarea.className = 'form-control form-control-sm';
         textarea.rows = 2;
-        textarea.placeholder = 'Or write your own...';
+        textarea.placeholder = existingText ? 'Edit comment...' : 'Or write your own...';
+        textarea.value = existingText || '';
         freetextSection.appendChild(textarea);
 
         const btnRow = document.createElement('div');

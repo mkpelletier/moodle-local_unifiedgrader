@@ -14,8 +14,12 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * PDF viewer component - renders PDFs via PDF.js with page navigation, zoom,
- * and a Fabric.js annotation overlay layer with backend persistence.
+ * PDF viewer component — continuous-scroll multi-page orchestrator.
+ *
+ * Renders all PDF pages in a vertically scrollable container using PDF.js.
+ * Each visible page gets its own Fabric.js AnnotationLayer instance for
+ * annotation editing. IntersectionObserver handles lazy rendering as pages
+ * enter the viewport, and far-away pages can be torn down to reclaim memory.
  *
  * @module     local_unifiedgrader/components/pdf_viewer
  * @copyright  2026 South African Theological Seminary
@@ -48,6 +52,9 @@ const CONVERSION_MAX_RETRIES = 15;
 /** @type {number} Retry delay in milliseconds for conversion polling. */
 const CONVERSION_RETRY_DELAY_MS = 2000;
 
+/** @type {string} IntersectionObserver root margin for pre-loading pages near the viewport. */
+const OBSERVER_ROOT_MARGIN = '300px 0px';
+
 export default class PdfViewer extends BaseComponent {
 
     /**
@@ -57,11 +64,10 @@ export default class PdfViewer extends BaseComponent {
         this.name = 'pdf_viewer';
         this.selectors = {
             PAGE_CONTAINER: '[data-region="pdf-page-container"]',
-            CANVAS_WRAPPER: '[data-region="pdf-canvas-wrapper"]',
-            PDF_CANVAS: '[data-region="pdf-canvas"]',
-            ANNOTATION_CANVAS: '[data-region="annotation-canvas"]',
             ANNOTATION_TOOLBAR: '[data-region="annotation-toolbar"]',
             LOADING: '[data-region="pdf-loading"]',
+            LOADING_MESSAGE: '[data-region="pdf-loading-message"]',
+            ERROR_MESSAGE: '[data-region="pdf-error"]',
             CURRENT_PAGE: '[data-region="current-page"]',
             TOTAL_PAGES: '[data-region="total-pages"]',
             ZOOM_LEVEL: '[data-region="zoom-level"]',
@@ -70,10 +76,6 @@ export default class PdfViewer extends BaseComponent {
             ZOOM_IN_BTN: '[data-action="zoom-in"]',
             ZOOM_OUT_BTN: '[data-action="zoom-out"]',
             ZOOM_FIT_BTN: '[data-action="zoom-fit"]',
-            LOADING_MESSAGE: '[data-region="pdf-loading-message"]',
-            ERROR_MESSAGE: '[data-region="pdf-error"]',
-            TEXT_LAYER: '[data-region="pdf-text-layer"]',
-            LINK_LAYER: '[data-region="pdf-link-layer"]',
             SEARCH_BAR: '[data-region="pdf-search-bar"]',
             SEARCH_INPUT: '[data-action="search-input"]',
             SEARCH_COUNT: '[data-region="search-count"]',
@@ -83,74 +85,115 @@ export default class PdfViewer extends BaseComponent {
             SEARCH_TOGGLE: '[data-action="search-toggle"]',
         };
 
+        // PDF.js state.
         /** @type {?object} PDF.js document proxy. */
         this._pdfDoc = null;
-        /** @type {number} Current page number (1-based). */
-        this._currentPage = 1;
         /** @type {number} Total number of pages. */
         this._totalPages = 0;
-        /** @type {number} Current zoom level index. */
-        this._zoomIndex = DEFAULT_ZOOM_INDEX;
-        /** @type {boolean} Whether fit-to-width mode is active. */
-        this._fitToWidth = true;
-        /** @type {boolean} Whether a page render is in progress. */
-        this._rendering = false;
-        /** @type {?number} Queued page number to render after current render completes. */
-        this._pendingPage = null;
         /** @type {?string} URL of the currently loaded PDF. */
         this._currentUrl = null;
         /** @type {?object} PDF.js library reference. */
         this._pdfjsLib = null;
+        /** @type {?ArrayBuffer} Original PDF bytes for flattening. */
+        this._pdfBytes = null;
+        /** @type {?AbortController} Abort controller for in-flight PDF fetch. */
+        this._fetchAbortController = null;
+        /** @type {?AbortController} Abort controller for in-flight flatten. */
+        this._flattenAbortController = null;
+        /** @type {?object} Current file metadata. */
+        this._fileInfo = null;
+        /** @type {Map<number, number>} Cached word counts per file ID. */
+        this._wordCountCache = new Map();
 
-        // Annotation layer and toolbar (initialised on first PDF load).
-        /** @type {?AnnotationLayer} */
-        this._annotationLayer = null;
+        // Zoom state.
+        /** @type {number} Current zoom level index. */
+        this._zoomIndex = DEFAULT_ZOOM_INDEX;
+        /** @type {boolean} Whether fit-to-width mode is active. */
+        this._fitToWidth = true;
+        /** @type {number} Current display scale factor. */
+        this._currentScale = 1.0;
+
+        // Page slot management.
+        /** @type {Map<number, object>} Page number → slot object. */
+        this._pageSlots = new Map();
+        /** @type {?IntersectionObserver} Lazy-render observer. */
+        this._observer = null;
+        /** @type {number} Currently most-visible page (1-based). */
+        this._activePageNum = 1;
+        /** @type {?AnnotationLayer} The active page's annotation layer. */
+        this._activeAnnotationLayer = null;
+        /** @type {?number} RequestAnimationFrame ID for scroll handler. */
+        this._scrollRAF = null;
+        /** @type {?Function} Bound scroll handler. */
+        this._onScroll = null;
+
+        // Central annotation state.
+        /** @type {Map<number, object>} Page number → Fabric JSON. */
+        this._pageAnnotations = new Map();
+        /** @type {Set<number>} Page numbers loaded from backend. */
+        this._loadedPageNums = new Set();
+        /** @type {boolean} Whether annotations have unsaved changes. */
+        this._dirty = false;
+        /** @type {boolean} Whether a save is currently in-flight. */
+        this._saving = false;
+        /** @type {?number} Debounce timer for auto-save. */
+        this._saveTimer = null;
+
+        // Shared tool state (propagated to all annotation layers).
+        /** @type {?object} Cached Fabric.js library. */
+        this._fabricLib = null;
+        /** @type {string} Current annotation tool. */
+        this._currentTool = 'select';
+        /** @type {?string} Current annotation color (null = layer default). */
+        this._currentColor = null;
+        /** @type {string} Current stamp type. */
+        this._currentStamp = 'CHECK';
+        /** @type {string} Current shape type. */
+        this._currentShape = 'rect';
+        /** @type {number} Current brush width. */
+        this._brushWidth = 3;
+        /** @type {boolean} Whether text selection is enabled. */
+        this._textSelectable = false;
+        /** @type {boolean} Guard flag for state propagation. */
+        this._propagating = false;
+
+        // Annotation toolbar.
         /** @type {?AnnotationToolbar} */
         this._annotationToolbar = null;
-        /** @type {boolean} */
-        this._annotationsInitialised = false;
 
-        // Annotation persistence state.
+        // Persistence context.
         /** @type {number} Course module ID. */
         this._cmid = 0;
         /** @type {number} Student user ID. */
         this._userid = 0;
         /** @type {number} Current file ID. */
         this._fileid = 0;
-        /** @type {?number} Debounce timer ID for auto-save. */
-        this._saveTimer = null;
-        /** @type {boolean} Whether annotations have unsaved changes. */
-        this._dirty = false;
-        /** @type {Set<number>} Page numbers that were loaded from the backend. */
-        this._loadedPageNums = new Set();
-        /** @type {boolean} Whether this is a read-only student view. */
+
+        // Read-only mode (student feedback view).
+        /** @type {boolean} */
         this._readOnly = this.element?.dataset?.readonly === '1';
-        /** @type {?object} PDF.js TextLayer instance for the current page. */
-        this._textLayer = null;
-        /** @type {?AbortController} Abort controller for in-flight PDF fetch/conversion polling. */
-        this._fetchAbortController = null;
-        /** @type {?ArrayBuffer} Original PDF bytes for flattening. */
-        this._pdfBytes = null;
-        /** @type {?AbortController} Abort controller for in-flight flatten operation. */
-        this._flattenAbortController = null;
-        /** @type {?object} Current file metadata {filename, filesize, mimetype}. */
-        this._fileInfo = null;
-        /** @type {Map<number, number>} Cached word counts per file ID. */
-        this._wordCountCache = new Map();
 
         // Text search state.
-        /** @type {boolean} Whether the search bar is open. */
+        /** @type {boolean} */
         this._searchOpen = false;
-        /** @type {string} Current search query. */
+        /** @type {string} */
         this._searchQuery = '';
-        /** @type {Array<{page: number}>} All matches across all pages. */
+        /** @type {Array<{page: number}>} */
         this._searchMatches = [];
-        /** @type {number} Index of the active match in _searchMatches (-1 = none). */
+        /** @type {number} */
         this._searchIndex = -1;
-        /** @type {Map<number, {fullText: string, itemRanges: Array}>} Cached text per page. */
+        /** @type {Map<number, object>} Cached text per page. */
         this._pageTextCache = new Map();
         /** @type {?number} Debounce timer for search input. */
         this._searchDebounceTimer = null;
+
+        // Word count tooltip for text selection.
+        /** @type {?HTMLElement} */
+        this._wordCountTooltip = null;
+        /** @type {?Function} Bound mouseup handler for text selection word count. */
+        this._onTextSelectMouseUp = null;
+        /** @type {?Function} Bound mousedown handler to hide word count tooltip. */
+        this._onTextSelectMouseDown = null;
     }
 
     /**
@@ -170,7 +213,7 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Bind click handlers for page navigation and zoom controls.
+     * Bind click handlers for navigation, zoom, keyboard, and search.
      */
     _bindControls() {
         const prevBtn = this.getElement(this.selectors.PREV_BTN);
@@ -180,10 +223,10 @@ export default class PdfViewer extends BaseComponent {
         const zoomFitBtn = this.getElement(this.selectors.ZOOM_FIT_BTN);
 
         if (prevBtn) {
-            prevBtn.addEventListener('click', () => this._goToPage(this._currentPage - 1));
+            prevBtn.addEventListener('click', () => this._goToPage(this._activePageNum - 1));
         }
         if (nextBtn) {
-            nextBtn.addEventListener('click', () => this._goToPage(this._currentPage + 1));
+            nextBtn.addEventListener('click', () => this._goToPage(this._activePageNum + 1));
         }
         if (zoomInBtn) {
             zoomInBtn.addEventListener('click', () => this._zoom(1));
@@ -195,12 +238,10 @@ export default class PdfViewer extends BaseComponent {
             zoomFitBtn.addEventListener('click', () => this._zoomFitToWidth());
         }
 
-        // Keyboard shortcuts for page navigation and search (works in both read-only and edit modes).
-        // Bound to document because the PDF canvas doesn't reliably receive keyboard focus.
+        // Keyboard shortcuts (bound to document — canvas doesn't reliably get focus).
         this._onPageKeyDown = (e) => {
-            // Ctrl+F / Cmd+F — open search bar (intercept browser find).
+            // Ctrl+F / Cmd+F — open search bar.
             if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-                // Only intercept when our PDF viewer is visible.
                 if (this._pdfDoc) {
                     e.preventDefault();
                     this._toggleSearch();
@@ -208,25 +249,25 @@ export default class PdfViewer extends BaseComponent {
                 return;
             }
 
-            // Escape — close search bar if open.
+            // Escape — close search bar.
             if (e.key === 'Escape' && this._searchOpen) {
                 e.preventDefault();
                 this._closeSearch();
                 return;
             }
 
-            // Skip page navigation when focus is inside an input, textarea, or contenteditable element.
+            // Skip when focus is inside an input/textarea.
             const tag = e.target.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) {
                 return;
             }
             switch (e.key) {
                 case 'PageDown':
-                    this._goToPage(this._currentPage + 1);
+                    this._goToPage(this._activePageNum + 1);
                     e.preventDefault();
                     break;
                 case 'PageUp':
-                    this._goToPage(this._currentPage - 1);
+                    this._goToPage(this._activePageNum - 1);
                     e.preventDefault();
                     break;
                 case 'Home':
@@ -241,18 +282,21 @@ export default class PdfViewer extends BaseComponent {
         };
         document.addEventListener('keydown', this._onPageKeyDown);
 
-        // Search bar controls.
         this._bindSearchControls();
 
-        // Skip editing shortcuts and save handlers in read-only mode.
+        // Editing shortcuts (skip in read-only mode).
         if (!this._readOnly) {
-            // Keyboard shortcut: Delete key removes selected annotation.
-            // Bound to document because the Fabric.js canvas doesn't reliably receive keyboard focus.
+            // Delete key removes selected annotation on whichever page has a selection.
             this._onKeyDown = (e) => {
-                if ((e.key === 'Delete' || e.key === 'Backspace') && this._annotationLayer) {
+                if ((e.key === 'Delete' || e.key === 'Backspace')) {
                     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-                        this._annotationLayer.deleteSelected();
-                        e.preventDefault();
+                        for (const [, slot] of this._pageSlots) {
+                            if (slot.annotationLayer && slot.annotationLayer.hasSelection()) {
+                                slot.annotationLayer.deleteSelected();
+                                e.preventDefault();
+                                break;
+                            }
+                        }
                     }
                 }
             };
@@ -260,7 +304,8 @@ export default class PdfViewer extends BaseComponent {
 
             // Best-effort save on page unload.
             this._onBeforeUnload = () => {
-                if (this._dirty && this._annotationLayer && this._fileid) {
+                if (this._dirty && this._fileid) {
+                    this._saveAllSlotAnnotations();
                     this._saveAnnotationsToBackend();
                 }
             };
@@ -281,8 +326,8 @@ export default class PdfViewer extends BaseComponent {
      * @param {number} fileid File ID.
      */
     setFileContext(cmid, userid, fileid) {
-        // If switching to a different file, save current annotations first.
         if (this._fileid && this._fileid !== fileid && this._dirty) {
+            this._saveAllSlotAnnotations();
             this._saveAnnotationsToBackend();
         }
         this._cmid = cmid;
@@ -304,87 +349,600 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Gather PDF metadata and pass it to the annotation toolbar.
-     *
-     * @returns {Promise<void>}
-     */
-    async _pushDocumentInfo() {
-        if (!this._pdfDoc || !this._annotationToolbar) {
-            return;
-        }
-
-        let metadata = {};
-        try {
-            const meta = await this._pdfDoc.getMetadata();
-            metadata = meta?.info || {};
-        } catch {
-            // Some PDFs have no metadata — ignore errors.
-        }
-
-        const info = {
-            filename: this._fileInfo?.filename || '',
-            filesize: this._fileInfo?.filesize || 0,
-            pages: this._totalPages,
-            metadata: metadata,
-        };
-
-        // Pass a lazy word count callback bound to the current file.
-        const fileid = this._fileid;
-        const wordCountFn = () => this._getWordCount(fileid);
-
-        this._annotationToolbar.setDocumentInfo(info, wordCountFn);
-    }
-
-    /**
-     * Count words across all pages of the current PDF.
-     *
-     * Uses PDF.js text extraction. Results are cached per file ID.
-     *
-     * @param {number} fileid File ID to verify we're still on the same file.
-     * @returns {Promise<number>} Total word count.
-     */
-    async _getWordCount(fileid) {
-        // Return cached value if available.
-        if (this._wordCountCache.has(fileid)) {
-            return this._wordCountCache.get(fileid);
-        }
-
-        if (!this._pdfDoc) {
-            return 0;
-        }
-
-        let totalWords = 0;
-        for (let i = 1; i <= this._pdfDoc.numPages; i++) {
-            // Bail out if the user switched files while we're counting.
-            if (this._fileid !== fileid) {
-                return 0;
-            }
-            const page = await this._pdfDoc.getPage(i);
-            const textContent = await page.getTextContent();
-            const pageText = textContent.items.map((item) => item.str).join(' ');
-            const words = pageText.split(/\s+/).filter((w) => w.length > 0);
-            totalWords += words.length;
-        }
-
-        this._wordCountCache.set(fileid, totalWords);
-        return totalWords;
-    }
-
-    /**
      * Force-save annotations immediately.
      * Called by preview_panel before switching students.
      */
     saveAnnotationsNow() {
+        this._saveAllSlotAnnotations();
+        // Ensure dirty is set so that even if a save is in-flight,
+        // the finally block will re-schedule another save.
+        if (this._pageAnnotations.size > 0) {
+            this._dirty = true;
+        }
         this._saveAnnotationsToBackend();
     }
 
+    // ──────────────────────────────────────────────
+    //  PDF loading
+    // ──────────────────────────────────────────────
+
     /**
-     * Load annotations from the backend and populate the annotation layer.
+     * Load and display a PDF from a URL.
+     *
+     * @param {string} url The PDF file URL.
+     * @returns {Promise<void>}
+     */
+    async loadPdf(url) {
+        if (this._currentUrl === url) {
+            return;
+        }
+
+        // Abort any in-flight fetch from a previous call.
+        if (this._fetchAbortController) {
+            this._fetchAbortController.abort();
+        }
+        this._fetchAbortController = new AbortController();
+
+        this._showLoading(true);
+        this._showLoadingMessage('');
+        this._showError('');
+
+        try {
+            // Load PDF.js library.
+            if (!this._pdfjsLib) {
+                this._pdfjsLib = await PdfjsLoader.load();
+            }
+
+            // Tear down previous state.
+            this._destroyAllSlots();
+
+            if (this._pdfDoc) {
+                this._pdfDoc.destroy();
+                this._pdfDoc = null;
+            }
+            if (this._annotationToolbar) {
+                this._annotationToolbar.destroy();
+                this._annotationToolbar = null;
+            }
+
+            this._dirty = false;
+            this._loadedPageNums = new Set();
+            this._pageAnnotations = new Map();
+            this._pdfBytes = null;
+            this._pageTextCache.clear();
+            this._closeSearch();
+            if (this._saveTimer) {
+                clearTimeout(this._saveTimer);
+                this._saveTimer = null;
+            }
+
+            // Fetch PDF data (handles document conversion polling).
+            const pdfData = await this._fetchPdfData(url);
+            this._pdfBytes = pdfData.slice(0);
+
+            // Load the PDF document.
+            this._pdfDoc = await this._pdfjsLib.getDocument({
+                data: pdfData,
+                disableRange: true,
+                disableStream: true,
+            }).promise;
+
+            this._currentUrl = url;
+            this._totalPages = this._pdfDoc.numPages;
+            this._activePageNum = 1;
+
+            // Load Fabric.js (needed for annotation layer in both modes).
+            if (!this._fabricLib) {
+                this._fabricLib = await FabricLoader.load();
+            }
+
+            // Create placeholder slots for all pages.
+            await this._createAllPageSlots();
+
+            // Load annotations from backend into central map (before observer,
+            // so pages that render will already have annotation data available).
+            if (!this._readOnly) {
+                await this._loadAnnotationsFromBackend();
+            }
+
+            // Set up scroll listener for active page tracking.
+            this._setupScrollListener();
+
+            // Set up IntersectionObserver — visible pages will start rendering.
+            this._setupObserver();
+
+            this._updatePageControls();
+            this._updateZoomDisplay(this._currentScale);
+
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                return;
+            }
+            window.console.error('[pdf_viewer] Failed to load PDF:', err);
+            this._showError(err.message || 'Failed to load document.');
+        } finally {
+            this._showLoading(false);
+            this._showLoadingMessage('');
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Page slot management
+    // ──────────────────────────────────────────────
+
+    /**
+     * Create placeholder DOM slots for all pages with correct dimensions.
+     *
+     * @returns {Promise<void>}
+     */
+    async _createAllPageSlots() {
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container) {
+            return;
+        }
+
+        // Calculate scale from the first page.
+        const firstPage = await this._pdfDoc.getPage(1);
+        if (this._fitToWidth) {
+            this._currentScale = this._calculateFitToWidthScale(firstPage);
+        } else {
+            this._currentScale = ZOOM_LEVELS[this._zoomIndex];
+        }
+
+        for (let pageNum = 1; pageNum <= this._totalPages; pageNum++) {
+            const page = await this._pdfDoc.getPage(pageNum);
+            const viewport = page.getViewport({scale: this._currentScale});
+            const slot = this._createPageSlot(pageNum, viewport.width, viewport.height);
+            this._pageSlots.set(pageNum, slot);
+            container.appendChild(slot.wrapper);
+        }
+    }
+
+    /**
+     * Create a single page slot with all necessary DOM elements.
+     *
+     * @param {number} pageNum Page number (1-based).
+     * @param {number} width Display width in pixels.
+     * @param {number} height Display height in pixels.
+     * @returns {object} Slot object.
+     */
+    _createPageSlot(pageNum, width, height) {
+        const w = Math.round(width);
+        const h = Math.round(height);
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'pdf-page-slot';
+        wrapper.dataset.pageNum = pageNum;
+
+        const canvasWrapper = document.createElement('div');
+        canvasWrapper.dataset.region = 'pdf-canvas-wrapper';
+        canvasWrapper.style.position = 'relative';
+        canvasWrapper.style.width = w + 'px';
+        canvasWrapper.style.height = h + 'px';
+        canvasWrapper.style.backgroundColor = '#fff';
+        canvasWrapper.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
+
+        // PDF render canvas.
+        const pdfCanvas = document.createElement('canvas');
+        pdfCanvas.dataset.region = 'pdf-canvas';
+        pdfCanvas.style.width = w + 'px';
+        pdfCanvas.style.height = h + 'px';
+
+        // Text layer (for text selection and search highlights).
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.dataset.region = 'pdf-text-layer';
+        textLayerDiv.style.position = 'absolute';
+        textLayerDiv.style.top = '0';
+        textLayerDiv.style.left = '0';
+        textLayerDiv.style.width = w + 'px';
+        textLayerDiv.style.height = h + 'px';
+        textLayerDiv.style.lineHeight = '1.0';
+        textLayerDiv.style.pointerEvents = 'none';
+        textLayerDiv.style.opacity = '1';
+
+        // Annotation canvas (Fabric.js overlay).
+        const annotCanvas = document.createElement('canvas');
+        annotCanvas.dataset.region = 'annotation-canvas';
+        annotCanvas.width = w;
+        annotCanvas.height = h;
+        annotCanvas.style.width = w + 'px';
+        annotCanvas.style.height = h + 'px';
+        annotCanvas.style.position = 'absolute';
+        annotCanvas.style.top = '0';
+        annotCanvas.style.left = '0';
+
+        // Link layer (clickable hyperlinks from PDF).
+        const linkLayerDiv = document.createElement('div');
+        linkLayerDiv.dataset.region = 'pdf-link-layer';
+        linkLayerDiv.style.position = 'absolute';
+        linkLayerDiv.style.top = '0';
+        linkLayerDiv.style.left = '0';
+        linkLayerDiv.style.width = w + 'px';
+        linkLayerDiv.style.height = h + 'px';
+        linkLayerDiv.style.zIndex = '5';
+        linkLayerDiv.style.pointerEvents = 'none';
+
+        canvasWrapper.appendChild(pdfCanvas);
+        canvasWrapper.appendChild(textLayerDiv);
+        canvasWrapper.appendChild(annotCanvas);
+        canvasWrapper.appendChild(linkLayerDiv);
+        wrapper.appendChild(canvasWrapper);
+
+        return {
+            wrapper,
+            canvasWrapper,
+            pdfCanvas,
+            textLayerDiv,
+            linkLayerDiv,
+            annotCanvas,
+            annotationLayer: null,
+            textLayerObj: null,
+            rendered: false,
+            rendering: false,
+        };
+    }
+
+    /**
+     * Set up IntersectionObserver on all page slots for lazy rendering.
+     */
+    _setupObserver() {
+        if (this._observer) {
+            this._observer.disconnect();
+        }
+
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container) {
+            return;
+        }
+
+        this._observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) {
+                    const pageNum = parseInt(entry.target.dataset.pageNum, 10);
+                    if (pageNum) {
+                        this._renderPageIfNeeded(pageNum);
+                    }
+                }
+            }
+        }, {
+            root: container,
+            rootMargin: OBSERVER_ROOT_MARGIN,
+            threshold: 0,
+        });
+
+        for (const [, slot] of this._pageSlots) {
+            this._observer.observe(slot.wrapper);
+        }
+    }
+
+    /**
+     * Set up scroll event listener for active page tracking.
+     */
+    _setupScrollListener() {
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container) {
+            return;
+        }
+
+        // Remove previous listener if any.
+        if (this._onScroll) {
+            container.removeEventListener('scroll', this._onScroll);
+        }
+
+        this._onScroll = () => {
+            if (this._scrollRAF) {
+                return;
+            }
+            this._scrollRAF = requestAnimationFrame(() => {
+                this._scrollRAF = null;
+                this._updateActivePage();
+            });
+        };
+        container.addEventListener('scroll', this._onScroll, {passive: true});
+    }
+
+    /**
+     * Render a page if it hasn't been rendered yet.
+     * Called by the IntersectionObserver when a page enters the viewport.
+     *
+     * @param {number} pageNum Page number (1-based).
+     * @returns {Promise<void>}
+     */
+    async _renderPageIfNeeded(pageNum) {
+        const slot = this._pageSlots.get(pageNum);
+        if (!slot || slot.rendered || slot.rendering) {
+            return;
+        }
+
+        slot.rendering = true;
+
+        try {
+            const page = await this._pdfDoc.getPage(pageNum);
+            const dpr = window.devicePixelRatio || 1;
+            const viewport = page.getViewport({scale: this._currentScale * dpr});
+            const displayViewport = page.getViewport({scale: this._currentScale});
+
+            // Size the PDF canvas (high-res for sharp rendering).
+            slot.pdfCanvas.width = viewport.width;
+            slot.pdfCanvas.height = viewport.height;
+            slot.pdfCanvas.style.width = Math.round(displayViewport.width) + 'px';
+            slot.pdfCanvas.style.height = Math.round(displayViewport.height) + 'px';
+
+            // Render PDF page to canvas.
+            const ctx = slot.pdfCanvas.getContext('2d');
+            await page.render({
+                canvasContext: ctx,
+                viewport: viewport,
+            }).promise;
+
+            // Render text layer and link layer.
+            await this._renderTextLayerForSlot(page, displayViewport, slot);
+            await this._renderLinkLayerForSlot(page, displayViewport, slot);
+
+            // Initialize annotation layer.
+            await this._initAnnotationForSlot(pageNum, slot, displayViewport);
+
+            // Apply text selectability state.
+            this._setTextSelectableForSlot(slot, this._textSelectable);
+
+            // Apply search highlights if active.
+            if (this._searchQuery) {
+                this._highlightSearchMatchesForSlot(pageNum, slot);
+            }
+
+            slot.rendered = true;
+
+            // Create toolbar when first annotation layer is ready.
+            if (!this._readOnly && !this._annotationToolbar && slot.annotationLayer) {
+                const toolbarEl = this.getElement(this.selectors.ANNOTATION_TOOLBAR);
+                if (toolbarEl) {
+                    this._annotationToolbar = new AnnotationToolbar(toolbarEl, slot.annotationLayer);
+                    this._annotationToolbar.show();
+                }
+                this._activeAnnotationLayer = slot.annotationLayer;
+                this._pushDocumentInfo();
+            }
+
+        } catch (err) {
+            window.console.error('[pdf_viewer] Failed to render page', pageNum, ':', err);
+        } finally {
+            slot.rendering = false;
+        }
+    }
+
+    /**
+     * Initialize an AnnotationLayer for a page slot.
+     *
+     * @param {number} pageNum Page number.
+     * @param {object} slot Page slot object.
+     * @param {object} displayViewport PDF.js viewport at display scale.
+     * @returns {Promise<void>}
+     */
+    async _initAnnotationForSlot(pageNum, slot, displayViewport) {
+        if (!this._fabricLib) {
+            return;
+        }
+
+        const w = Math.round(displayViewport.width);
+        const h = Math.round(displayViewport.height);
+
+        const layer = new AnnotationLayer(this._fabricLib, slot.annotCanvas, slot.canvasWrapper, this._readOnly);
+
+        // Pass course code for comment library.
+        const coursecode = this.reactive?.state?.activity?.coursecode || '';
+        layer.setCourseCode(coursecode);
+
+        layer.setPageSize(w, h);
+
+        // Apply current shared tool state.
+        if (this._currentColor !== null) {
+            layer.setColor(this._currentColor);
+        }
+        layer.setStampType(this._currentStamp);
+        layer.setShapeType(this._currentShape);
+        layer.setBrushWidth(this._brushWidth);
+        layer.setTool(this._currentTool);
+
+        // Load annotations from central map.
+        const fabricJson = this._pageAnnotations.get(pageNum);
+        if (fabricJson) {
+            await layer.loadAnnotations(fabricJson);
+        }
+
+        // Wire callbacks (skip in read-only mode).
+        if (!this._readOnly) {
+            layer.onChange(() => {
+                this._dirty = true;
+                this._saveSlotAnnotations(pageNum, slot);
+                this._scheduleSave();
+            });
+
+            layer.onToolChange((tool) => {
+                // Guard: when propagating setTool to other layers, their
+                // _notifyToolChange fires this callback again. Without this
+                // guard we get infinite recursion → stack overflow.
+                if (this._propagating) {
+                    return;
+                }
+                this._currentTool = tool;
+                this._setTextSelectableAll(tool === 'textselect');
+                // Propagate tool to all other layers.
+                this._propagating = true;
+                for (const [otherNum, otherSlot] of this._pageSlots) {
+                    if (otherNum !== pageNum && otherSlot.annotationLayer) {
+                        otherSlot.annotationLayer.setTool(tool);
+                    }
+                }
+                this._propagating = false;
+            });
+        }
+
+        // Wrap set* methods for cross-page state propagation.
+        this._wrapLayerStateTracking(layer, pageNum);
+
+        slot.annotationLayer = layer;
+    }
+
+    /**
+     * Wrap an annotation layer's set* methods to track state and propagate
+     * changes to all other rendered layers.
+     *
+     * @param {AnnotationLayer} layer The annotation layer.
+     * @param {number} pageNum The page number for this layer.
+     */
+    _wrapLayerStateTracking(layer, pageNum) {
+        const viewer = this;
+
+        const wrapMethod = (methodName, stateKey) => {
+            const original = layer[methodName].bind(layer);
+            layer[methodName] = function(value) {
+                original(value);
+                if (!viewer._propagating) {
+                    viewer[stateKey] = value;
+                    viewer._propagating = true;
+                    for (const [otherNum, otherSlot] of viewer._pageSlots) {
+                        if (otherNum !== pageNum && otherSlot.annotationLayer) {
+                            otherSlot.annotationLayer[methodName](value);
+                        }
+                    }
+                    viewer._propagating = false;
+                }
+            };
+        };
+
+        wrapMethod('setColor', '_currentColor');
+        wrapMethod('setStampType', '_currentStamp');
+        wrapMethod('setShapeType', '_currentShape');
+        wrapMethod('setBrushWidth', '_brushWidth');
+    }
+
+    /**
+     * Determine which page is most visible and update active page tracking.
+     */
+    _updateActivePage() {
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container || this._pageSlots.size === 0) {
+            return;
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        const centerY = containerRect.top + containerRect.height / 2;
+
+        let bestPage = this._activePageNum;
+        let bestDist = Infinity;
+
+        for (const [pageNum, slot] of this._pageSlots) {
+            const slotRect = slot.wrapper.getBoundingClientRect();
+            const slotCenterY = slotRect.top + slotRect.height / 2;
+            const dist = Math.abs(slotCenterY - centerY);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestPage = pageNum;
+            }
+        }
+
+        if (bestPage !== this._activePageNum) {
+            this._activePageNum = bestPage;
+            this._updatePageControls();
+
+            // Re-bind toolbar to the new active page's layer.
+            const slot = this._pageSlots.get(bestPage);
+            if (slot && slot.annotationLayer && this._annotationToolbar) {
+                this._activeAnnotationLayer = slot.annotationLayer;
+                this._annotationToolbar.setLayer(slot.annotationLayer);
+            }
+        }
+    }
+
+    /**
+     * Scroll to a specific page.
+     *
+     * @param {number} pageNum Target page number (1-based).
+     */
+    _goToPage(pageNum) {
+        if (pageNum < 1 || pageNum > this._totalPages) {
+            return;
+        }
+        const slot = this._pageSlots.get(pageNum);
+        if (slot) {
+            slot.wrapper.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+    }
+
+    /**
+     * Destroy all page slots and clean up observers.
+     */
+    _destroyAllSlots() {
+        if (this._observer) {
+            this._observer.disconnect();
+            this._observer = null;
+        }
+
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (container && this._onScroll) {
+            container.removeEventListener('scroll', this._onScroll);
+            this._onScroll = null;
+        }
+
+        if (this._scrollRAF) {
+            cancelAnimationFrame(this._scrollRAF);
+            this._scrollRAF = null;
+        }
+
+        for (const [, slot] of this._pageSlots) {
+            if (slot.annotationLayer) {
+                slot.annotationLayer.destroy();
+            }
+            if (slot.textLayerObj) {
+                slot.textLayerObj.cancel();
+            }
+            slot.wrapper.remove();
+        }
+
+        this._pageSlots.clear();
+        this._activeAnnotationLayer = null;
+    }
+
+    // ──────────────────────────────────────────────
+    //  Annotation state management
+    // ──────────────────────────────────────────────
+
+    /**
+     * Save a single slot's annotation state to the central map.
+     *
+     * @param {number} pageNum Page number.
+     * @param {object} slot Page slot object.
+     */
+    _saveSlotAnnotations(pageNum, slot) {
+        if (!slot.annotationLayer) {
+            return;
+        }
+        const state = slot.annotationLayer.getCurrentPageState();
+        if (state) {
+            this._pageAnnotations.set(pageNum, state);
+        } else {
+            this._pageAnnotations.delete(pageNum);
+        }
+    }
+
+    /**
+     * Save all rendered slot annotations to the central map.
+     */
+    _saveAllSlotAnnotations() {
+        for (const [pageNum, slot] of this._pageSlots) {
+            if (slot.annotationLayer && slot.rendered) {
+                this._saveSlotAnnotations(pageNum, slot);
+            }
+        }
+    }
+
+    /**
+     * Load annotations from the backend into the central map.
      *
      * @returns {Promise<void>}
      */
     async _loadAnnotationsFromBackend() {
-        if (!this._annotationLayer || !this._fileid) {
+        if (!this._fileid) {
             return;
         }
 
@@ -396,20 +954,12 @@ export default class PdfViewer extends BaseComponent {
             annotations.forEach((annot) => {
                 try {
                     const json = JSON.parse(annot.annotationdata);
-                    this._annotationLayer.setPageAnnotations(annot.pagenum, json);
+                    this._pageAnnotations.set(annot.pagenum, json);
                     this._loadedPageNums.add(annot.pagenum);
                 } catch (e) {
                     window.console.warn('[pdf_viewer] Invalid annotation JSON for page', annot.pagenum, e);
                 }
             });
-
-            // Reload current page to show any loaded annotations.
-            // Use reloadCurrentPage() instead of switchPage() because the canvas
-            // is empty — switchPage() would save the empty state and delete the
-            // annotations we just loaded into the map.
-            if (this._loadedPageNums.size > 0) {
-                await this._annotationLayer.reloadCurrentPage();
-            }
 
         } catch (err) {
             window.console.error('[pdf_viewer] Failed to load annotations:', err);
@@ -435,31 +985,42 @@ export default class PdfViewer extends BaseComponent {
      * @returns {Promise<void>}
      */
     async _saveAnnotationsToBackend() {
-        if (!this._annotationLayer || !this._fileid || !this._dirty) {
+        if (!this._fileid || !this._dirty) {
             return;
         }
 
-        // Cancel any pending debounce.
+        // Prevent concurrent saves — if a save is already in-flight, let it
+        // finish; the finally block will re-schedule if _dirty was re-set.
+        if (this._saving) {
+            return;
+        }
+
         if (this._saveTimer) {
             clearTimeout(this._saveTimer);
             this._saveTimer = null;
         }
 
+        // Clear dirty BEFORE the await so that any new annotations created
+        // during the network request will correctly re-set _dirty to true.
+        this._dirty = false;
+        this._saving = true;
+
+        // Flush all rendered slot states to the central map.
+        this._saveAllSlotAnnotations();
+
         try {
-            const allAnnotations = this._annotationLayer.getAllAnnotations();
             const pages = [];
 
-            allAnnotations.forEach((fabricJson, pageNum) => {
+            for (const [pageNum, fabricJson] of this._pageAnnotations) {
                 pages.push({
                     pagenum: pageNum,
                     annotationdata: JSON.stringify(fabricJson),
                 });
-            });
+            }
 
-            // For pages that were loaded from backend but are no longer in the map
-            // (user cleared them), send empty annotationdata so the backend deletes them.
+            // Send empty data for pages that were loaded but no longer have annotations.
             for (const loadedPageNum of this._loadedPageNums) {
-                if (!allAnnotations.has(loadedPageNum)) {
+                if (!this._pageAnnotations.has(loadedPageNum)) {
                     pages.push({
                         pagenum: loadedPageNum,
                         annotationdata: '',
@@ -468,323 +1029,208 @@ export default class PdfViewer extends BaseComponent {
             }
 
             if (pages.length === 0) {
-                this._dirty = false;
                 return;
             }
 
             await saveAnnotations(this._cmid, this._userid, this._fileid, pages);
-            this._dirty = false;
 
-            // Update loaded pages tracking to match what was just saved.
-            this._loadedPageNums = new Set(allAnnotations.keys());
+            this._loadedPageNums = new Set(this._pageAnnotations.keys());
 
             // Trigger flattened PDF generation in the background.
-            this._flattenAndUpload(allAnnotations);
+            this._flattenAndUpload();
 
         } catch (err) {
+            // Re-mark dirty so the next scheduled save retries.
+            this._dirty = true;
             window.console.error('[pdf_viewer] Failed to save annotations:', err);
-            // Leave dirty = true so next trigger retries.
-        }
-    }
-
-    // ──────────────────────────────────────────────
-    //  PDF loading and rendering
-    // ──────────────────────────────────────────────
-
-    /**
-     * Load and display a PDF from a URL.
-     *
-     * @param {string} url The PDF file URL.
-     * @returns {Promise<void>}
-     */
-    async loadPdf(url) {
-        if (this._currentUrl === url) {
-            return;
-        }
-
-        // Abort any in-flight fetch/conversion polling from a previous loadPdf call.
-        if (this._fetchAbortController) {
-            this._fetchAbortController.abort();
-        }
-        this._fetchAbortController = new AbortController();
-
-        this._showLoading(true);
-        this._showLoadingMessage('');
-        this._showError('');
-
-        try {
-            // Load PDF.js if not yet loaded.
-            if (!this._pdfjsLib) {
-                this._pdfjsLib = await PdfjsLoader.load();
-            }
-
-            // Close previous document.
-            if (this._pdfDoc) {
-                this._pdfDoc.destroy();
-                this._pdfDoc = null;
-            }
-
-            // Destroy existing annotation layer and toolbar when switching PDFs.
-            if (this._annotationToolbar) {
-                this._annotationToolbar.destroy();
-                this._annotationToolbar = null;
-            }
-            if (this._annotationLayer) {
-                this._annotationLayer.destroy();
-                this._annotationLayer = null;
-                this._annotationsInitialised = false;
-            }
-
-            // Clean up text layer from previous PDF.
-            if (this._textLayer) {
-                this._textLayer.cancel();
-                this._textLayer = null;
-            }
-
-            // Reset persistence state for the new file.
-            this._dirty = false;
-            this._loadedPageNums = new Set();
-            this._pdfBytes = null;
-
-            // Clear search state for the new document.
-            this._pageTextCache.clear();
-            this._closeSearch();
-            if (this._saveTimer) {
-                clearTimeout(this._saveTimer);
-                this._saveTimer = null;
-            }
-
-            // Fetch PDF data — handles document conversion polling for .docx/.doc files.
-            const pdfData = await this._fetchPdfData(url);
-
-            // Retain a clone of the PDF bytes for annotation flattening.
-            // PDF.js may transfer/consume the original buffer.
-            this._pdfBytes = pdfData.slice(0);
-
-            // Load the PDF from the fetched ArrayBuffer.
-            this._pdfDoc = await this._pdfjsLib.getDocument({
-                data: pdfData,
-                disableRange: true,
-                disableStream: true,
-            }).promise;
-
-            this._currentUrl = url;
-            this._currentPage = 1;
-            this._totalPages = this._pdfDoc.numPages;
-
-            this._updatePageControls();
-
-            // Render the first page.
-            await this._renderPage(this._currentPage);
-
-            // Initialise annotation layer after first render.
-            await this._initAnnotations();
-
-            // Pass document info to the toolbar for the info popout.
-            if (this._annotationToolbar) {
-                await this._pushDocumentInfo();
-            }
-
-            // Load saved annotations from backend (skip in read-only mode —
-            // annotations are loaded externally by feedback_viewer.js via the student API).
-            if (!this._readOnly) {
-                await this._loadAnnotationsFromBackend();
-            }
-
-        } catch (err) {
-            if (err.name === 'AbortError') {
-                return; // loadPdf was called again — silently abort.
-            }
-            window.console.error('[pdf_viewer] Failed to load PDF:', err);
-            this._showError(err.message || 'Failed to load document.');
         } finally {
-            this._showLoading(false);
-            this._showLoadingMessage('');
+            this._saving = false;
+            // If new annotations were created during the save, schedule another.
+            if (this._dirty) {
+                this._scheduleSave();
+            }
         }
     }
 
+    // ──────────────────────────────────────────────
+    //  Flattened PDF generation
+    // ──────────────────────────────────────────────
+
     /**
-     * Initialise the Fabric.js annotation layer and toolbar.
-     *
-     * @returns {Promise<void>}
+     * Generate a flattened annotated PDF and upload to Moodle file storage.
      */
-    async _initAnnotations() {
-        if (this._annotationsInitialised) {
+    async _flattenAndUpload() {
+        if (this._flattenAbortController) {
+            this._flattenAbortController.abort();
+        }
+        this._flattenAbortController = new AbortController();
+        const signal = this._flattenAbortController.signal;
+
+        const cmid = this._cmid;
+        const userid = this._userid;
+        const fileid = this._fileid;
+        const pdfBytes = this._pdfBytes;
+
+        if (!pdfBytes || !fileid) {
+            return;
+        }
+
+        // Snapshot current annotations.
+        const annotationSnapshot = new Map(this._pageAnnotations);
+
+        let hasAnnotations = false;
+        for (const [, json] of annotationSnapshot) {
+            if (json.objects && json.objects.length > 0) {
+                hasAnnotations = true;
+                break;
+            }
+        }
+
+        if (!hasAnnotations) {
+            try {
+                await deleteAnnotatedPdf(cmid, userid, fileid);
+            } catch (e) {
+                window.console.warn('[pdf_viewer] Failed to delete annotated PDF:', e);
+            }
             return;
         }
 
         try {
-            const fabricLib = await FabricLoader.load();
-            const annotCanvas = this.getElement(this.selectors.ANNOTATION_CANVAS);
-            const wrapperEl = this.getElement(this.selectors.CANVAS_WRAPPER);
-            const toolbarEl = this.getElement(this.selectors.ANNOTATION_TOOLBAR);
+            const [PDFLib, fabricLib] = await Promise.all([
+                PdflibLoader.load(),
+                FabricLoader.load(),
+            ]);
 
-            if (!annotCanvas || !wrapperEl) {
+            if (signal.aborted) {
                 return;
             }
 
-            // Create the annotation layer (read-only for student view).
-            this._annotationLayer = new AnnotationLayer(fabricLib, annotCanvas, wrapperEl, this._readOnly);
+            // pageDimensions empty — flatten uses _viewportWidth/_viewportHeight from JSON.
+            const pageDimensions = new Map();
 
-            // Pass course code for comment library integration in annotations.
-            const coursecode = this.reactive?.state?.activity?.coursecode || '';
-            this._annotationLayer.setCourseCode(coursecode);
-
-            this._annotationLayer.setPageSize(
-                parseInt(annotCanvas.style.width, 10),
-                parseInt(annotCanvas.style.height, 10)
+            const flattenedBytes = await flattenAnnotatedPdf(
+                pdfBytes, annotationSnapshot, pageDimensions, fabricLib, PDFLib,
             );
 
-            // In read-only mode, skip auto-save and toolbar.
-            if (!this._readOnly) {
-                // Wire auto-save: mark dirty and debounce on any annotation change.
-                this._annotationLayer.onChange(() => {
-                    this._dirty = true;
-                    this._scheduleSave();
-                });
-
-                // Toggle text selection based on annotation tool.
-                // Only the 'textselect' tool enables the PDF.js text layer for selection.
-                this._annotationLayer.onToolChange((tool) => {
-                    this.setTextSelectable(tool === 'textselect');
-                });
-                // Start with text selection off (default tool is 'select' for annotations).
-                this.setTextSelectable(false);
-
-                // Create the toolbar handler and show it.
-                if (toolbarEl) {
-                    this._annotationToolbar = new AnnotationToolbar(toolbarEl, this._annotationLayer);
-                    this._annotationToolbar.show();
-                }
+            if (signal.aborted) {
+                return;
             }
 
-            this._annotationsInitialised = true;
+            const base64 = _arrayBufferToBase64(flattenedBytes);
+            await uploadAnnotatedPdf(cmid, userid, fileid, base64, 'annotated.pdf');
 
         } catch (err) {
-            window.console.error('[pdf_viewer] Failed to initialise annotations:', err);
+            if (err.name === 'AbortError') {
+                return;
+            }
+            window.console.error('[pdf_viewer] Failed to flatten/upload annotated PDF:', err);
         }
     }
 
+    // ──────────────────────────────────────────────
+    //  Zoom
+    // ──────────────────────────────────────────────
+
     /**
-     * Render a specific page to the canvas.
+     * Zoom in or out by one step.
      *
-     * @param {number} pageNum Page number (1-based).
+     * @param {number} direction 1 for zoom in, -1 for zoom out.
+     */
+    _zoom(direction) {
+        this._fitToWidth = false;
+        const newIndex = this._zoomIndex + direction;
+        if (newIndex < 0 || newIndex >= ZOOM_LEVELS.length) {
+            return;
+        }
+        this._zoomIndex = newIndex;
+        this._applyZoom();
+    }
+
+    /**
+     * Reset zoom to fit the page width within the container.
+     */
+    _zoomFitToWidth() {
+        this._fitToWidth = true;
+        this._applyZoom();
+    }
+
+    /**
+     * Apply the current zoom level by rebuilding all page slots.
+     *
      * @returns {Promise<void>}
      */
-    async _renderPage(pageNum) {
+    async _applyZoom() {
         if (!this._pdfDoc) {
             return;
         }
 
-        // If currently rendering, queue this page.
-        if (this._rendering) {
-            this._pendingPage = pageNum;
+        // Record scroll position relative to active page.
+        const scrollRef = this._getScrollReference();
+
+        // Flush all annotation states to central map.
+        this._saveAllSlotAnnotations();
+
+        // Destroy all slots (DOM + layers).
+        this._destroyAllSlots();
+
+        // Recreate slots at new scale.
+        await this._createAllPageSlots();
+
+        // Re-setup observers and listeners.
+        this._setupScrollListener();
+        this._setupObserver();
+
+        // Restore scroll position.
+        this._restoreScrollPosition(scrollRef);
+
+        this._updatePageControls();
+        this._updateZoomDisplay(this._currentScale);
+    }
+
+    /**
+     * Capture current scroll position as a page reference.
+     *
+     * @returns {{pageNum: number, proportion: number}}
+     */
+    _getScrollReference() {
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container) {
+            return {pageNum: 1, proportion: 0};
+        }
+        const activeSlot = this._pageSlots.get(this._activePageNum);
+        if (!activeSlot) {
+            return {pageNum: 1, proportion: 0};
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        const slotRect = activeSlot.wrapper.getBoundingClientRect();
+        const offset = containerRect.top - slotRect.top;
+        const proportion = slotRect.height > 0 ? offset / slotRect.height : 0;
+
+        return {pageNum: this._activePageNum, proportion};
+    }
+
+    /**
+     * Restore scroll position from a previously captured reference.
+     *
+     * @param {object} ref Scroll reference from _getScrollReference.
+     */
+    _restoreScrollPosition(ref) {
+        const slot = this._pageSlots.get(ref.pageNum);
+        if (!slot) {
+            return;
+        }
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container) {
             return;
         }
 
-        this._rendering = true;
-        this._showLoading(true);
+        const containerRect = container.getBoundingClientRect();
+        const slotRect = slot.wrapper.getBoundingClientRect();
+        const targetOffset = ref.proportion * slotRect.height;
+        const currentOffset = containerRect.top - slotRect.top;
 
-        const isPageChange = (pageNum !== this._currentPage);
-
-        try {
-            const page = await this._pdfDoc.getPage(pageNum);
-
-            // Calculate scale.
-            let scale;
-            if (this._fitToWidth) {
-                scale = this._calculateFitToWidthScale(page);
-            } else {
-                scale = ZOOM_LEVELS[this._zoomIndex];
-            }
-
-            // Account for device pixel ratio for sharp rendering.
-            const dpr = window.devicePixelRatio || 1;
-            const viewport = page.getViewport({scale: scale * dpr});
-            const displayViewport = page.getViewport({scale: scale});
-
-            // Size the PDF canvas.
-            const pdfCanvas = this.getElement(this.selectors.PDF_CANVAS);
-            const annotCanvas = this.getElement(this.selectors.ANNOTATION_CANVAS);
-
-            pdfCanvas.width = viewport.width;
-            pdfCanvas.height = viewport.height;
-            pdfCanvas.style.width = displayViewport.width + 'px';
-            pdfCanvas.style.height = displayViewport.height + 'px';
-
-            // Set annotation canvas dimensions.
-            // Before Fabric.js init, set HTML attributes so the canvas has correct
-            // dimensions when Fabric wraps it (otherwise it reads the default 300x150).
-            // After init, setPageSize() calls setDimensions() which handles both canvases.
-            if (!this._annotationsInitialised) {
-                annotCanvas.width = Math.round(displayViewport.width);
-                annotCanvas.height = Math.round(displayViewport.height);
-            }
-            annotCanvas.style.width = displayViewport.width + 'px';
-            annotCanvas.style.height = displayViewport.height + 'px';
-
-            // Render the PDF page.
-            const ctx = pdfCanvas.getContext('2d');
-            await page.render({
-                canvasContext: ctx,
-                viewport: viewport,
-            }).promise;
-
-            // Render the text layer (for text selection) and link layer (for clickable hyperlinks).
-            await this._renderTextLayer(page, displayViewport);
-            await this._renderLinkLayer(page, displayViewport);
-
-            this._currentPage = pageNum;
-            this._updatePageControls();
-            this._updateZoomDisplay(scale);
-
-            // Update annotation layer for the new page.
-            if (this._annotationLayer) {
-                // Rescale annotations on zoom (same page) but not on page switch
-                // (where switchPage replaces the canvas contents entirely).
-                this._annotationLayer.setPageSize(
-                    Math.round(displayViewport.width),
-                    Math.round(displayViewport.height),
-                    !isPageChange
-                );
-                if (isPageChange) {
-                    await this._annotationLayer.switchPage(pageNum);
-                    // Re-debounce save after page switch updates the in-memory Map.
-                    if (this._dirty) {
-                        this._scheduleSave();
-                    }
-                }
-            }
-
-            // Re-apply search highlights if a search is active.
-            if (this._searchQuery) {
-                this._highlightSearchMatches();
-            }
-
-            // Dispatch event for external listeners.
-            this.element.dispatchEvent(new CustomEvent('pdf-page-rendered', {
-                bubbles: true,
-                detail: {
-                    pageNum: pageNum,
-                    totalPages: this._totalPages,
-                    width: displayViewport.width,
-                    height: displayViewport.height,
-                    scale: scale,
-                },
-            }));
-
-        } catch (err) {
-            window.console.error('[pdf_viewer] Failed to render page:', err);
-        } finally {
-            this._rendering = false;
-            this._showLoading(false);
-
-            if (this._pendingPage !== null) {
-                const next = this._pendingPage;
-                this._pendingPage = null;
-                this._renderPage(next);
-            }
-        }
+        container.scrollTop += currentOffset - targetOffset;
     }
 
     /**
@@ -800,335 +1246,145 @@ export default class PdfViewer extends BaseComponent {
         return containerWidth / pageWidth;
     }
 
-    /**
-     * Navigate to a specific page.
-     *
-     * @param {number} pageNum Target page number (1-based).
-     */
-    _goToPage(pageNum) {
-        if (pageNum < 1 || pageNum > this._totalPages) {
-            return;
-        }
-        this._renderPage(pageNum);
-    }
-
-    /**
-     * Zoom in or out by one step.
-     *
-     * @param {number} direction 1 for zoom in, -1 for zoom out.
-     */
-    _zoom(direction) {
-        this._fitToWidth = false;
-        const newIndex = this._zoomIndex + direction;
-        if (newIndex < 0 || newIndex >= ZOOM_LEVELS.length) {
-            return;
-        }
-        this._zoomIndex = newIndex;
-        this._renderPage(this._currentPage);
-    }
-
-    /**
-     * Reset zoom to fit the page width within the container.
-     */
-    _zoomFitToWidth() {
-        this._fitToWidth = true;
-        this._renderPage(this._currentPage);
-    }
-
-    /**
-     * Update page navigation buttons and display.
-     */
-    _updatePageControls() {
-        const currentEl = this.getElement(this.selectors.CURRENT_PAGE);
-        const totalEl = this.getElement(this.selectors.TOTAL_PAGES);
-        const prevBtn = this.getElement(this.selectors.PREV_BTN);
-        const nextBtn = this.getElement(this.selectors.NEXT_BTN);
-
-        if (currentEl) {
-            currentEl.textContent = this._currentPage;
-        }
-        if (totalEl) {
-            totalEl.textContent = this._totalPages;
-        }
-        if (prevBtn) {
-            prevBtn.disabled = this._currentPage <= 1;
-        }
-        if (nextBtn) {
-            nextBtn.disabled = this._currentPage >= this._totalPages;
-        }
-    }
-
-    /**
-     * Update the zoom level display.
-     *
-     * @param {number} scale Current scale factor.
-     */
-    _updateZoomDisplay(scale) {
-        const zoomEl = this.getElement(this.selectors.ZOOM_LEVEL);
-        if (zoomEl) {
-            zoomEl.textContent = Math.round(scale * 100) + '%';
-        }
-    }
-
-    /**
-     * Fetch PDF data from a URL, handling document conversion responses.
-     *
-     * Uses fetch() to inspect the HTTP response before passing data to PDF.js.
-     * Handles HTTP 202 (conversion in progress) with retry polling and
-     * HTTP 422 (conversion failed) with a user-facing error.
-     *
-     * @param {string} url The PDF URL (may include ?convert=pdf for convertible files).
-     * @returns {Promise<ArrayBuffer>} The PDF data as an ArrayBuffer.
-     */
-    async _fetchPdfData(url) {
-        const signal = this._fetchAbortController?.signal;
-        const convertingMsg = await getString('converting_file', 'local_unifiedgrader');
-
-        for (let attempt = 0; attempt <= CONVERSION_MAX_RETRIES; attempt++) {
-            const response = await fetch(url, {credentials: 'same-origin', signal});
-
-            // Success — PDF content returned.
-            if (response.ok && response.headers.get('content-type')?.includes('application/pdf')) {
-                return response.arrayBuffer();
-            }
-
-            // Conversion in progress — show message and retry.
-            if (response.status === 202) {
-                if (attempt >= CONVERSION_MAX_RETRIES) {
-                    break; // Fall through to timeout error.
-                }
-                this._showLoadingMessage(convertingMsg);
-                await new Promise((resolve, reject) => {
-                    const timer = setTimeout(resolve, CONVERSION_RETRY_DELAY_MS);
-                    // Respect abort signal during the wait.
-                    signal?.addEventListener('abort', () => {
-                        clearTimeout(timer);
-                        reject(new DOMException('Aborted', 'AbortError'));
-                    }, {once: true});
-                });
-                continue;
-            }
-
-            // Conversion failed — extract server error message.
-            if (response.status === 422) {
-                let errorMsg = '';
-                try {
-                    const json = await response.json();
-                    errorMsg = json.error || '';
-                } catch {
-                    // Ignore JSON parse errors.
-                }
-                throw new Error(errorMsg || 'Document conversion failed.');
-            }
-
-            // 200 with unexpected content-type — might still be PDF data.
-            if (response.ok) {
-                return response.arrayBuffer();
-            }
-
-            // Other HTTP errors (403, 404, 500, etc.).
-            throw new Error('Failed to load document (HTTP ' + response.status + ').');
-        }
-
-        // Max retries exceeded.
-        const timeoutMsg = await getString('conversion_timeout', 'local_unifiedgrader');
-        throw new Error(timeoutMsg);
-    }
-
     // ──────────────────────────────────────────────
-    //  Flattened PDF generation
+    //  Document info
     // ──────────────────────────────────────────────
 
     /**
-     * Generate a flattened annotated PDF and upload to Moodle file storage.
+     * Gather PDF metadata and pass it to the annotation toolbar.
      *
-     * Runs in the background after annotation save. Cancels any previous
-     * in-flight flatten operation to avoid stale uploads.
-     *
-     * @param {Map<number, object>} allAnnotations Snapshot of all page annotations.
-     */
-    async _flattenAndUpload(allAnnotations) {
-        // Cancel any in-flight flatten.
-        if (this._flattenAbortController) {
-            this._flattenAbortController.abort();
-        }
-        this._flattenAbortController = new AbortController();
-        const signal = this._flattenAbortController.signal;
-
-        // Capture context (may change if user switches student).
-        const cmid = this._cmid;
-        const userid = this._userid;
-        const fileid = this._fileid;
-        const pdfBytes = this._pdfBytes;
-
-        if (!pdfBytes || !fileid) {
-            return;
-        }
-
-        // Check if there are any actual annotations.
-        let hasAnnotations = false;
-        for (const [, json] of allAnnotations) {
-            if (json.objects && json.objects.length > 0) {
-                hasAnnotations = true;
-                break;
-            }
-        }
-
-        if (!hasAnnotations) {
-            // No annotations — delete any existing flattened PDF.
-            try {
-                await deleteAnnotatedPdf(cmid, userid, fileid);
-            } catch (e) {
-                window.console.warn('[pdf_viewer] Failed to delete annotated PDF:', e);
-            }
-            return;
-        }
-
-        try {
-            // Lazy-load pdf-lib.
-            const [PDFLib, fabricLib] = await Promise.all([
-                PdflibLoader.load(),
-                FabricLoader.load(),
-            ]);
-
-            if (signal.aborted) {
-                return;
-            }
-
-            // Get page dimensions from annotation layer.
-            const pageDimensions = this._annotationLayer
-                ? this._annotationLayer.getPageDimensions()
-                : new Map();
-
-            const flattenedBytes = await flattenAnnotatedPdf(
-                pdfBytes, allAnnotations, pageDimensions, fabricLib, PDFLib,
-            );
-
-            if (signal.aborted) {
-                return;
-            }
-
-            // Convert to base64 for upload.
-            const base64 = _arrayBufferToBase64(flattenedBytes);
-
-            // Upload via web service.
-            await uploadAnnotatedPdf(cmid, userid, fileid, base64, 'annotated.pdf');
-
-        } catch (err) {
-            if (err.name === 'AbortError') {
-                return;
-            }
-            window.console.error('[pdf_viewer] Failed to flatten/upload annotated PDF:', err);
-        }
-    }
-
-    /**
-     * Render the PDF.js text layer for text selection.
-     *
-     * @param {object} page PDF.js page proxy.
-     * @param {object} viewport Display viewport (not DPR-scaled).
      * @returns {Promise<void>}
      */
-    async _renderTextLayer(page, viewport) {
-        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
-        if (!textLayerDiv) {
-            window.console.warn('[pdf_viewer] Text layer div not found in DOM.');
+    async _pushDocumentInfo() {
+        if (!this._pdfDoc || !this._annotationToolbar) {
             return;
         }
 
-        // Cancel previous TextLayer render.
-        if (this._textLayer) {
-            this._textLayer.cancel();
-            this._textLayer = null;
+        let metadata = {};
+        try {
+            const meta = await this._pdfDoc.getMetadata();
+            metadata = meta?.info || {};
+        } catch {
+            // Some PDFs have no metadata.
         }
-        textLayerDiv.innerHTML = '';
 
-        // Set container styles inline so they work even if CSS isn't loaded.
-        textLayerDiv.style.width = viewport.width + 'px';
-        textLayerDiv.style.height = viewport.height + 'px';
-        textLayerDiv.style.position = 'absolute';
-        textLayerDiv.style.top = '0';
-        textLayerDiv.style.left = '0';
-        textLayerDiv.style.lineHeight = '1.0';
-        textLayerDiv.style.pointerEvents = 'none';
-        textLayerDiv.style.opacity = '1';
+        const info = {
+            filename: this._fileInfo?.filename || '',
+            filesize: this._fileInfo?.filesize || 0,
+            pages: this._totalPages,
+            metadata: metadata,
+        };
 
-        // CRITICAL: PDF.js v4.x TextLayer uses calc(var(--scale-factor) * Xpx)
-        // for font sizes and some positioning. Without this CSS variable, all
-        // font sizes are invalid and text spans render at the wrong size.
-        textLayerDiv.style.setProperty('--scale-factor', viewport.scale);
+        const fileid = this._fileid;
+        const wordCountFn = () => this._getWordCount(fileid);
 
-        // Check if TextLayer is available in this PDF.js build.
+        this._annotationToolbar.setDocumentInfo(info, wordCountFn);
+    }
+
+    /**
+     * Count words across all pages of the current PDF.
+     *
+     * @param {number} fileid File ID to verify context.
+     * @returns {Promise<number>} Total word count.
+     */
+    async _getWordCount(fileid) {
+        if (this._wordCountCache.has(fileid)) {
+            return this._wordCountCache.get(fileid);
+        }
+
+        if (!this._pdfDoc) {
+            return 0;
+        }
+
+        let totalWords = 0;
+        for (let i = 1; i <= this._pdfDoc.numPages; i++) {
+            if (this._fileid !== fileid) {
+                return 0;
+            }
+            const page = await this._pdfDoc.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map((item) => item.str).join(' ');
+            const words = pageText.split(/\s+/).filter((w) => w.length > 0);
+            totalWords += words.length;
+        }
+
+        this._wordCountCache.set(fileid, totalWords);
+        return totalWords;
+    }
+
+    // ──────────────────────────────────────────────
+    //  Text layer and link layer (per-slot)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Render the PDF.js text layer for a page slot.
+     *
+     * @param {object} page PDF.js page proxy.
+     * @param {object} viewport Display viewport.
+     * @param {object} slot Page slot object.
+     * @returns {Promise<void>}
+     */
+    async _renderTextLayerForSlot(page, viewport, slot) {
+        if (slot.textLayerObj) {
+            slot.textLayerObj.cancel();
+            slot.textLayerObj = null;
+        }
+        slot.textLayerDiv.innerHTML = '';
+
+        slot.textLayerDiv.style.width = viewport.width + 'px';
+        slot.textLayerDiv.style.height = viewport.height + 'px';
+
+        // PDF.js v4.x TextLayer needs this CSS variable for font sizing.
+        slot.textLayerDiv.style.setProperty('--scale-factor', viewport.scale);
+
         if (typeof this._pdfjsLib.TextLayer !== 'function') {
-            window.console.warn('[pdf_viewer] PDF.js TextLayer not available — text selection disabled.');
             return;
         }
 
         try {
             const textContent = await page.getTextContent();
-            this._textLayer = new this._pdfjsLib.TextLayer({
+            slot.textLayerObj = new this._pdfjsLib.TextLayer({
                 textContentSource: textContent,
-                container: textLayerDiv,
+                container: slot.textLayerDiv,
                 viewport: viewport,
             });
-            await this._textLayer.render();
+            await slot.textLayerObj.render();
 
-            // Only set color: transparent on spans — TextLayer handles all
-            // positioning (left, top, fontSize, transform) via its own styles.
-            const spans = textLayerDiv.querySelectorAll('span');
+            const spans = slot.textLayerDiv.querySelectorAll('span');
             spans.forEach((span) => {
                 span.style.color = 'transparent';
             });
-
-            window.console.info('[pdf_viewer] Text layer rendered:', spans.length, 'spans',
-                '| scale-factor:', viewport.scale);
         } catch (err) {
             window.console.warn('[pdf_viewer] Failed to render text layer:', err);
         }
 
-        // Enable text selection in read-only mode by default.
         if (this._readOnly) {
-            textLayerDiv.classList.add('text-selectable');
+            slot.textLayerDiv.classList.add('text-selectable');
         }
     }
 
     /**
-     * Render clickable hyperlink elements over PDF link annotations.
+     * Render clickable hyperlink elements for a page slot.
      *
      * @param {object} page PDF.js page proxy.
-     * @param {object} viewport Display viewport (not DPR-scaled).
+     * @param {object} viewport Display viewport.
+     * @param {object} slot Page slot object.
      * @returns {Promise<void>}
      */
-    async _renderLinkLayer(page, viewport) {
-        const linkLayerDiv = this.getElement(this.selectors.LINK_LAYER);
-        if (!linkLayerDiv) {
-            window.console.warn('[pdf_viewer] Link layer div not found in DOM.');
-            return;
-        }
-
-        linkLayerDiv.innerHTML = '';
-
-        // Set critical styles inline so they work even if CSS isn't loaded.
-        linkLayerDiv.style.width = viewport.width + 'px';
-        linkLayerDiv.style.height = viewport.height + 'px';
-        linkLayerDiv.style.position = 'absolute';
-        linkLayerDiv.style.top = '0';
-        linkLayerDiv.style.left = '0';
-        linkLayerDiv.style.zIndex = '5';
-        linkLayerDiv.style.pointerEvents = 'none';
+    async _renderLinkLayerForSlot(page, viewport, slot) {
+        slot.linkLayerDiv.innerHTML = '';
+        slot.linkLayerDiv.style.width = viewport.width + 'px';
+        slot.linkLayerDiv.style.height = viewport.height + 'px';
 
         try {
             const annotations = await page.getAnnotations();
-            let linkCount = 0;
             const ALLOWED_LINK_PROTOCOLS = /^https?:|^mailto:/i;
             for (const annot of annotations) {
-                // Accept links with url or unsafeUrl, but only safe protocols.
                 const linkUrl = annot.url || annot.unsafeUrl;
                 if (annot.subtype !== 'Link' || !linkUrl || !ALLOWED_LINK_PROTOCOLS.test(linkUrl)) {
                     continue;
                 }
 
-                // Convert PDF coordinates to viewport coordinates.
                 const rect = viewport.convertToViewportRectangle(annot.rect);
                 const [x1, y1, x2, y2] = this._pdfjsLib.Util.normalizeRect(rect);
 
@@ -1137,8 +1393,6 @@ export default class PdfViewer extends BaseComponent {
                 link.target = '_blank';
                 link.rel = 'noopener noreferrer';
                 link.title = linkUrl;
-
-                // Set all positioning inline (don't rely on external CSS).
                 link.style.position = 'absolute';
                 link.style.left = Math.round(x1) + 'px';
                 link.style.top = Math.round(y1) + 'px';
@@ -1148,40 +1402,59 @@ export default class PdfViewer extends BaseComponent {
                 link.style.cursor = 'pointer';
                 link.style.opacity = '0';
 
-                linkLayerDiv.appendChild(link);
-                linkCount++;
+                slot.linkLayerDiv.appendChild(link);
             }
-            window.console.info('[pdf_viewer] Link layer rendered:', linkCount, 'links from',
-                annotations.length, 'total annotations');
         } catch (err) {
             window.console.warn('[pdf_viewer] Failed to render link layer:', err);
         }
     }
 
+    // ──────────────────────────────────────────────
+    //  Text selection
+    // ──────────────────────────────────────────────
+
     /**
-     * Enable or disable text selection on the text layer.
-     *
-     * When enabled, the text layer is moved after the Fabric.js canvas-container
-     * in the DOM so it sits on top for event capture. Text spans get pointer-events
-     * and clicks on non-text areas fall through to Fabric for annotation selection.
+     * Enable or disable text selection on all rendered pages.
      *
      * @param {boolean} enabled Whether text selection should be enabled.
      */
     setTextSelectable(enabled) {
-        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
-        const wrapper = this.getElement(this.selectors.CANVAS_WRAPPER);
+        this._setTextSelectableAll(enabled);
+    }
+
+    /**
+     * Apply text selectability to all rendered page slots.
+     *
+     * @param {boolean} enabled Whether text selection should be enabled.
+     */
+    _setTextSelectableAll(enabled) {
+        this._textSelectable = enabled;
+        for (const [, slot] of this._pageSlots) {
+            if (slot.rendered) {
+                this._setTextSelectableForSlot(slot, enabled);
+            }
+        }
+        this._toggleWordCountListeners(enabled);
+    }
+
+    /**
+     * Apply text selectability to a single page slot.
+     *
+     * @param {object} slot Page slot object.
+     * @param {boolean} enabled Whether text selection should be enabled.
+     */
+    _setTextSelectableForSlot(slot, enabled) {
+        const textLayerDiv = slot.textLayerDiv;
+        const wrapper = slot.canvasWrapper;
         if (!textLayerDiv || !wrapper) {
             return;
         }
 
         textLayerDiv.classList.toggle('text-selectable', enabled);
-
-        // Set z-index, pointer-events, and user-select inline.
-        // user-select is critical: Moodle/Bootstrap may set user-select: none
-        // on parent elements, which prevents text selection from working.
         textLayerDiv.style.zIndex = enabled ? '4' : '1';
         textLayerDiv.style.userSelect = enabled ? 'text' : 'none';
         textLayerDiv.style.webkitUserSelect = enabled ? 'text' : 'none';
+
         const spans = textLayerDiv.querySelectorAll('span');
         spans.forEach((span) => {
             span.style.pointerEvents = enabled ? 'auto' : '';
@@ -1190,33 +1463,124 @@ export default class PdfViewer extends BaseComponent {
             span.style.webkitUserSelect = enabled ? 'text' : '';
         });
 
-        // Reorder the text layer relative to the Fabric.js canvas-container.
-        // Fabric.js wraps the annotation canvas in a .canvas-container div whose
-        // upper-canvas captures all mouse events. DOM order determines which
-        // sibling receives events first when z-index alone is unreliable.
+        // Reorder text layer relative to Fabric.js canvas-container.
         const canvasContainer = wrapper.querySelector('.canvas-container');
         if (!canvasContainer) {
-            window.console.info('[pdf_viewer] setTextSelectable:', enabled,
-                '— no canvas-container yet (Fabric not initialised)');
             return;
         }
 
         if (enabled) {
-            // Place text layer AFTER canvas-container but BEFORE link layer.
-            const linkLayer = this.getElement(this.selectors.LINK_LAYER);
+            const linkLayer = slot.linkLayerDiv;
             if (linkLayer && linkLayer.parentNode === wrapper) {
                 wrapper.insertBefore(textLayerDiv, linkLayer);
             } else {
                 canvasContainer.after(textLayerDiv);
             }
         } else {
-            // Move text layer BEFORE canvas-container so Fabric gets events.
             wrapper.insertBefore(textLayerDiv, canvasContainer);
         }
+    }
 
-        window.console.info('[pdf_viewer] setTextSelectable:', enabled,
-            '| spans:', spans.length, '| DOM order: text-layer',
-            enabled ? 'AFTER' : 'BEFORE', 'canvas-container');
+    // ──────────────────────────────────────────────
+    //  Word count tooltip (text selection)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Attach or remove mouseup/mousedown listeners for the word count tooltip.
+     *
+     * @param {boolean} enabled Whether text-select mode is active.
+     */
+    _toggleWordCountListeners(enabled) {
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container) {
+            return;
+        }
+
+        if (enabled) {
+            if (!this._onTextSelectMouseUp) {
+                this._onTextSelectMouseUp = (e) => this._handleTextSelectMouseUp(e);
+                this._onTextSelectMouseDown = () => this._hideWordCountTooltip();
+            }
+            container.addEventListener('mouseup', this._onTextSelectMouseUp);
+            container.addEventListener('mousedown', this._onTextSelectMouseDown);
+        } else {
+            this._hideWordCountTooltip();
+            if (this._onTextSelectMouseUp) {
+                container.removeEventListener('mouseup', this._onTextSelectMouseUp);
+                container.removeEventListener('mousedown', this._onTextSelectMouseDown);
+            }
+        }
+    }
+
+    /**
+     * Handle mouseup in text-select mode — show word count if text is selected.
+     *
+     * @param {MouseEvent} e The mouseup event.
+     */
+    _handleTextSelectMouseUp(e) {
+        const sel = window.getSelection();
+        const text = sel ? sel.toString().trim() : '';
+        if (!text) {
+            this._hideWordCountTooltip();
+            return;
+        }
+
+        // Count words: split on whitespace runs, filter out empty tokens.
+        const words = text.split(/\s+/).filter((w) => w.length > 0);
+        const count = words.length;
+        if (count === 0) {
+            this._hideWordCountTooltip();
+            return;
+        }
+
+        this._showWordCountTooltip(count, e);
+    }
+
+    /**
+     * Show the word count tooltip near the mouse position.
+     *
+     * @param {number} count Number of words selected.
+     * @param {MouseEvent} e The mouseup event (for positioning).
+     */
+    _showWordCountTooltip(count, e) {
+        this._hideWordCountTooltip();
+
+        const container = this.getElement(this.selectors.PAGE_CONTAINER);
+        if (!container) {
+            return;
+        }
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'text-selection-wordcount';
+
+        const label = count === 1 ? 'word' : 'words';
+        tooltip.textContent = `${count.toLocaleString()} ${label}`;
+
+        // Position relative to the scrollable page container.
+        const rect = container.getBoundingClientRect();
+        let left = e.clientX - rect.left + container.scrollLeft + 12;
+        let top = e.clientY - rect.top + container.scrollTop - 30;
+
+        // Clamp so tooltip stays within the container viewport.
+        if (top < container.scrollTop) {
+            top = e.clientY - rect.top + container.scrollTop + 16;
+        }
+
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+
+        container.appendChild(tooltip);
+        this._wordCountTooltip = tooltip;
+    }
+
+    /**
+     * Hide the word count tooltip if visible.
+     */
+    _hideWordCountTooltip() {
+        if (this._wordCountTooltip) {
+            this._wordCountTooltip.remove();
+            this._wordCountTooltip = null;
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -1304,7 +1668,7 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Close the search bar and clear all search state and highlights.
+     * Close the search bar and clear all search state.
      */
     _closeSearch() {
         const bar = this.getElement(this.selectors.SEARCH_BAR);
@@ -1334,7 +1698,7 @@ export default class PdfViewer extends BaseComponent {
      * Extract and cache text content for a given page.
      *
      * @param {number} pageNum Page number (1-based).
-     * @returns {Promise<{fullText: string, itemRanges: Array<{start: number, end: number, itemIndex: number}>}>}
+     * @returns {Promise<{fullText: string, itemRanges: Array}>}
      */
     async _getPageText(pageNum) {
         if (this._pageTextCache.has(pageNum)) {
@@ -1368,10 +1732,7 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Perform a search across all pages using the current input value.
-     *
-     * Stores matches as {page} only — highlighting is done separately
-     * from the actual DOM spans to avoid index mapping issues.
+     * Perform a search across all pages.
      */
     async _performSearch() {
         const input = this.getElement(this.selectors.SEARCH_INPUT);
@@ -1405,14 +1766,16 @@ export default class PdfViewer extends BaseComponent {
         this._searchIndex = matches.length > 0 ? 0 : -1;
         this._updateSearchCount();
 
-        // Navigate to the first match.
         if (this._searchIndex >= 0) {
             const match = this._searchMatches[this._searchIndex];
-            if (match.page !== this._currentPage) {
-                this._goToPage(match.page);
-            } else {
-                this._highlightSearchMatches();
+            const slot = this._pageSlots.get(match.page);
+            if (slot) {
+                slot.wrapper.scrollIntoView({behavior: 'smooth', block: 'start'});
+                if (!slot.rendered) {
+                    await this._renderPageIfNeeded(match.page);
+                }
             }
+            this._highlightSearchMatches();
         } else {
             this._clearSearchHighlights();
         }
@@ -1428,7 +1791,6 @@ export default class PdfViewer extends BaseComponent {
             return;
         }
 
-        // If no active match yet but there are matches, start at 0.
         if (this._searchIndex < 0) {
             this._searchIndex = 0;
         } else {
@@ -1439,26 +1801,42 @@ export default class PdfViewer extends BaseComponent {
         this._updateSearchCount();
 
         const match = this._searchMatches[this._searchIndex];
-        if (match.page !== this._currentPage) {
-            // Page change will trigger _highlightSearchMatches via _renderPage.
-            this._goToPage(match.page);
-        } else {
-            this._highlightSearchMatches();
+        const slot = this._pageSlots.get(match.page);
+        if (!slot) {
+            return;
+        }
+
+        // Highlight on all rendered pages.
+        this._highlightSearchMatches();
+
+        // If the target page isn't rendered, scroll there and force-render.
+        if (!slot.rendered) {
+            slot.wrapper.scrollIntoView({behavior: 'smooth', block: 'start'});
+            this._renderPageIfNeeded(match.page).then(() => {
+                this._highlightSearchMatchesForSlot(match.page, slot);
+            });
         }
     }
 
     /**
-     * Highlight search matches on the current page by searching within
-     * the actual DOM text-layer spans. This avoids index-mapping issues
-     * between getTextContent() items and rendered spans.
+     * Highlight search matches on all rendered page slots.
      */
     _highlightSearchMatches() {
-        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
-        if (!textLayerDiv) {
-            return;
+        for (const [pageNum, slot] of this._pageSlots) {
+            if (slot.rendered) {
+                this._highlightSearchMatchesForSlot(pageNum, slot);
+            }
         }
+    }
 
-        const spans = textLayerDiv.querySelectorAll('span');
+    /**
+     * Highlight search matches on a single page slot.
+     *
+     * @param {number} pageNum Page number.
+     * @param {object} slot Page slot object.
+     */
+    _highlightSearchMatchesForSlot(pageNum, slot) {
+        const spans = slot.textLayerDiv.querySelectorAll('span');
         if (spans.length === 0) {
             return;
         }
@@ -1472,7 +1850,7 @@ export default class PdfViewer extends BaseComponent {
             return;
         }
 
-        // Build concatenated text from the actual DOM spans.
+        // Build concatenated text from DOM spans.
         let fullText = '';
         const spanRanges = [];
         spans.forEach((span, idx) => {
@@ -1481,17 +1859,15 @@ export default class PdfViewer extends BaseComponent {
             spanRanges.push({start, end: fullText.length, idx});
         });
 
-        // Find all matches in the DOM-derived text (case-insensitive).
         const queryLower = this._searchQuery.toLowerCase();
         const textLower = fullText.toLowerCase();
 
-        // Determine which local match on this page should be "active".
-        // Count global matches on pages before the current one.
+        // Determine which local match on this page is "active".
         let activeLocalIndex = -1;
-        if (this._searchIndex >= 0 && this._searchMatches[this._searchIndex]?.page === this._currentPage) {
+        if (this._searchIndex >= 0 && this._searchMatches[this._searchIndex]?.page === pageNum) {
             let firstOnPage = -1;
             for (let i = 0; i < this._searchMatches.length; i++) {
-                if (this._searchMatches[i].page === this._currentPage) {
+                if (this._searchMatches[i].page === pageNum) {
                     firstOnPage = i;
                     break;
                 }
@@ -1510,7 +1886,6 @@ export default class PdfViewer extends BaseComponent {
                 ? 'rgba(255, 150, 0, 0.5)'
                 : 'rgba(255, 220, 0, 0.35)';
 
-            // Find which DOM spans overlap with this character range.
             let firstSpan = null;
             for (const range of spanRanges) {
                 if (range.end > pos && range.start < matchEnd) {
@@ -1521,7 +1896,6 @@ export default class PdfViewer extends BaseComponent {
                 }
             }
 
-            // Scroll the active match into view.
             if (isActive && firstSpan) {
                 firstSpan.scrollIntoView({block: 'center', behavior: 'smooth'});
             }
@@ -1532,17 +1906,17 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Remove all search highlight styling from text layer spans.
+     * Remove all search highlight styling from all rendered page slots.
      */
     _clearSearchHighlights() {
-        const textLayerDiv = this.getElement(this.selectors.TEXT_LAYER);
-        if (!textLayerDiv) {
-            return;
+        for (const [, slot] of this._pageSlots) {
+            if (slot.rendered && slot.textLayerDiv) {
+                const spans = slot.textLayerDiv.querySelectorAll('span');
+                spans.forEach((span) => {
+                    span.style.backgroundColor = '';
+                });
+            }
         }
-        const spans = textLayerDiv.querySelectorAll('span');
-        spans.forEach((span) => {
-            span.style.backgroundColor = '';
-        });
     }
 
     /**
@@ -1572,6 +1946,68 @@ export default class PdfViewer extends BaseComponent {
         }
     }
 
+    // ──────────────────────────────────────────────
+    //  PDF data fetching (with conversion polling)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Fetch PDF data from a URL, handling document conversion responses.
+     *
+     * @param {string} url The PDF URL.
+     * @returns {Promise<ArrayBuffer>} The PDF data.
+     */
+    async _fetchPdfData(url) {
+        const signal = this._fetchAbortController?.signal;
+        const convertingMsg = await getString('converting_file', 'local_unifiedgrader');
+
+        for (let attempt = 0; attempt <= CONVERSION_MAX_RETRIES; attempt++) {
+            const response = await fetch(url, {credentials: 'same-origin', signal});
+
+            if (response.ok && response.headers.get('content-type')?.includes('application/pdf')) {
+                return response.arrayBuffer();
+            }
+
+            if (response.status === 202) {
+                if (attempt >= CONVERSION_MAX_RETRIES) {
+                    break;
+                }
+                this._showLoadingMessage(convertingMsg);
+                await new Promise((resolve, reject) => {
+                    const timer = setTimeout(resolve, CONVERSION_RETRY_DELAY_MS);
+                    signal?.addEventListener('abort', () => {
+                        clearTimeout(timer);
+                        reject(new DOMException('Aborted', 'AbortError'));
+                    }, {once: true});
+                });
+                continue;
+            }
+
+            if (response.status === 422) {
+                let errorMsg = '';
+                try {
+                    const json = await response.json();
+                    errorMsg = json.error || '';
+                } catch {
+                    // Ignore.
+                }
+                throw new Error(errorMsg || 'Document conversion failed.');
+            }
+
+            if (response.ok) {
+                return response.arrayBuffer();
+            }
+
+            throw new Error('Failed to load document (HTTP ' + response.status + ').');
+        }
+
+        const timeoutMsg = await getString('conversion_timeout', 'local_unifiedgrader');
+        throw new Error(timeoutMsg);
+    }
+
+    // ──────────────────────────────────────────────
+    //  UI helpers
+    // ──────────────────────────────────────────────
+
     /**
      * Show or hide the loading spinner.
      *
@@ -1586,7 +2022,7 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Show or clear a status message in the loading overlay (e.g. "Converting document...").
+     * Show or clear a status message in the loading overlay.
      *
      * @param {string} text Message text, or empty string to clear.
      */
@@ -1599,7 +2035,7 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Show or clear an error message overlay in the PDF viewer area.
+     * Show or clear an error message overlay.
      *
      * @param {string} text Error message, or empty string to clear.
      */
@@ -1612,12 +2048,51 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Get the current page number.
+     * Update page navigation buttons and display.
+     */
+    _updatePageControls() {
+        const currentEl = this.getElement(this.selectors.CURRENT_PAGE);
+        const totalEl = this.getElement(this.selectors.TOTAL_PAGES);
+        const prevBtn = this.getElement(this.selectors.PREV_BTN);
+        const nextBtn = this.getElement(this.selectors.NEXT_BTN);
+
+        if (currentEl) {
+            currentEl.textContent = this._activePageNum;
+        }
+        if (totalEl) {
+            totalEl.textContent = this._totalPages;
+        }
+        if (prevBtn) {
+            prevBtn.disabled = this._activePageNum <= 1;
+        }
+        if (nextBtn) {
+            nextBtn.disabled = this._activePageNum >= this._totalPages;
+        }
+    }
+
+    /**
+     * Update the zoom level display.
+     *
+     * @param {number} scale Current scale factor.
+     */
+    _updateZoomDisplay(scale) {
+        const zoomEl = this.getElement(this.selectors.ZOOM_LEVEL);
+        if (zoomEl) {
+            zoomEl.textContent = Math.round(scale * 100) + '%';
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Public API
+    // ──────────────────────────────────────────────
+
+    /**
+     * Get the currently active page number.
      *
      * @returns {number} Current page (1-based).
      */
     getCurrentPage() {
-        return this._currentPage;
+        return this._activePageNum;
     }
 
     /**
@@ -1630,26 +2105,49 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
-     * Get the annotation layer instance.
+     * Set annotation data for a specific page.
+     * Used by feedback_viewer.js to load read-only annotations.
      *
-     * @returns {?AnnotationLayer}
+     * @param {number} pageNum Page number (1-based).
+     * @param {object} fabricJson Fabric.js canvas JSON.
      */
-    getAnnotationLayer() {
-        return this._annotationLayer;
+    setPageAnnotations(pageNum, fabricJson) {
+        this._pageAnnotations.set(pageNum, fabricJson);
     }
+
+    /**
+     * Reload annotation overlays on all currently rendered pages.
+     * Used by feedback_viewer.js after loading annotations.
+     *
+     * @returns {Promise<void>}
+     */
+    async refreshRenderedAnnotations() {
+        for (const [pageNum, slot] of this._pageSlots) {
+            if (slot.rendered && slot.annotationLayer) {
+                const json = this._pageAnnotations.get(pageNum);
+                if (json) {
+                    await slot.annotationLayer.loadAnnotations(json);
+                }
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Cleanup
+    // ──────────────────────────────────────────────
 
     /**
      * Clean up resources when component is destroyed.
      */
     destroy() {
-        // Abort any in-flight fetch/conversion polling.
         if (this._fetchAbortController) {
             this._fetchAbortController.abort();
             this._fetchAbortController = null;
         }
 
         // Save any pending annotations.
-        if (this._dirty && this._annotationLayer && this._fileid) {
+        if (this._dirty && this._fileid) {
+            this._saveAllSlotAnnotations();
             this._saveAnnotationsToBackend();
         }
 
@@ -1657,6 +2155,14 @@ export default class PdfViewer extends BaseComponent {
             clearTimeout(this._saveTimer);
             this._saveTimer = null;
         }
+
+        this._destroyAllSlots();
+
+        if (this._annotationToolbar) {
+            this._annotationToolbar.destroy();
+            this._annotationToolbar = null;
+        }
+
         if (this._onBeforeUnload) {
             window.removeEventListener('beforeunload', this._onBeforeUnload);
             this._onBeforeUnload = null;
@@ -1669,38 +2175,29 @@ export default class PdfViewer extends BaseComponent {
             document.removeEventListener('keydown', this._onKeyDown);
             this._onKeyDown = null;
         }
-        if (this._annotationToolbar) {
-            this._annotationToolbar.destroy();
-            this._annotationToolbar = null;
-        }
-        if (this._annotationLayer) {
-            this._annotationLayer.destroy();
-            this._annotationLayer = null;
-        }
+
         if (this._pdfDoc) {
             this._pdfDoc.destroy();
             this._pdfDoc = null;
         }
-        // Abort any in-flight flatten operation.
+
         if (this._flattenAbortController) {
             this._flattenAbortController.abort();
             this._flattenAbortController = null;
         }
 
-        if (this._textLayer) {
-            this._textLayer.cancel();
-            this._textLayer = null;
-        }
         this._pdfBytes = null;
         this._currentUrl = null;
+        this._pageAnnotations.clear();
 
-        // Clear search state.
         if (this._searchDebounceTimer) {
             clearTimeout(this._searchDebounceTimer);
             this._searchDebounceTimer = null;
         }
         this._pageTextCache.clear();
         this._searchMatches = [];
+
+        this._toggleWordCountListeners(false);
 
         super.destroy();
     }

@@ -471,9 +471,16 @@ export default class AnnotationToolbar {
      */
     setLayer(layer) {
         this._layer = layer;
-        // Re-register callbacks on the new layer.
-        this._layer.onChange(() => this._updateActionStates());
-        this._layer.onSelectionChange(() => this._updateDeleteState());
+        // Register callbacks only once per layer instance (avoid accumulation
+        // when the user scrolls back and forth between pages).
+        if (!this._registeredLayers) {
+            this._registeredLayers = new WeakSet();
+        }
+        if (!this._registeredLayers.has(layer)) {
+            this._layer.onChange(() => this._updateActionStates());
+            this._layer.onSelectionChange(() => this._updateDeleteState());
+            this._registeredLayers.add(layer);
+        }
         this._updateActionStates();
         this._updateDeleteState();
     }
