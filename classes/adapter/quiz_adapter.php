@@ -291,6 +291,7 @@ class quiz_adapter extends base_adapter {
             'userid' => $userid,
             'status' => 'submitted',
             'content' => $content,
+            'hascontent' => !empty($content),
             'files' => $this->get_submission_files($userid),
             'onlinetext' => '',
             'timecreated' => (int) $attempt->timestart,
