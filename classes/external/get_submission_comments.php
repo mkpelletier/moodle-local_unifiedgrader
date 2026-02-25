@@ -50,6 +50,9 @@ class get_submission_comments extends external_api {
             'cmid' => new external_value(PARAM_INT, 'Course module ID'),
             'userid' => new external_value(PARAM_INT, 'Student user ID'),
             'page' => new external_value(PARAM_INT, 'Page number (0-based)', VALUE_DEFAULT, 0),
+            'attemptnumber' => new external_value(
+                PARAM_INT, 'Attempt number (0-based), -1 for latest', VALUE_DEFAULT, -1
+            ),
         ]);
     }
 
@@ -61,11 +64,12 @@ class get_submission_comments extends external_api {
      * @param int $page
      * @return array
      */
-    public static function execute(int $cmid, int $userid, int $page = 0): array {
+    public static function execute(int $cmid, int $userid, int $page = 0, int $attemptnumber = -1): array {
         $params = self::validate_parameters(self::execute_parameters(), [
             'cmid' => $cmid,
             'userid' => $userid,
             'page' => $page,
+            'attemptnumber' => $attemptnumber,
         ]);
 
         global $USER;
@@ -96,7 +100,7 @@ class get_submission_comments extends external_api {
         }
 
         $assign = new \assign($context, $cm, $course);
-        $submission = $assign->get_user_submission($params['userid'], false);
+        $submission = $assign->get_user_submission($params['userid'], false, $params['attemptnumber']);
 
         if (!$submission) {
             return [

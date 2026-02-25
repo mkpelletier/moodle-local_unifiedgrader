@@ -28,6 +28,8 @@ import {get_string as getString} from 'core/str';
 import {getInstanceForElementId} from 'editor_tiny/editor';
 import CommentLibraryPopout from 'local_unifiedgrader/components/comment_library_popout';
 import PenaltyPopout from 'local_unifiedgrader/components/penalty_popout';
+import * as DirtyTracker from 'local_unifiedgrader/dirty_tracker';
+import * as OfflineCache from 'local_unifiedgrader/offline_cache';
 
 export default class extends BaseComponent {
 
@@ -122,12 +124,34 @@ export default class extends BaseComponent {
         this._setupEventListeners();
         this._updateMaxGrade(state);
 
+        // Listen for save requests from other components (e.g. student navigator before switch).
+        document.addEventListener('unifiedgrader:requestsave', () => {
+            if (DirtyTracker.isDirty('grade') || DirtyTracker.isDirty('feedback')) {
+                this._handleSaveGrade();
+            }
+        });
+
         // Listen for grade input changes to update percentage and final grade in real time.
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput) {
             gradeInput.addEventListener('input', () => {
                 this._updatePercentage();
                 this._updateFinalGradeDisplay();
+                if (DirtyTracker.hasChanged('grade', gradeInput.value)) {
+                    DirtyTracker.markDirty('grade');
+                    this._cacheGradeValue();
+                }
+            });
+        }
+
+        // Listen for scale dropdown changes to track dirty state.
+        const scaleInput = this.getElement(this.selectors.SCALE_INPUT);
+        if (scaleInput) {
+            scaleInput.addEventListener('change', () => {
+                if (DirtyTracker.hasChanged('grade', scaleInput.value)) {
+                    DirtyTracker.markDirty('grade');
+                    this._cacheGradeValue();
+                }
             });
         }
 
@@ -198,6 +222,14 @@ export default class extends BaseComponent {
                 }
             });
 
+            // Mark grade dirty when rubric/guide fields are edited.
+            rubricBody.addEventListener('input', (e) => {
+                if (e.target.matches('textarea, input[type="number"]')) {
+                    DirtyTracker.markDirty('grade');
+                    this._cacheGradeValue();
+                }
+            });
+
             // Auto-save when focus leaves the rubric/guide entirely.
             // Skip if focus moves to another rubric field or the comment library popout.
             rubricBody.addEventListener('focusout', (e) => {
@@ -237,6 +269,13 @@ export default class extends BaseComponent {
             if (editor) {
                 editor.on('focus', () => {
                     this._lastFocusedField = textarea;
+                });
+                // Track feedback dirty state via TinyMCE content changes.
+                editor.on('input change keyup Paste', () => {
+                    if (DirtyTracker.hasChanged('feedback', editor.getContent())) {
+                        DirtyTracker.markDirty('feedback');
+                        this._cacheFeedbackValue(editor.getContent());
+                    }
                 });
             } else {
                 setTimeout(tryRegister, 500);
@@ -325,6 +364,38 @@ export default class extends BaseComponent {
         } else {
             textarea.value = html || '';
         }
+    }
+
+    /**
+     * Cache the current grade value to IndexedDB.
+     */
+    _cacheGradeValue() {
+        const state = this.reactive.state;
+        const cmid = state.activity?.cmid;
+        const userid = state.currentUser?.id;
+        if (!cmid || !userid) {
+            return;
+        }
+        const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
+        const scaleInput = this.getElement(this.selectors.SCALE_INPUT);
+        const value = gradeInput ? gradeInput.value : (scaleInput ? scaleInput.value : '');
+        const advancedGradingData = this._collectAdvancedGradingData();
+        OfflineCache.save(cmid, userid, 'grade', {value, advancedGradingData});
+    }
+
+    /**
+     * Cache feedback HTML to IndexedDB.
+     *
+     * @param {string} html The feedback HTML content.
+     */
+    _cacheFeedbackValue(html) {
+        const state = this.reactive.state;
+        const cmid = state.activity?.cmid;
+        const userid = state.currentUser?.id;
+        if (!cmid || !userid) {
+            return;
+        }
+        OfflineCache.save(cmid, userid, 'feedback', {html});
     }
 
     /**
@@ -424,6 +495,15 @@ export default class extends BaseComponent {
 
         // Show late penalty badge extracted from external module feedback (e.g. quizaccess_duedate).
         this._renderLatePenaltyBadge(state);
+
+        // Snapshot the "clean" values for dirty tracking after server data is loaded.
+        const gradeInputEl = this.getElement(this.selectors.GRADE_INPUT);
+        const scaleInputEl = this.getElement(this.selectors.SCALE_INPUT);
+        const currentGradeValue = gradeInputEl ? gradeInputEl.value : (scaleInputEl ? scaleInputEl.value : '');
+        DirtyTracker.setSnapshot('grade', currentGradeValue);
+        DirtyTracker.setSnapshot('feedback', this._getEditorContent());
+        DirtyTracker.markClean('grade');
+        DirtyTracker.markClean('feedback');
     }
 
     /**
@@ -599,6 +679,24 @@ export default class extends BaseComponent {
             } else {
                 saveBtn.disabled = false;
                 saveBtn.textContent = await getString('savefeedback', 'local_unifiedgrader');
+
+                // When saving transitions to false, the save completed — mark clean.
+                const gradeInputEl = this.getElement(this.selectors.GRADE_INPUT);
+                const scaleInputEl = this.getElement(this.selectors.SCALE_INPUT);
+                const currentGradeValue = gradeInputEl ? gradeInputEl.value
+                    : (scaleInputEl ? scaleInputEl.value : '');
+                DirtyTracker.setSnapshot('grade', currentGradeValue);
+                DirtyTracker.setSnapshot('feedback', this._getEditorContent());
+                DirtyTracker.markClean('grade');
+                DirtyTracker.markClean('feedback');
+
+                // Clear the IndexedDB cache after successful server save.
+                const cmid = state.activity?.cmid;
+                const userid = state.currentUser?.id;
+                if (cmid && userid) {
+                    OfflineCache.remove(cmid, userid, 'grade');
+                    OfflineCache.remove(cmid, userid, 'feedback');
+                }
             }
         }
     }

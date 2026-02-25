@@ -36,6 +36,8 @@ import {loadAnnotations, saveAnnotations, uploadAnnotatedPdf, deleteAnnotatedPdf
     from 'local_unifiedgrader/annotation/persistence';
 import {flattenAnnotatedPdf} from 'local_unifiedgrader/annotation/pdf_flatten';
 import PdflibLoader from 'local_unifiedgrader/lib/pdflib_loader';
+import * as DirtyTracker from 'local_unifiedgrader/dirty_tracker';
+import * as OfflineCache from 'local_unifiedgrader/offline_cache';
 
 /** @type {number[]} Available zoom levels as multipliers. */
 const ZOOM_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
@@ -210,6 +212,23 @@ export default class PdfViewer extends BaseComponent {
      */
     stateReady() {
         this._bindControls();
+
+        // Listen for annotation restoration from the offline cache recovery flow.
+        document.addEventListener('unifiedgrader:restoreannotations', (e) => {
+            const {fileid, pages} = e.detail || {};
+            if (fileid === this._fileid && Array.isArray(pages)) {
+                this._pageAnnotations = new Map(pages);
+                this._dirty = true;
+                DirtyTracker.markDirty('annotations');
+                // Re-render currently visible pages with restored annotations.
+                for (const [pageNum, slot] of this._pageSlots) {
+                    if (slot.annotationLayer && this._pageAnnotations.has(pageNum)) {
+                        slot.annotationLayer.loadAnnotations(this._pageAnnotations.get(pageNum));
+                    }
+                }
+                this._scheduleSave();
+            }
+        });
     }
 
     /**
@@ -406,6 +425,7 @@ export default class PdfViewer extends BaseComponent {
             }
 
             this._dirty = false;
+            DirtyTracker.markClean('annotations');
             this._loadedPageNums = new Set();
             this._pageAnnotations = new Map();
             this._pdfBytes = null;
@@ -753,8 +773,10 @@ export default class PdfViewer extends BaseComponent {
         if (!this._readOnly) {
             layer.onChange(() => {
                 this._dirty = true;
+                DirtyTracker.markDirty('annotations');
                 this._saveSlotAnnotations(pageNum, slot);
                 this._scheduleSave();
+                this._scheduleCacheWrite();
             });
 
             layer.onToolChange((tool) => {
@@ -967,6 +989,26 @@ export default class PdfViewer extends BaseComponent {
     }
 
     /**
+     * Schedule a debounced cache write to IndexedDB. Longer interval than server save
+     * to avoid excessive IDB writes during rapid drawing.
+     */
+    _scheduleCacheWrite() {
+        if (this._cacheWriteTimer) {
+            clearTimeout(this._cacheWriteTimer);
+        }
+        this._cacheWriteTimer = setTimeout(() => {
+            this._cacheWriteTimer = null;
+            if (this._cmid && this._userid && this._fileid) {
+                this._saveAllSlotAnnotations();
+                OfflineCache.save(this._cmid, this._userid, 'annotations', {
+                    fileid: this._fileid,
+                    pages: [...this._pageAnnotations.entries()],
+                });
+            }
+        }, 3000);
+    }
+
+    /**
      * Schedule a debounced save. Resets the timer on each call.
      */
     _scheduleSave() {
@@ -1035,14 +1077,21 @@ export default class PdfViewer extends BaseComponent {
             await saveAnnotations(this._cmid, this._userid, this._fileid, pages);
 
             this._loadedPageNums = new Set(this._pageAnnotations.keys());
+            DirtyTracker.markClean('annotations');
+            if (this._cmid && this._userid) {
+                OfflineCache.remove(this._cmid, this._userid, 'annotations');
+            }
 
             // Trigger flattened PDF generation in the background.
             this._flattenAndUpload();
 
         } catch (err) {
-            // Re-mark dirty so the next scheduled save retries.
+            // Re-mark dirty so the next scheduled save retries via _scheduleSave().
+            // Annotations self-retry via the _dirty flag, so we do NOT enqueue in
+            // the SaveQueue (which would create duplicate entries that persist).
             this._dirty = true;
-            window.console.error('[pdf_viewer] Failed to save annotations:', err);
+            DirtyTracker.markDirty('annotations');
+            window.console.warn('[pdf_viewer] Failed to save annotations, will retry:', err);
         } finally {
             this._saving = false;
             // If new annotations were created during the save, schedule another.

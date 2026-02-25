@@ -37,6 +37,7 @@ import {
     validateAnnotationJson,
 } from 'local_unifiedgrader/annotation/types';
 import Ajax from 'core/ajax';
+import * as OfflineCache from 'local_unifiedgrader/offline_cache';
 
 /** Color palette for tag badges (matches comment_library_popout.js). */
 const TAG_COLORS = [
@@ -1045,18 +1046,44 @@ export default class AnnotationLayer {
                 Ajax.call([{
                     methodname: 'local_unifiedgrader_get_library_comments',
                     args: {coursecode: this._coursecode, tagid: 0},
+                    failurealert: false,
                 }])[0],
                 Ajax.call([{
                     methodname: 'local_unifiedgrader_get_library_tags',
                     args: {},
+                    failurealert: false,
                 }])[0],
             ]);
             this._libraryComments = comments || [];
             this._libraryTags = (tags || []).sort((a, b) => a.name.localeCompare(b.name));
             this._libraryLoaded = true;
+
+            // Update cache for offline resilience.
+            if (OfflineCache.isAvailable()) {
+                OfflineCache.save(0, 0, 'clib_cc_' + this._coursecode, this._libraryComments);
+                OfflineCache.save(0, 0, 'clib_tags', this._libraryTags);
+            }
         } catch (err) {
-            this._libraryComments = [];
-            this._libraryTags = [];
+            // Fall back to IndexedDB cache.
+            if (OfflineCache.isAvailable()) {
+                const [commentsEntry, tagsEntry] = await Promise.all([
+                    OfflineCache.load(0, 0, 'clib_cc_' + this._coursecode),
+                    OfflineCache.load(0, 0, 'clib_tags'),
+                ]);
+                if (commentsEntry) {
+                    this._libraryComments = commentsEntry.data;
+                } else {
+                    // Fall back to full library filtered by course code.
+                    const allEntry = await OfflineCache.load(0, 0, 'clib_all');
+                    this._libraryComments = allEntry
+                        ? allEntry.data.filter(c => !this._coursecode || c.coursecode === this._coursecode)
+                        : [];
+                }
+                this._libraryTags = (tagsEntry?.data || []).sort((a, b) => a.name.localeCompare(b.name));
+            } else {
+                this._libraryComments = [];
+                this._libraryTags = [];
+            }
             this._libraryLoaded = true;
         }
     }

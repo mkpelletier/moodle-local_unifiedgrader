@@ -30,6 +30,23 @@ import Templates from 'core/templates';
 import Ajax from 'core/ajax';
 import Notification from 'core/notification';
 import {get_string as getString} from 'core/str';
+import * as OfflineCache from 'local_unifiedgrader/offline_cache';
+
+/**
+ * Handle AJAX or other errors gracefully.
+ * Network errors (server unreachable) produce blank Notification.exception modals
+ * because they lack errorcode/message. This wrapper shows a friendly alert instead.
+ *
+ * @param {*} err Error object.
+ */
+const _handleError = (err) => {
+    if (err && (err.errorcode || err.debuginfo)) {
+        Notification.exception(err);
+    } else {
+        Notification.alert('Error', 'Unable to connect to the server. Please check your connection and try again.');
+        window.console.warn('[comment_library_modal] Network error:', err);
+    }
+};
 
 /** @type {string} The current course code for new comments. */
 let _coursecode = '';
@@ -63,6 +80,9 @@ let _activeSharedTag = 0;
 
 /** @type {number|null} Comment ID being edited (null = not editing). */
 let _editingId = null;
+
+/** @type {boolean} Whether the modal is showing cached (offline) data. */
+let _offline = false;
 
 /** Color palette for tag badges. */
 const TAG_COLORS = [
@@ -130,7 +150,7 @@ const _applyColor = (el, color) => {
  * @param {object} args Arguments.
  * @return {Promise<*>} Result.
  */
-const ajax = (methodname, args) => Ajax.call([{methodname, args}])[0];
+const ajax = (methodname, args) => Ajax.call([{methodname, args, failurealert: false}])[0];
 
 /**
  * Open the comment library modal.
@@ -145,6 +165,7 @@ const open = async(coursecode, onClose) => {
     _activeTag = 0;
     _activeSharedTag = 0;
     _editingId = null;
+    _offline = false;
 
     const title = await getString('clib_title', 'local_unifiedgrader');
     const {html} = await Templates.renderForPromise('local_unifiedgrader/comment_library_modal', {});
@@ -217,6 +238,7 @@ const _wireEvents = () => {
 
 /**
  * Load all data (comments, tags, shared) in parallel.
+ * Caches results to IndexedDB for offline fallback.
  */
 const _loadAll = async() => {
     try {
@@ -228,13 +250,94 @@ const _loadAll = async() => {
         _comments = comments;
         _tags = tags.sort((a, b) => a.name.localeCompare(b.name));
         _sharedComments = shared;
+        _offline = false;
 
+        // Cache for offline fallback.
+        OfflineCache.save(0, 0, 'clib_all', comments);
+        OfflineCache.save(0, 0, 'clib_tags', tags);
+        OfflineCache.save(0, 0, 'clib_shared', shared);
+
+        _removeOfflineBanner();
         _renderCourseList();
         _populateTagFilters();
         _renderComments();
         _renderShared();
     } catch (err) {
-        Notification.exception(err);
+        // Try offline fallback from cache.
+        const cached = await _loadFromCache();
+        if (cached) {
+            _comments = cached.comments;
+            _tags = cached.tags;
+            _sharedComments = cached.shared;
+            _offline = true;
+
+            _renderCourseList();
+            _populateTagFilters();
+            _renderComments();
+            _renderShared();
+            _showOfflineBanner();
+        } else {
+            window.console.warn('[comment_library_modal] Load failed, no cache available:', err);
+        }
+    }
+};
+
+/**
+ * Try loading comment library data from IndexedDB cache.
+ *
+ * @return {Promise<{comments: Array, tags: Array, shared: Array}|null>}
+ */
+const _loadFromCache = async() => {
+    if (!OfflineCache.isAvailable()) {
+        return null;
+    }
+    const [commentsEntry, tagsEntry, sharedEntry] = await Promise.all([
+        OfflineCache.load(0, 0, 'clib_all'),
+        OfflineCache.load(0, 0, 'clib_tags'),
+        OfflineCache.load(0, 0, 'clib_shared'),
+    ]);
+    if (commentsEntry) {
+        return {
+            comments: commentsEntry.data,
+            tags: (tagsEntry?.data || []).sort((a, b) => a.name.localeCompare(b.name)),
+            shared: sharedEntry?.data || [],
+        };
+    }
+    return null;
+};
+
+/**
+ * Show a banner indicating the modal is displaying cached offline data.
+ */
+const _showOfflineBanner = () => {
+    if (!_root || !_offline) {
+        return;
+    }
+    if (_root.querySelector('[data-region="clib-offline-banner"]')) {
+        return;
+    }
+    const banner = document.createElement('div');
+    banner.dataset.region = 'clib-offline-banner';
+    banner.className = 'alert alert-warning py-1 px-2 mb-2 small';
+    banner.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>'
+        + 'Showing cached comments — editing is unavailable offline.';
+    getString('clib_offline_mode', 'local_unifiedgrader').then((s) => {
+        banner.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>' + _escapeHtml(s);
+        return s;
+    }).catch(() => {});
+    _root.insertBefore(banner, _root.firstChild);
+};
+
+/**
+ * Remove the offline banner if present.
+ */
+const _removeOfflineBanner = () => {
+    if (!_root) {
+        return;
+    }
+    const banner = _root.querySelector('[data-region="clib-offline-banner"]');
+    if (banner) {
+        banner.remove();
     }
 };
 
@@ -262,7 +365,7 @@ const _renderCourseList = () => {
     getString('clib_all', 'local_unifiedgrader').then((s) => {
         allItem.querySelector('.clib-course-label').textContent = s;
         return s;
-    }).catch(Notification.exception);
+    }).catch(() => {});
     container.appendChild(allItem);
 
     // Individual course codes.
@@ -361,7 +464,7 @@ const _renderComments = () => {
         getString('clib_no_comments', 'local_unifiedgrader').then((s) => {
             empty.textContent = s;
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
         container.appendChild(empty);
         return;
     }
@@ -428,7 +531,7 @@ const _commentCard = (comment) => {
         getString('clib_share', 'local_unifiedgrader').then((s) => {
             sharedBadge.textContent = s;
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
         metaRow.appendChild(sharedBadge);
     }
 
@@ -549,7 +652,7 @@ const _editForm = (comment) => {
             _editingId = null;
             await _loadAll();
         } catch (err) {
-            Notification.exception(err);
+            _handleError(err);
         }
     });
 
@@ -664,7 +767,7 @@ const _handleSaveNew = async() => {
         _hideNewForm();
         await _loadAll();
     } catch (err) {
-        Notification.exception(err);
+        _handleError(err);
     }
 };
 
@@ -684,7 +787,7 @@ const _handleDelete = async(commentid) => {
         await ajax('local_unifiedgrader_delete_library_comment', {commentid});
         await _loadAll();
     } catch (err) {
-        Notification.exception(err);
+        _handleError(err);
     }
 };
 
@@ -704,7 +807,7 @@ const _toggleShare = async(comment) => {
         });
         await _loadAll();
     } catch (err) {
-        Notification.exception(err);
+        _handleError(err);
     }
 };
 
@@ -732,7 +835,7 @@ const _renderShared = () => {
         getString('clib_no_shared', 'local_unifiedgrader').then((s) => {
             empty.textContent = s;
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
         container.appendChild(empty);
         return;
     }
@@ -792,7 +895,7 @@ const _renderShared = () => {
             importBtn.title = s;
             importBtn.innerHTML = '<i class="fa fa-download me-1"></i>' + _escapeHtml(s);
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
         importBtn.addEventListener('click', () => _handleImport(comment.id));
         card.appendChild(importBtn);
 
@@ -815,7 +918,7 @@ const _handleImport = async(commentid) => {
         _showToast(msg);
         await _loadAll();
     } catch (err) {
-        Notification.exception(err);
+        _handleError(err);
     }
 };
 
@@ -840,7 +943,7 @@ const _restoreSidebar = () => {
     getString('clib_all_courses', 'local_unifiedgrader').then((s) => {
         header.textContent = s;
         return s;
-    }).catch(Notification.exception);
+    }).catch(() => {});
     sidebar.appendChild(header);
 
     // Course list container (needed by _renderCourseList).
@@ -861,7 +964,7 @@ const _restoreSidebar = () => {
     getString('clib_manage_tags', 'local_unifiedgrader').then((s) => {
         mgBtn.innerHTML = '<i class="fa fa-tags me-1"></i>' + _escapeHtml(s);
         return s;
-    }).catch(Notification.exception);
+    }).catch(() => {});
     mgBtn.addEventListener('click', _showTagManager);
     sidebar.appendChild(mgBtn);
 
@@ -888,7 +991,7 @@ const _showTagManager = () => {
     getString('clib_tags', 'local_unifiedgrader').then((s) => {
         headerText.textContent = s;
         return s;
-    }).catch(Notification.exception);
+    }).catch(() => {});
 
     const backBtn = document.createElement('button');
     backBtn.type = 'button';
@@ -938,7 +1041,7 @@ const _showTagManager = () => {
                         await _loadAll();
                         _showTagManager();
                     } catch (err) {
-                        Notification.exception(err);
+                        _handleError(err);
                     }
                 }
             });
@@ -951,7 +1054,7 @@ const _showTagManager = () => {
             getString('clib_system_tag', 'local_unifiedgrader').then((s) => {
                 sysLabel.textContent = s;
                 return s;
-            }).catch(Notification.exception);
+            }).catch(() => {});
             btns.appendChild(sysLabel);
         }
 
@@ -973,7 +1076,7 @@ const _showTagManager = () => {
     getString('clib_new_tag', 'local_unifiedgrader').then((s) => {
         newTagInput.placeholder = s;
         return s;
-    }).catch(Notification.exception);
+    }).catch(() => {});
 
     const newTagBtn = document.createElement('button');
     newTagBtn.type = 'button';
@@ -990,7 +1093,7 @@ const _showTagManager = () => {
             await _loadAll();
             _showTagManager();
         } catch (err) {
-            Notification.exception(err);
+            _handleError(err);
         }
     });
 
@@ -1029,7 +1132,7 @@ const _editTag = (tag, nameEl) => {
                 await ajax('local_unifiedgrader_save_library_tag', {name: newName, tagid: tag.id});
                 await _loadAll();
             } catch (err) {
-                Notification.exception(err);
+                _handleError(err);
             }
         }
         _showTagManager();

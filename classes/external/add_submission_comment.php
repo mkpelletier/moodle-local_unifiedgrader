@@ -49,6 +49,9 @@ class add_submission_comment extends external_api {
             'cmid' => new external_value(PARAM_INT, 'Course module ID'),
             'userid' => new external_value(PARAM_INT, 'Student user ID'),
             'content' => new external_value(PARAM_RAW, 'Comment content'),
+            'attemptnumber' => new external_value(
+                PARAM_INT, 'Attempt number (0-based), -1 for latest', VALUE_DEFAULT, -1
+            ),
         ]);
     }
 
@@ -60,11 +63,12 @@ class add_submission_comment extends external_api {
      * @param string $content
      * @return array
      */
-    public static function execute(int $cmid, int $userid, string $content): array {
+    public static function execute(int $cmid, int $userid, string $content, int $attemptnumber = -1): array {
         $params = self::validate_parameters(self::execute_parameters(), [
             'cmid' => $cmid,
             'userid' => $userid,
             'content' => $content,
+            'attemptnumber' => $attemptnumber,
         ]);
 
         global $USER;
@@ -91,7 +95,7 @@ class add_submission_comment extends external_api {
         }
 
         $assign = new \assign($context, $cm, $course);
-        $submission = $assign->get_user_submission($params['userid'], false);
+        $submission = $assign->get_user_submission($params['userid'], false, $params['attemptnumber']);
 
         if (!$submission) {
             throw new \moodle_exception('nosubmission', 'local_unifiedgrader');

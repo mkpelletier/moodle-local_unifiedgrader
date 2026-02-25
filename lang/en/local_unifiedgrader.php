@@ -352,6 +352,7 @@ $string['clib_shared_by'] = 'Shared by {$a}';
 $string['clib_no_shared'] = 'No shared comments available.';
 $string['clib_picker_freetext'] = 'Or write your own...';
 $string['clib_picker_loading'] = 'Loading comments...';
+$string['clib_offline_mode'] = 'Showing cached comments — editing is unavailable offline.';
 $string['unifiedgrader:sharecomments'] = 'Share comments in the library with other teachers';
 
 // Privacy: comment library v2.
@@ -393,3 +394,12 @@ $string['privacy:metadata:penalty:authorid'] = 'The teacher who applied the pena
 $string['privacy:metadata:penalty:category'] = 'The penalty category (word count or other).';
 $string['privacy:metadata:penalty:label'] = 'The custom label for the penalty.';
 $string['privacy:metadata:penalty:percentage'] = 'The penalty percentage.';
+
+// Offline cache and save status.
+$string['allchangessaved'] = 'All changes saved';
+$string['editing'] = 'Editing...';
+$string['offlinesavedlocally'] = 'Offline — saved locally';
+$string['connectionlost'] = 'Connection lost — your work is saved locally and will sync when reconnected.';
+$string['recoveredunsavedchanges'] = 'Recovered unsaved changes from your last session.';
+$string['restore'] = 'Restore';
+$string['discard'] = 'Discard';

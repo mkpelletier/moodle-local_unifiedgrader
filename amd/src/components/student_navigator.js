@@ -25,6 +25,7 @@
 import {BaseComponent} from 'core/reactive';
 import {get_strings as getStrings} from 'core/str';
 import {get_string as getString} from 'core/str';
+import * as DirtyTracker from 'local_unifiedgrader/dirty_tracker';
 
 export default class extends BaseComponent {
 
@@ -1038,11 +1039,21 @@ export default class extends BaseComponent {
      *
      * @param {number} userid User ID to select.
      */
-    _selectStudent(userid) {
+    async _selectStudent(userid) {
         const state = this.reactive.state;
         if (userid === state.currentUser?.id) {
             return;
         }
+
+        // Auto-save grade/feedback before switching if there are unsaved changes.
+        if (DirtyTracker.isDirty('grade') || DirtyTracker.isDirty('feedback')) {
+            this.element.dispatchEvent(new CustomEvent('unifiedgrader:requestsave', {
+                bubbles: true,
+            }));
+            // Brief pause to let the save dispatch start.
+            await new Promise(r => setTimeout(r, 100));
+        }
+
         this.reactive.dispatch('loadStudent', state.activity.cmid, userid);
 
         // Collapse the filter/list panel after selection.

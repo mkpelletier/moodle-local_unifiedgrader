@@ -22,12 +22,18 @@
  */
 
 import {Reactive} from 'core/reactive';
+import {get_string as getString} from 'core/str';
 import Mutations from 'local_unifiedgrader/mutations';
 import PreviewPanel from 'local_unifiedgrader/components/preview_panel';
 import MarkingPanel from 'local_unifiedgrader/components/marking_panel';
 import StudentNavigator from 'local_unifiedgrader/components/student_navigator';
 import SubmissionComments from 'local_unifiedgrader/components/submission_comments';
 import PostGradesToggle from 'local_unifiedgrader/components/post_grades_toggle';
+import Ajax from 'core/ajax';
+import * as DirtyTracker from 'local_unifiedgrader/dirty_tracker';
+import * as OfflineCache from 'local_unifiedgrader/offline_cache';
+import * as SaveQueue from 'local_unifiedgrader/save_queue';
+import {getInstanceForElementId} from 'editor_tiny/editor';
 
 /** @type {Reactive|null} */
 let reactiveInstance = null;
@@ -179,6 +185,24 @@ export const init = (containerId) => {
 
     reactiveInstance.setInitialState(initialState);
 
+    // Install dirty-state tracker (beforeunload protection).
+    DirtyTracker.install();
+
+    // Initialize IndexedDB offline cache.
+    OfflineCache.init();
+
+    // Start the save retry queue.
+    SaveQueue.start();
+
+    // Proactively cache the comment library for offline resilience.
+    _prewarmCommentLibraryCache(coursecode);
+
+    // Wire up the save status indicator in the header bar.
+    _setupSaveStatusIndicator(container);
+
+    // Wire up connection lost / save queue banner.
+    _setupConnectionBanner(container);
+
     // Register reactive components.
     const previewEl = container.querySelector('[data-region="preview-panel"]');
     if (previewEl) {
@@ -220,9 +244,11 @@ export const init = (containerId) => {
         });
     }
 
-    // Load the first student's data.
+    // Load the first student's data, then check for cached recovery data.
     if (userid) {
         reactiveInstance.dispatch('loadStudent', cmid, userid);
+        // Recovery check runs after a delay to let the initial load populate the state.
+        setTimeout(() => _checkRecovery(container, reactiveInstance, cmid, userid), 2000);
     }
 
     // Layout toggle handler.
@@ -249,5 +275,258 @@ export const init = (containerId) => {
             layoutToggle.querySelectorAll('.btn').forEach((b) => b.classList.remove('active'));
             btn.classList.add('active');
         });
+    }
+};
+
+/**
+ * Set up the save status indicator in the existing [data-region="save-status"] element.
+ *
+ * @param {HTMLElement} container Main grading container.
+ */
+const _setupSaveStatusIndicator = (container) => {
+    const statusEl = container.querySelector('[data-region="save-status"]');
+    if (!statusEl) {
+        return;
+    }
+
+    /** @type {boolean} Track previous saving state to detect transitions. */
+    let wasSaving = false;
+
+    // Prefetch strings.
+    const strings = {};
+    getString('allchangessaved', 'local_unifiedgrader').then(s => { strings.saved = s; }).catch(() => {});
+    getString('editing', 'local_unifiedgrader').then(s => { strings.editing = s; }).catch(() => {});
+    getString('saving', 'local_unifiedgrader').then(s => { strings.saving = s; }).catch(() => {});
+    getString('offlinesavedlocally', 'local_unifiedgrader').then(s => { strings.offline = s; }).catch(() => {});
+
+    const updateStatus = () => {
+        const queueLength = SaveQueue.getQueueLength();
+        const online = SaveQueue.isOnline();
+        const dirty = DirtyTracker.isDirty();
+
+        if (!online || queueLength > 0) {
+            statusEl.innerHTML = '<i class="fa fa-exclamation-triangle text-warning me-1"></i>'
+                + '<span class="text-warning">' + (strings.offline || 'Offline — saved locally') + '</span>';
+        } else if (wasSaving) {
+            // Just finished saving — show "All saved" briefly.
+            wasSaving = false;
+            statusEl.innerHTML = '<i class="fa fa-check text-success me-1"></i>'
+                + '<span class="text-success">' + (strings.saved || 'All changes saved') + '</span>';
+        } else if (dirty) {
+            statusEl.innerHTML = '<i class="fa fa-pencil text-muted me-1"></i>'
+                + '<span class="text-muted">' + (strings.editing || 'Editing...') + '</span>';
+        } else {
+            statusEl.innerHTML = '<i class="fa fa-check text-success me-1"></i>'
+                + '<span class="text-success">' + (strings.saved || 'All changes saved') + '</span>';
+        }
+    };
+
+    // Listen to reactive state changes for saving flag.
+    container.addEventListener('local_unifiedgrader:statechanged', (e) => {
+        const detail = e.detail;
+        if (detail?.action === 'ui:updated') {
+            const state = reactiveInstance?.state;
+            if (state?.ui?.saving) {
+                wasSaving = true;
+                statusEl.innerHTML = '<i class="fa fa-spinner fa-spin text-primary me-1"></i>'
+                    + '<span class="text-primary">' + (strings.saving || 'Saving...') + '</span>';
+                return;
+            }
+        }
+        updateStatus();
+    });
+
+    DirtyTracker.onDirtyChange(updateStatus);
+    SaveQueue.onStatusChange(updateStatus);
+
+    // Initial render.
+    updateStatus();
+};
+
+/**
+ * Set up the connection lost banner.
+ *
+ * @param {HTMLElement} container Main grading container.
+ */
+const _setupConnectionBanner = (container) => {
+    SaveQueue.onStatusChange((queueLength, online) => {
+        const existing = container.querySelector('[data-region="connection-banner"]');
+
+        if (!online || queueLength > 0) {
+            if (!existing) {
+                getString('connectionlost', 'local_unifiedgrader').then(msg => {
+                    // Re-check in case status changed during string fetch.
+                    if (container.querySelector('[data-region="connection-banner"]')) {
+                        return;
+                    }
+                    const banner = document.createElement('div');
+                    banner.dataset.region = 'connection-banner';
+                    banner.className = 'alert alert-warning alert-dismissible mb-0 rounded-0 py-2 px-3';
+                    banner.innerHTML = '<i class="fa fa-exclamation-triangle me-2"></i>'
+                        + '<span>' + msg + '</span>'
+                        + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+                    container.insertBefore(banner, container.firstChild);
+                }).catch(() => {});
+            }
+        } else if (existing) {
+            existing.remove();
+        }
+    });
+};
+
+/**
+ * Pre-warm the IndexedDB comment library cache in the background.
+ *
+ * Fetches all comments, tags, and shared comments via AJAX and stores them
+ * in IndexedDB. This ensures the cache is populated even if the teacher never
+ * explicitly opens the comment library popout or modal before going offline.
+ *
+ * Runs fire-and-forget — errors are silently ignored.
+ *
+ * @param {string} coursecode The current course code.
+ */
+const _prewarmCommentLibraryCache = async(coursecode) => {
+    if (!OfflineCache.isAvailable()) {
+        return;
+    }
+    try {
+        const [comments, tags, shared] = await Promise.all([
+            Ajax.call([{
+                methodname: 'local_unifiedgrader_get_library_comments',
+                args: {coursecode: '', tagid: 0},
+                failurealert: false,
+            }])[0],
+            Ajax.call([{
+                methodname: 'local_unifiedgrader_get_library_tags',
+                args: {},
+                failurealert: false,
+            }])[0],
+            Ajax.call([{
+                methodname: 'local_unifiedgrader_get_shared_library',
+                args: {tagid: 0},
+                failurealert: false,
+            }])[0],
+        ]);
+
+        // Cache the full library (same keys as the modal).
+        OfflineCache.save(0, 0, 'clib_all', comments);
+        OfflineCache.save(0, 0, 'clib_tags', tags);
+        OfflineCache.save(0, 0, 'clib_shared', shared);
+
+        // Also cache the course-specific subset (same key as the popout).
+        if (coursecode) {
+            const courseComments = comments.filter(c => c.coursecode === coursecode);
+            OfflineCache.save(0, 0, 'clib_cc_' + coursecode, courseComments);
+        }
+
+        window.console.info('[grader] Comment library cache pre-warmed');
+    } catch (e) {
+        // Silently ignore — the cache will be populated when the user opens a comment panel.
+        window.console.info('[grader] Comment library cache pre-warm skipped (offline or error)');
+    }
+};
+
+/**
+ * Check IndexedDB for cached data newer than the server and offer recovery.
+ *
+ * @param {HTMLElement} container Main grading container.
+ * @param {Reactive} reactive The reactive instance.
+ * @param {number} cmid Course module ID.
+ * @param {number} userid User ID.
+ */
+const _checkRecovery = async(container, reactive, cmid, userid) => {
+    if (!OfflineCache.isAvailable()) {
+        return;
+    }
+
+    const cached = await OfflineCache.loadAll(cmid, userid);
+    if (cached.length === 0) {
+        return;
+    }
+
+    // Compare against server timestamp (PHP seconds → JS milliseconds).
+    const serverTimestamp = (reactive.state?.grade?.timegraded || 0) * 1000;
+    const hasNewer = cached.some(entry => entry.timestamp > serverTimestamp);
+
+    if (!hasNewer) {
+        // Cache is stale — clean it up.
+        await OfflineCache.removeAll(cmid, userid);
+        return;
+    }
+
+    // Show recovery banner.
+    const [msgText, restoreText, discardText] = await Promise.all([
+        getString('recoveredunsavedchanges', 'local_unifiedgrader').catch(() => 'Recovered unsaved changes.'),
+        getString('restore', 'local_unifiedgrader').catch(() => 'Restore'),
+        getString('discard', 'local_unifiedgrader').catch(() => 'Discard'),
+    ]);
+
+    const banner = document.createElement('div');
+    banner.dataset.region = 'recovery-banner';
+    banner.className = 'alert alert-info mb-0 rounded-0 py-2 px-3 d-flex align-items-center justify-content-between';
+    banner.innerHTML = '<div><i class="fa fa-info-circle me-2"></i><span>' + msgText + '</span></div>'
+        + '<div class="d-flex gap-2">'
+        + '<button type="button" class="btn btn-sm btn-primary" data-action="restore-cache">'
+        + '<i class="fa fa-undo me-1"></i>' + restoreText + '</button>'
+        + '<button type="button" class="btn btn-sm btn-outline-secondary" data-action="discard-cache">'
+        + discardText + '</button>'
+        + '</div>';
+
+    banner.querySelector('[data-action="restore-cache"]').addEventListener('click', () => {
+        _restoreFromCache(reactive, cached);
+        banner.remove();
+    });
+
+    banner.querySelector('[data-action="discard-cache"]').addEventListener('click', async() => {
+        await OfflineCache.removeAll(cmid, userid);
+        banner.remove();
+    });
+
+    container.insertBefore(banner, container.firstChild);
+};
+
+/**
+ * Restore cached data into the grading form.
+ *
+ * @param {Reactive} reactive The reactive instance.
+ * @param {object[]} cached Array of cache entries to restore.
+ */
+const _restoreFromCache = (reactive, cached) => {
+    for (const entry of cached) {
+        switch (entry.type) {
+            case 'grade': {
+                const gradeInput = document.querySelector('[data-action="grade-input"]');
+                const scaleInput = document.querySelector('[data-action="scale-input"]');
+                if (gradeInput && entry.data?.value !== undefined) {
+                    gradeInput.value = entry.data.value;
+                    gradeInput.dispatchEvent(new Event('input'));
+                } else if (scaleInput && entry.data?.value !== undefined) {
+                    scaleInput.value = entry.data.value;
+                    scaleInput.dispatchEvent(new Event('change'));
+                }
+                DirtyTracker.markDirty('grade');
+                break;
+            }
+            case 'feedback': {
+                const textarea = document.querySelector('[data-action="feedback-input"]');
+                if (textarea && entry.data?.html !== undefined) {
+                    const editor = getInstanceForElementId(textarea.id);
+                    if (editor) {
+                        editor.setContent(entry.data.html);
+                    } else {
+                        textarea.value = entry.data.html;
+                    }
+                }
+                DirtyTracker.markDirty('feedback');
+                break;
+            }
+            case 'annotations': {
+                document.dispatchEvent(new CustomEvent('unifiedgrader:restoreannotations', {
+                    detail: entry.data,
+                }));
+                DirtyTracker.markDirty('annotations');
+                break;
+            }
+        }
     }
 };

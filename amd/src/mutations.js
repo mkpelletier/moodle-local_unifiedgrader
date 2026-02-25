@@ -26,6 +26,25 @@
 
 import Ajax from 'core/ajax';
 import Notification from 'core/notification';
+import * as SaveQueue from 'local_unifiedgrader/save_queue';
+import * as DirtyTracker from 'local_unifiedgrader/dirty_tracker';
+import * as OfflineCache from 'local_unifiedgrader/offline_cache';
+
+/**
+ * Handle AJAX errors gracefully.
+ * Network errors (server unreachable) lack Moodle error properties and produce
+ * blank Notification.exception modals. This wrapper shows a friendly alert instead.
+ *
+ * @param {*} error Error object.
+ */
+const _handleError = (error) => {
+    if (error?.errorcode) {
+        Notification.exception(error);
+    } else {
+        Notification.alert('Error', 'Unable to connect to the server. Please check your connection and try again.');
+        window.console.warn('[mutations] Network error:', error);
+    }
+};
 
 export default class {
 
@@ -108,7 +127,7 @@ export default class {
             // Refresh the filemanager widget after draft area has been re-prepared.
             this._refreshFileManager(stateManager);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
             stateManager.setReadOnly(false);
             stateManager.state.ui.loading = false;
             stateManager.setReadOnly(true);
@@ -175,7 +194,7 @@ export default class {
 
             this._refreshFileManager(stateManager);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
             stateManager.setReadOnly(false);
             stateManager.state.ui.loading = false;
             stateManager.setReadOnly(true);
@@ -265,7 +284,30 @@ export default class {
             // Refresh the filemanager widget after draft area has been re-prepared.
             this._refreshFileManager(stateManager);
         } catch (error) {
-            Notification.exception(error);
+            // Queue the save for retry on network errors; show full modal for server-side errors.
+            if (!error?.errorcode) {
+                SaveQueue.enqueue('saveGrade', () => Ajax.call([{
+                    methodname: 'local_unifiedgrader_save_grade',
+                    args: {
+                        cmid, userid,
+                        grade: grade !== null && grade !== '' ? parseFloat(grade) : -1,
+                        feedback: feedback || '',
+                        feedbackformat: 1,
+                        draftitemid: draftitemid || 0,
+                        advancedgradingdata: advancedgradingdata || '',
+                        feedbackfilesdraftid: feedbackfilesdraftid || 0,
+                        attemptnumber: stateManager.state.submission.attemptnumber ?? -1,
+                    },
+                }])[0], () => {
+                    // Cleanup after successful retry.
+                    DirtyTracker.markClean('grade');
+                    DirtyTracker.markClean('feedback');
+                    OfflineCache.removeAll(cmid, userid);
+                });
+                window.console.warn('[mutations] saveGrade failed, queued for retry:', error);
+            } else {
+                _handleError(error);
+            }
             stateManager.setReadOnly(false);
             stateManager.state.ui.saving = false;
             stateManager.setReadOnly(true);
@@ -301,7 +343,7 @@ export default class {
             stateManager.state.participants = participants;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -331,7 +373,7 @@ export default class {
             stateManager.state.notes = notes;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -360,7 +402,7 @@ export default class {
             stateManager.state.notes = notes;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -385,7 +427,7 @@ export default class {
             stateManager.state.penalties = result.penalties;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -414,7 +456,7 @@ export default class {
             stateManager.state.penalties = penalties;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -424,12 +466,13 @@ export default class {
      * @param {object} stateManager The reactive state manager.
      * @param {number} cmid Course module ID.
      * @param {number} userid Student user ID.
+     * @param {number} attemptnumber Attempt number (0-based), -1 for latest.
      */
-    async loadSubmissionComments(stateManager, cmid, userid) {
+    async loadSubmissionComments(stateManager, cmid, userid, attemptnumber = -1) {
         try {
             const result = await Ajax.call([{
                 methodname: 'local_unifiedgrader_get_submission_comments',
-                args: {cmid, userid},
+                args: {cmid, userid, attemptnumber},
             }])[0];
 
             stateManager.setReadOnly(false);
@@ -440,7 +483,7 @@ export default class {
             stateManager.state.submissionComments.comments = result.comments;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -451,18 +494,19 @@ export default class {
      * @param {number} cmid Course module ID.
      * @param {number} userid Student user ID.
      * @param {string} content Comment content.
+     * @param {number} attemptnumber Attempt number (0-based), -1 for latest.
      */
-    async addSubmissionComment(stateManager, cmid, userid, content) {
+    async addSubmissionComment(stateManager, cmid, userid, content, attemptnumber = -1) {
         try {
             await Ajax.call([{
                 methodname: 'local_unifiedgrader_add_submission_comment',
-                args: {cmid, userid, content},
+                args: {cmid, userid, content, attemptnumber},
             }])[0];
 
             // Refresh the full comment list to get consistent data.
             const commentsResult = await Ajax.call([{
                 methodname: 'local_unifiedgrader_get_submission_comments',
-                args: {cmid, userid},
+                args: {cmid, userid, attemptnumber},
             }])[0];
 
             stateManager.setReadOnly(false);
@@ -472,7 +516,7 @@ export default class {
             stateManager.state.submissionComments.comments = commentsResult.comments;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -483,8 +527,9 @@ export default class {
      * @param {number} cmid Course module ID.
      * @param {number} userid Student user ID.
      * @param {number} commentid Comment ID to delete.
+     * @param {number} attemptnumber Attempt number (0-based), -1 for latest.
      */
-    async deleteSubmissionComment(stateManager, cmid, userid, commentid) {
+    async deleteSubmissionComment(stateManager, cmid, userid, commentid, attemptnumber = -1) {
         try {
             await Ajax.call([{
                 methodname: 'local_unifiedgrader_delete_submission_comment',
@@ -494,7 +539,7 @@ export default class {
             // Refresh the full comment list.
             const commentsResult = await Ajax.call([{
                 methodname: 'local_unifiedgrader_get_submission_comments',
-                args: {cmid, userid},
+                args: {cmid, userid, attemptnumber},
             }])[0];
 
             stateManager.setReadOnly(false);
@@ -504,7 +549,7 @@ export default class {
             stateManager.state.submissionComments.comments = commentsResult.comments;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
         }
     }
 
@@ -532,7 +577,7 @@ export default class {
             stateManager.state.ui.posting = false;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
             stateManager.setReadOnly(false);
             stateManager.state.ui.posting = false;
             stateManager.setReadOnly(true);
@@ -613,7 +658,7 @@ export default class {
 
             this._refreshFileManager(stateManager);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
             stateManager.setReadOnly(false);
             stateManager.state.ui.loading = false;
             stateManager.setReadOnly(true);
@@ -665,7 +710,7 @@ export default class {
             stateManager.state.ui.loading = false;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
             stateManager.setReadOnly(false);
             stateManager.state.ui.loading = false;
             stateManager.setReadOnly(true);
@@ -717,7 +762,7 @@ export default class {
             stateManager.state.ui.loading = false;
             stateManager.setReadOnly(true);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
             stateManager.setReadOnly(false);
             stateManager.state.ui.loading = false;
             stateManager.setReadOnly(true);
@@ -755,7 +800,7 @@ export default class {
 
             this._refreshFileManager(stateManager);
         } catch (error) {
-            Notification.exception(error);
+            _handleError(error);
             stateManager.setReadOnly(false);
             stateManager.state.ui.savingFiles = false;
             stateManager.setReadOnly(true);

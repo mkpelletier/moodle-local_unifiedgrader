@@ -129,6 +129,7 @@ export default class extends BaseComponent {
     _showPopout() {
         const popout = this.getElement(this.selectors.POPOUT);
         if (!popout) {
+            window.console.warn('[submission_comments] _showPopout: popout element not found');
             return;
         }
 
@@ -137,6 +138,7 @@ export default class extends BaseComponent {
         this._buildPopoutStructure(popout);
 
         const state = this.reactive.state;
+        const attemptnumber = state.submission?.attemptnumber ?? -1;
 
         // Load comments if not already loaded for this student.
         if (!state.submissionComments.loaded) {
@@ -144,6 +146,7 @@ export default class extends BaseComponent {
                 'loadSubmissionComments',
                 state.activity.cmid,
                 state.currentUser.id,
+                attemptnumber,
             );
         } else {
             this._renderComments(state);
@@ -259,6 +262,7 @@ export default class extends BaseComponent {
             return;
         }
         const state = this.reactive.state;
+        const attemptnumber = state.submission?.attemptnumber ?? -1;
         input.value = '';
         const postBtn = this.element.querySelector('[data-action="post-comment"]');
         if (postBtn) {
@@ -269,6 +273,7 @@ export default class extends BaseComponent {
             state.activity.cmid,
             state.currentUser.id,
             content,
+            attemptnumber,
         );
     }
 
@@ -280,6 +285,7 @@ export default class extends BaseComponent {
     _renderComments(state) {
         const listEl = this.element.querySelector('[data-region="comments-list"]');
         if (!listEl) {
+            window.console.warn('[submission_comments] _renderComments: listEl not found');
             return;
         }
 
@@ -356,6 +362,7 @@ export default class extends BaseComponent {
                     state.activity.cmid,
                     state.currentUser.id,
                     comment.id,
+                    state.submission?.attemptnumber ?? -1,
                 );
             });
             meta.appendChild(deleteBtn);

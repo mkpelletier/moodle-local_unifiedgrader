@@ -29,6 +29,22 @@ import {get_string as getString} from 'core/str';
 import Notification from 'core/notification';
 import CommentLibraryModal from 'local_unifiedgrader/comment_library_modal';
 import {getInstanceForElementId} from 'editor_tiny/editor';
+import * as OfflineCache from 'local_unifiedgrader/offline_cache';
+
+/**
+ * Handle AJAX or other errors gracefully.
+ * Network errors (server unreachable) produce blank Notification.exception modals.
+ *
+ * @param {*} err Error object.
+ */
+const _handleError = (err) => {
+    if (err && (err.errorcode || err.debuginfo)) {
+        Notification.exception(err);
+    } else {
+        Notification.alert('Error', 'Unable to connect to the server. Please check your connection and try again.');
+        window.console.warn('[comment_library_popout] Network error:', err);
+    }
+};
 
 /** Color palette for tag badges (must match comment_library_modal.js). */
 const TAG_COLORS = [
@@ -73,6 +89,7 @@ export default class CommentLibraryPopout {
         this._tags = [];
         this._activeTagId = 0; // 0 = all
         this._outsideClickHandler = null;
+        this._offline = false;
     }
 
     /**
@@ -179,7 +196,7 @@ export default class CommentLibraryPopout {
         getString('clib_title', 'local_unifiedgrader').then((s) => {
             title.textContent = s;
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
 
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
@@ -212,7 +229,7 @@ export default class CommentLibraryPopout {
         getString('clib_quick_add', 'local_unifiedgrader').then((s) => {
             this._quickInput.placeholder = s;
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
 
         this._quickInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
@@ -234,7 +251,7 @@ export default class CommentLibraryPopout {
         getString('clib_manage', 'local_unifiedgrader').then((s) => {
             manageLink.textContent = s;
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
         manageLink.addEventListener('click', () => this._openManageModal());
 
         footer.appendChild(this._quickInput);
@@ -246,7 +263,7 @@ export default class CommentLibraryPopout {
     }
 
     /**
-     * Load comments and tags via AJAX.
+     * Load comments and tags via AJAX, falling back to IndexedDB cache when offline.
      */
     async _loadData() {
         try {
@@ -259,11 +276,58 @@ export default class CommentLibraryPopout {
             ]);
             this._comments = commentsResult;
             this._tags = tagsResult.sort((a, b) => a.name.localeCompare(b.name));
+            this._offline = false;
             this._renderTags();
             this._renderComments();
+            // Cache for offline fallback.
+            OfflineCache.save(0, 0, 'clib_cc_' + this._coursecode, commentsResult);
+            OfflineCache.save(0, 0, 'clib_tags', tagsResult);
         } catch (err) {
-            Notification.exception(err);
+            // Try offline fallback from cache.
+            const cached = await this._loadFromCache();
+            if (cached) {
+                this._comments = cached.comments;
+                this._tags = cached.tags;
+                this._offline = true;
+                this._renderTags();
+                this._renderComments();
+            } else {
+                window.console.warn('[comment_library_popout] Load failed, no cache available:', err);
+            }
         }
+    }
+
+    /**
+     * Try loading comment library data from IndexedDB cache.
+     *
+     * Falls back first to the course-specific cache, then to the full library
+     * cache (written by the modal) filtered by course code.
+     *
+     * @return {Promise<{comments: Array, tags: Array}|null>}
+     */
+    async _loadFromCache() {
+        if (!OfflineCache.isAvailable()) {
+            return null;
+        }
+        // Try course-specific cache first.
+        let commentsEntry = await OfflineCache.load(0, 0, 'clib_cc_' + this._coursecode);
+        if (!commentsEntry) {
+            // Fall back to the full library cache (written by the modal).
+            const allEntry = await OfflineCache.load(0, 0, 'clib_all');
+            if (allEntry) {
+                commentsEntry = {
+                    data: allEntry.data.filter(c => !this._coursecode || c.coursecode === this._coursecode),
+                };
+            }
+        }
+        const tagsEntry = await OfflineCache.load(0, 0, 'clib_tags');
+        if (commentsEntry) {
+            return {
+                comments: commentsEntry.data,
+                tags: (tagsEntry?.data || []).sort((a, b) => a.name.localeCompare(b.name)),
+            };
+        }
+        return null;
     }
 
     /**
@@ -274,7 +338,7 @@ export default class CommentLibraryPopout {
      * @return {Promise<*>} The result.
      */
     _ajaxCall(methodname, args) {
-        return Ajax.call([{methodname, args}])[0];
+        return Ajax.call([{methodname, args, failurealert: false}])[0];
     }
 
     /**
@@ -288,7 +352,7 @@ export default class CommentLibraryPopout {
         getString('clib_all', 'local_unifiedgrader').then((s) => {
             allChip.textContent = s;
             return s;
-        }).catch(Notification.exception);
+        }).catch(() => {});
         this._tagContainer.appendChild(allChip);
 
         this._tags.forEach((tag) => {
@@ -323,6 +387,19 @@ export default class CommentLibraryPopout {
     _renderComments() {
         this._listContainer.innerHTML = '';
 
+        // Show offline indicator when serving cached data.
+        if (this._offline) {
+            const offlineBanner = document.createElement('div');
+            offlineBanner.className = 'alert alert-warning py-1 px-2 mb-2 small';
+            offlineBanner.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>'
+                + 'Showing cached comments';
+            getString('clib_offline_mode', 'local_unifiedgrader').then((s) => {
+                offlineBanner.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>' + s;
+                return s;
+            }).catch(() => {});
+            this._listContainer.appendChild(offlineBanner);
+        }
+
         let filtered = this._comments;
         if (this._activeTagId !== 0) {
             filtered = this._comments.filter(
@@ -337,7 +414,7 @@ export default class CommentLibraryPopout {
             getString('clib_no_comments', 'local_unifiedgrader').then((s) => {
                 empty.textContent = s;
                 return s;
-            }).catch(Notification.exception);
+            }).catch(() => {});
             this._listContainer.appendChild(empty);
             return;
         }
@@ -422,6 +499,10 @@ export default class CommentLibraryPopout {
      * Handle the quick-add input: create a comment for the current course code.
      */
     async _handleQuickAdd() {
+        if (this._offline) {
+            Notification.alert('Error', 'Cannot add comments while offline.');
+            return;
+        }
         const text = this._quickInput.value.trim();
         if (!text) {
             return;
@@ -437,7 +518,7 @@ export default class CommentLibraryPopout {
             this._quickInput.value = '';
             await this._loadData();
         } catch (err) {
-            Notification.exception(err);
+            _handleError(err);
         }
     }
 
