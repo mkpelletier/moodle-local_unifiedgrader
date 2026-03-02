@@ -247,6 +247,12 @@ export const init = (containerId) => {
     // Load the first student's data, then check for cached recovery data.
     if (userid) {
         reactiveInstance.dispatch('loadStudent', cmid, userid);
+        // Ensure the URL always includes the current userid so it's shareable.
+        const pageUrl = new URL(window.location.href);
+        if (!pageUrl.searchParams.has('userid') || pageUrl.searchParams.get('userid') !== String(userid)) {
+            pageUrl.searchParams.set('userid', userid);
+            window.history.replaceState(null, '', pageUrl.toString());
+        }
         // Recovery check runs after a delay to let the initial load populate the state.
         setTimeout(() => _checkRecovery(container, reactiveInstance, cmid, userid), 2000);
     }

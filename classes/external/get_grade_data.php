@@ -91,6 +91,7 @@ class get_grade_data extends external_api {
             'gradingdefinition' => new external_value(PARAM_RAW, 'Grading definition (JSON)', VALUE_OPTIONAL),
             'timegraded' => new external_value(PARAM_INT, 'Time graded'),
             'grader' => new external_value(PARAM_INT, 'Grader user ID'),
+            'latepenaltypct' => new external_value(PARAM_INT, 'Quiz late penalty percentage from duedate plugin', VALUE_OPTIONAL),
         ]);
     }
 }

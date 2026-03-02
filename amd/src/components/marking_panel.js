@@ -412,14 +412,12 @@ export default class extends BaseComponent {
         this._renderAdvancedGrading(state);
 
         const usescale = state.activity?.usescale || false;
-        const isQuiz = state.activity?.type === 'quiz';
-
-        // Hide penalty UI for scale-based grading (non-sequitur) and quizzes
-        // (teachers can adjust individual question marks instead).
-        const hidePenalties = usescale || isQuiz;
+        // Hide penalty UI for scale-based grading only.
+        // Quizzes now show both the penalty button (for manual penalties) and the badge
+        // container (for the quiz late penalty badge from the duedate plugin).
         const penaltyBtn = this.getElement(this.selectors.TOGGLE_PENALTIES);
         const badgesEl = this.getElement(this.selectors.PENALTY_BADGES);
-        if (hidePenalties) {
+        if (usescale) {
             if (penaltyBtn) {
                 penaltyBtn.classList.add('d-none');
             }
@@ -811,13 +809,19 @@ export default class extends BaseComponent {
         const rawGrade = gradeInput ? parseFloat(gradeInput.value) : NaN;
         const maxgrade = parseFloat(gradeInput?.max) || 100;
 
+        // For quizzes, include the external late penalty from the duedate plugin.
+        const quizLatePct = this._getQuizLatePenaltyPct();
+
+        // Calculate total deduction from our penalty table + quiz late penalty.
+        const totalDeduction = this._getTotalPenaltyDeduction(this.reactive.state)
+            + (quizLatePct / 100) * maxgrade;
+
         // Hide if no penalties or no grade entered.
-        if (!penalties.length || isNaN(rawGrade) || rawGrade < 0) {
+        if ((!penalties.length && !quizLatePct) || isNaN(rawGrade) || rawGrade < 0) {
             displayEl.classList.add('d-none');
             return;
         }
 
-        const totalDeduction = this._getTotalPenaltyDeduction(this.reactive.state);
         const finalGrade = Math.max(0, Math.round((rawGrade - totalDeduction) * 100) / 100);
         const finalPct = Math.round((finalGrade / maxgrade) * 100);
 
@@ -890,8 +894,8 @@ export default class extends BaseComponent {
             return;
         }
 
-        // Penalties are not applicable for scale-based grading or quizzes.
-        if (this.reactive.state.activity?.usescale || this.reactive.state.activity?.type === 'quiz') {
+        // Penalties are not applicable for scale-based grading.
+        if (this.reactive.state.activity?.usescale) {
             return;
         }
 
@@ -939,10 +943,10 @@ export default class extends BaseComponent {
     }
 
     /**
-     * Show a read-only badge for late penalties applied by external modules.
+     * Show a read-only badge for late penalties applied by the quizaccess_duedate plugin.
      *
-     * Parses the grade feedback text for the quizaccess_duedate penalty format
-     * ("Late penalty of X% applied.") and renders a badge in the penalty area.
+     * Uses the backend-provided latepenaltypct (from the duedate penalties table) as the
+     * primary source. Falls back to parsing the feedback text for the penalty format.
      *
      * @param {object} state Current state.
      */
@@ -960,23 +964,40 @@ export default class extends BaseComponent {
             return;
         }
 
-        const feedback = state.grade?.feedback || '';
-        if (!feedback) {
-            return;
-        }
-
-        // Match quizaccess_duedate format: "Late penalty of X% applied."
-        const match = feedback.match(/Late penalty of (\d+)% applied/i);
-        if (!match) {
+        const penaltyPct = this._getQuizLatePenaltyPct();
+        if (!penaltyPct) {
             return;
         }
 
         const badge = document.createElement('span');
         badge.className = 'badge bg-danger local-unifiedgrader-penalty-badge';
         badge.dataset.penalty = 'late';
-        badge.textContent = '-' + match[1] + '% Late';
-        badge.title = match[0];
+        badge.textContent = '-' + penaltyPct + '% Late';
+        badge.title = 'Late penalty of ' + penaltyPct + '% applied';
         badgesEl.appendChild(badge);
+    }
+
+    /**
+     * Get the quiz late penalty percentage from the duedate plugin.
+     *
+     * Checks latepenaltypct from the backend first, then falls back to
+     * parsing the gradebook feedback text for the penalty format.
+     *
+     * @return {number} Penalty percentage (0 if none).
+     */
+    _getQuizLatePenaltyPct() {
+        const state = this.reactive.state;
+        let pct = parseInt(state.grade?.latepenaltypct, 10) || 0;
+        if (!pct) {
+            const feedback = state.grade?.feedback || '';
+            if (feedback) {
+                const match = feedback.match(/Late penalty of (\d+)% applied/i);
+                if (match) {
+                    pct = parseInt(match[1], 10);
+                }
+            }
+        }
+        return pct;
     }
 
     /**

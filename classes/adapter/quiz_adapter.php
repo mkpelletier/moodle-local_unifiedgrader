@@ -479,6 +479,11 @@ class quiz_adapter extends base_adapter {
             }
         }
 
+        // Calculate late penalty percentage from the duedate plugin settings.
+        // Mirrors the observer logic: check first attempt finish time against effective
+        // due date (which honours extensions). Does not depend on gradebook feedback text.
+        $latepenaltypct = $this->get_duedate_late_penalty_pct($userid);
+
         return [
             'grade' => $hasgrade ? (float) $quizgrade->grade : null,
             'feedback' => format_text($feedbacktext, $feedbackformat, ['context' => $this->context]),
@@ -487,6 +492,7 @@ class quiz_adapter extends base_adapter {
             'gradingdefinition' => $gradingdefinition,
             'timegraded' => $quizgrade ? (int) ($quizgrade->timemodified ?? 0) : 0,
             'grader' => $qfb ? (int) $qfb->grader : 0,
+            'latepenaltypct' => $latepenaltypct,
         ];
     }
 
@@ -1055,6 +1061,67 @@ class quiz_adapter extends base_adapter {
      *
      * @return int Timestamp or 0.
      */
+    /**
+     * Calculate the late penalty percentage from the quizaccess_duedate plugin.
+     *
+     * Mirrors the observer's logic: checks the first finished attempt's submission
+     * time against the user's effective due date (which honours extensions).
+     * Returns null if the duedate plugin is not installed, penalties are disabled,
+     * or no penalty applies (on time or extension covers the submission).
+     *
+     * @param int $userid Student user ID.
+     * @return int|null Penalty percentage, or null if no penalty.
+     */
+    public function get_duedate_late_penalty_pct(int $userid): ?int {
+        global $DB;
+
+        if (!class_exists('\quizaccess_duedate\override_manager')) {
+            return null;
+        }
+
+        // Check if penalties are enabled for this quiz.
+        $settings = $DB->get_record('quizaccess_duedate_instances', ['quizid' => $this->quiz->id]);
+        if (!$settings || !$settings->penaltyenabled || !$settings->duedate) {
+            return null;
+        }
+
+        // Resolve the effective due date for this user (honours extensions/overrides).
+        $effectiveduedate = \quizaccess_duedate\override_manager::get_effective_duedate(
+            $this->quiz->id, $userid,
+        );
+        if (!$effectiveduedate) {
+            return null;
+        }
+
+        // Find the first finished attempt (same logic as the observer).
+        $firstattempt = $DB->get_record_sql(
+            'SELECT timefinish FROM {quiz_attempts}
+              WHERE quiz = ? AND userid = ? AND timefinish > 0
+              ORDER BY timefinish ASC LIMIT 1',
+            [$this->quiz->id, $userid],
+        );
+        if (!$firstattempt) {
+            return null;
+        }
+
+        // Calculate penalty based on days late.
+        if ($firstattempt->timefinish <= $effectiveduedate) {
+            return null; // On time — no penalty.
+        }
+
+        $secondslate = $firstattempt->timefinish - $effectiveduedate;
+        $dayslate = ceil($secondslate / 86400);
+        $totalpenalty = $dayslate * (float) $settings->penalty;
+
+        if ($settings->penaltycapenabled && $settings->penaltycap > 0) {
+            $totalpenalty = min($totalpenalty, (float) $settings->penaltycap);
+        } else {
+            $totalpenalty = min($totalpenalty, 100);
+        }
+
+        return $totalpenalty > 0 ? (int) round($totalpenalty) : null;
+    }
+
     private function get_duedate_plugin_duedate(): int {
         global $DB;
         $settings = $DB->get_record('quizaccess_duedate_instances', ['quizid' => $this->quiz->id]);

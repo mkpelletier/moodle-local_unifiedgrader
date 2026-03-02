@@ -1060,6 +1060,11 @@ export default class extends BaseComponent {
 
         this.reactive.dispatch('loadStudent', state.activity.cmid, userid);
 
+        // Update the URL so the current student is shareable/bookmarkable.
+        const url = new URL(window.location.href);
+        url.searchParams.set('userid', userid);
+        window.history.replaceState(null, '', url.toString());
+
         // Collapse the filter/list panel after selection.
         this._collapseFilters();
     }

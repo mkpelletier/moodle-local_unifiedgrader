@@ -81,6 +81,44 @@ class feedback_data_helper {
             ];
         }
 
+        // For quizzes, detect late penalty applied by quizaccess_duedate plugin.
+        // Calculate directly from settings + attempt time (same logic as the observer).
+        // Cannot rely on gradebook feedback text — teachers may overwrite it.
+        $cm = get_coursemodule_from_id('', $cmid, 0, false, MUST_EXIST);
+        if ($cm->modname === 'quiz' && class_exists('\quizaccess_duedate\override_manager')) {
+            global $DB;
+            $settings = $DB->get_record('quizaccess_duedate_instances', ['quizid' => $cm->instance]);
+            if ($settings && $settings->penaltyenabled && $settings->duedate) {
+                $effectiveduedate = \quizaccess_duedate\override_manager::get_effective_duedate(
+                    $cm->instance, $userid,
+                );
+                if ($effectiveduedate) {
+                    $firstattempt = $DB->get_record_sql(
+                        'SELECT timefinish FROM {quiz_attempts}
+                          WHERE quiz = ? AND userid = ? AND timefinish > 0
+                          ORDER BY timefinish ASC LIMIT 1',
+                        [$cm->instance, $userid],
+                    );
+                    if ($firstattempt && $firstattempt->timefinish > $effectiveduedate) {
+                        $secondslate = $firstattempt->timefinish - $effectiveduedate;
+                        $dayslate = ceil($secondslate / 86400);
+                        $totalpenalty = $dayslate * (float) $settings->penalty;
+                        if ($settings->penaltycapenabled && $settings->penaltycap > 0) {
+                            $totalpenalty = min($totalpenalty, (float) $settings->penaltycap);
+                        } else {
+                            $totalpenalty = min($totalpenalty, 100);
+                        }
+                        $pct = (int) round($totalpenalty);
+                        if ($pct > 0) {
+                            $penaltybadges[] = [
+                                'text' => '-' . $pct . '% ' . get_string('penalty_late', 'local_unifiedgrader'),
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
         return [
             'haspenalties' => !empty($penaltybadges),
             'penalties' => $penaltybadges,
