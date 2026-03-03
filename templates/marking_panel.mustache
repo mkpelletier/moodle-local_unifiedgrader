@@ -41,8 +41,8 @@
         <div class="card-body py-2" data-region="plagiarism-body"></div>
     </div>
 
-    {{! Grade section }}
-    <div class="card mb-3">
+    {{! Grade section (hidden by JS when forum grading is disabled) }}
+    <div data-region="grade-section" class="card mb-3">
         <div class="card-header py-2">
             <h6 class="mb-0">{{#str}} grade, local_unifiedgrader {{/str}}</h6>
         </div>

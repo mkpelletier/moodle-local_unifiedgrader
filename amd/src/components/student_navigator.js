@@ -399,7 +399,9 @@ export default class extends BaseComponent {
         }
 
         if (dateEl) {
-            if (student && student.submittedat > 0) {
+            const hasSubmission = student && student.submittedat > 0
+                && student.status !== 'new' && student.status !== 'nosubmission';
+            if (hasSubmission) {
                 const date = new Date(student.submittedat * 1000);
                 dateEl.textContent = 'Submitted: ' + date.toLocaleString();
             } else {

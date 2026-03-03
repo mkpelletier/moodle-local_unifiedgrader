@@ -39,6 +39,7 @@ export default class extends BaseComponent {
     create() {
         this.name = 'marking_panel';
         this.selectors = {
+            GRADE_SECTION: '[data-region="grade-section"]',
             GRADE_INPUT: '[data-action="grade-input"]',
             MAX_GRADE: '[data-region="max-grade"]',
             SIMPLE_GRADE: '[data-region="simple-grade"]',
@@ -405,6 +406,27 @@ export default class extends BaseComponent {
      * @param {object} args.state Current state.
      */
     _renderGrade({state}) {
+        // When grading is disabled (forum grade type "None"), hide the entire
+        // grade section and the rubric/marking guide — they are a non-sequitur.
+        // Overall feedback is still shown and functional.
+        const gradingDisabled = state.activity?.gradingdisabled || false;
+        const gradeSection = this.getElement(this.selectors.GRADE_SECTION);
+        const rubricSection = this.getElement(this.selectors.RUBRIC_SECTION);
+        if (gradingDisabled) {
+            if (gradeSection) {
+                gradeSection.classList.add('d-none');
+            }
+            if (rubricSection) {
+                rubricSection.classList.add('d-none');
+            }
+            // Still render feedback content and expand the section.
+            this._renderFeedbackAndSnapshot(state, true);
+            return;
+        }
+        if (gradeSection) {
+            gradeSection.classList.remove('d-none');
+        }
+
         // Render advanced grading first — _renderRubric/_renderGuide call
         // _updateRubricTotal/_updateGuideTotal which sync a computed total
         // into the grade input. We then overwrite with the server-authoritative
@@ -475,6 +497,23 @@ export default class extends BaseComponent {
         this._updatePercentage();
         this._updateFinalGradeDisplay();
 
+        // Render feedback, expand/collapse, late penalty badge, and dirty-tracking snapshot.
+        // When there is no rubric/marking guide, always expand feedback by default.
+        const hasAdvancedGradingSection = this._gradingDefinition !== null;
+        this._renderFeedbackAndSnapshot(state, !hasAdvancedGradingSection);
+    }
+
+    /**
+     * Render feedback content, expand/collapse the section, show the late
+     * penalty badge, and snapshot clean values for dirty tracking.
+     *
+     * Extracted so that both the normal grading path and the grading-disabled
+     * early-return path can reuse the same logic.
+     *
+     * @param {object} state Current state.
+     * @param {boolean} forceExpand Always expand the feedback section (e.g. when no rubric/guide).
+     */
+    _renderFeedbackAndSnapshot(state, forceExpand = false) {
         // Use draft-ready content (with rewritten file URLs) when available.
         if (state.grade && state.grade.feedbackdraft !== undefined) {
             this._updateFeedbackContent(state.grade.feedbackdraft);
@@ -487,9 +526,11 @@ export default class extends BaseComponent {
         this._editingFeedback = false;
         this._toggleFeedbackMode(state);
 
-        // Auto-expand the overall feedback section if feedback exists, collapse if not.
+        // Auto-expand the overall feedback section:
+        // - Always expanded when no rubric/marking guide is present (forceExpand).
+        // - Otherwise expanded only if feedback content already exists.
         const feedbackHtml = state.grade?.feedbackdraft || state.grade?.feedback || '';
-        this._setFeedbackSectionExpanded(this._hasMeaningfulFeedback(feedbackHtml));
+        this._setFeedbackSectionExpanded(forceExpand || this._hasMeaningfulFeedback(feedbackHtml));
 
         // Show late penalty badge extracted from external module feedback (e.g. quizaccess_duedate).
         this._renderLatePenaltyBadge(state);
@@ -809,15 +850,15 @@ export default class extends BaseComponent {
         const rawGrade = gradeInput ? parseFloat(gradeInput.value) : NaN;
         const maxgrade = parseFloat(gradeInput?.max) || 100;
 
-        // For quizzes, include the external late penalty from the duedate plugin.
-        const quizLatePct = this._getQuizLatePenaltyPct();
+        // Include the external late penalty (quiz duedate plugin / assign penalty framework).
+        const latePct = this._getLatePenaltyPct();
 
-        // Calculate total deduction from our penalty table + quiz late penalty.
+        // Calculate total deduction from our penalty table + external late penalty.
         const totalDeduction = this._getTotalPenaltyDeduction(this.reactive.state)
-            + (quizLatePct / 100) * maxgrade;
+            + (latePct / 100) * maxgrade;
 
         // Hide if no penalties or no grade entered.
-        if ((!penalties.length && !quizLatePct) || isNaN(rawGrade) || rawGrade < 0) {
+        if ((!penalties.length && !latePct) || isNaN(rawGrade) || rawGrade < 0) {
             displayEl.classList.add('d-none');
             return;
         }
@@ -943,10 +984,13 @@ export default class extends BaseComponent {
     }
 
     /**
-     * Show a read-only badge for late penalties applied by the quizaccess_duedate plugin.
+     * Show a read-only badge for late penalties applied externally.
      *
-     * Uses the backend-provided latepenaltypct (from the duedate penalties table) as the
-     * primary source. Falls back to parsing the feedback text for the penalty format.
+     * For quizzes: penalty from the quizaccess_duedate plugin.
+     * For assignments: penalty from Moodle core's penalty framework (assign_grades.penalty).
+     *
+     * Uses the backend-provided latepenaltypct as the primary source.
+     * Falls back to parsing the feedback text for the penalty format.
      *
      * @param {object} state Current state.
      */
@@ -964,7 +1008,7 @@ export default class extends BaseComponent {
             return;
         }
 
-        const penaltyPct = this._getQuizLatePenaltyPct();
+        const penaltyPct = this._getLatePenaltyPct();
         if (!penaltyPct) {
             return;
         }
@@ -978,14 +1022,17 @@ export default class extends BaseComponent {
     }
 
     /**
-     * Get the quiz late penalty percentage from the duedate plugin.
+     * Get the late penalty percentage from the backend.
+     *
+     * For quizzes: calculated from the quizaccess_duedate plugin.
+     * For assignments: read from Moodle core's penalty framework (assign_grades.penalty).
      *
      * Checks latepenaltypct from the backend first, then falls back to
      * parsing the gradebook feedback text for the penalty format.
      *
      * @return {number} Penalty percentage (0 if none).
      */
-    _getQuizLatePenaltyPct() {
+    _getLatePenaltyPct() {
         const state = this.reactive.state;
         let pct = parseInt(state.grade?.latepenaltypct, 10) || 0;
         if (!pct) {
@@ -1205,6 +1252,7 @@ export default class extends BaseComponent {
         });
 
         this._updateRubricTotal();
+        DirtyTracker.markDirty('grade');
         this._debouncedAutoSave();
     }
 
@@ -1471,7 +1519,11 @@ export default class extends BaseComponent {
         }
         this._autoSaveTimer = setTimeout(() => {
             this._autoSaveTimer = null;
-            if (!this._suppressAutoSave && !this.reactive.state.ui.saving) {
+            // Only auto-save if something actually changed — prevents the save loop
+            // where a post-save state refresh triggers another empty save that clears
+            // existing marking guide fillings via clear_attempt().
+            if (!this._suppressAutoSave && !this.reactive.state.ui.saving
+                && (DirtyTracker.isDirty('grade') || DirtyTracker.isDirty('feedback'))) {
                 this._handleSaveGrade();
             }
         }, 600);

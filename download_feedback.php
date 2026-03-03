@@ -99,7 +99,7 @@ if ($cm->modname === 'assign') {
 // Plagiarism report links (available for all activity types).
 $plagiarismlinks = $adapter->get_plagiarism_links($userid);
 
-// For quizzes, get the rendered attempt content to include after the summary.
+// For quizzes and forums, get the rendered content to include after the summary.
 $additionalcontent = '';
 if ($cm->modname === 'quiz') {
     if ($attemptnum > 0) {
@@ -107,6 +107,9 @@ if ($cm->modname === 'quiz') {
     } else {
         $submissiondata = $adapter->get_submission_data($userid);
     }
+    $additionalcontent = $submissiondata['content'] ?? '';
+} else if ($cm->modname === 'forum') {
+    $submissiondata = $adapter->get_submission_data($userid);
     $additionalcontent = $submissiondata['content'] ?? '';
 }
 
@@ -131,9 +134,11 @@ $summarydata = [
     'dategraded' => $dategraded,
     'plagiarismlinks' => $plagiarismlinks,
     'additionalcontent' => $additionalcontent,
-    'additionalcontenttitle' => $cm->modname === 'quiz'
-        ? get_string('quiz_your_attempt', 'local_unifiedgrader')
-        : '',
+    'additionalcontenttitle' => match ($cm->modname) {
+        'quiz' => get_string('quiz_your_attempt', 'local_unifiedgrader'),
+        'forum' => get_string('forum_your_posts', 'local_unifiedgrader'),
+        default => '',
+    },
 ];
 
 // Generate the summary PDF.

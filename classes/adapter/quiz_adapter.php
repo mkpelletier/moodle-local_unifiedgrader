@@ -86,7 +86,9 @@ class quiz_adapter extends base_adapter {
         }
 
         // Detect scale-based grading (negative grade = scale ID).
+        // Grade type "None" means grade == 0.
         $rawgrade = (int) $this->quiz->grade;
+        $gradingenabled = $rawgrade !== 0;
         $usescale = $rawgrade < 0;
         $scaleitems = [];
         $maxgrade = (float) $this->quiz->grade;
@@ -113,6 +115,7 @@ class quiz_adapter extends base_adapter {
                 ['context' => $this->context],
             ),
             'gradingmethod' => 'simple',
+            'gradingdisabled' => !$gradingenabled,
             'teamsubmission' => false,
             'blindmarking' => false,
             'canmanageoverrides' => has_capability('mod/quiz:manageoverrides', $this->context),

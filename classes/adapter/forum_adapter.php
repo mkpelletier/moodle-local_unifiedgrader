@@ -80,6 +80,9 @@ class forum_adapter extends base_adapter {
         $gradingmanager = get_grading_manager($this->context, 'mod_forum', 'forum');
         $gradingmethod = $gradingmanager->get_active_method();
 
+        // Detect whether whole-forum grading is enabled (grade_for_forum == 0 means "None").
+        $gradingenabled = $this->forum->is_grading_enabled();
+
         // Detect scale-based grading (negative grade = scale ID).
         $rawgrade = (int) $this->forum->get_grade_for_forum();
         $usescale = $rawgrade < 0;
@@ -107,7 +110,10 @@ class forum_adapter extends base_adapter {
                 $this->forum->get_intro_format(),
                 ['context' => $this->context],
             ),
-            'gradingmethod' => $gradingmethod ?: 'simple',
+            // When grading is disabled (grade type "None"), force simple so the
+            // client does not try to render an advanced grading form.
+            'gradingmethod' => $gradingenabled ? ($gradingmethod ?: 'simple') : 'simple',
+            'gradingdisabled' => !$gradingenabled,
             'teamsubmission' => false,
             'blindmarking' => false,
             'canmanageextensions' => has_capability('local/unifiedgrader:grade', $this->context),
@@ -320,13 +326,7 @@ class forum_adapter extends base_adapter {
         // Get feedback from the gradebook (forums have no feedback table).
         $feedbacktext = '';
         $feedbackformat = (int) FORMAT_HTML;
-        $gradeitem = \grade_item::fetch([
-            'itemtype' => 'mod',
-            'itemmodule' => 'forum',
-            'iteminstance' => $forumid,
-            'itemnumber' => 1,
-            'courseid' => $this->course->id,
-        ]);
+        $gradeitem = $this->fetch_grade_item();
         if ($gradeitem) {
             $gradegrade = \grade_grade::fetch([
                 'itemid' => $gradeitem->id,
@@ -346,16 +346,25 @@ class forum_adapter extends base_adapter {
         }
 
         // Advanced grading: read the grading definition and current fill.
-        $gradingmanager = get_grading_manager($this->context, 'mod_forum', 'forum');
-        $controller = $gradingmanager->get_active_controller();
+        // Skip entirely when forum grading is disabled (grade type "None") — a
+        // marking guide/rubric without a grade type is a non-sequitur.
         $rubricdata = null;
         $gradingdefinition = null;
 
-        if ($controller) {
-            $gradingdefinition = $this->serialize_grading_definition($controller);
+        if ($this->forum->is_grading_enabled()) {
+            $gradingmanager = get_grading_manager($this->context, 'mod_forum', 'forum');
+            $controller = $gradingmanager->get_active_controller();
 
-            if ($graderecord && $hasgrade) {
-                $rubricdata = $this->get_rubric_fill($controller, $graderecord);
+            if ($controller) {
+                $gradingdefinition = $this->serialize_grading_definition($controller);
+
+                // Load rubric fill data whenever a grade record exists, even if grade
+                // is null. The grading instance fillings may have been saved by
+                // store_grade_from_formdata → update() even when the grade couldn't be
+                // computed (e.g. forum grading type set to "none" → get_grade() returns -1).
+                if ($graderecord) {
+                    $rubricdata = $this->get_rubric_fill($controller, $graderecord);
+                }
             }
         }
 
@@ -396,9 +405,12 @@ class forum_adapter extends base_adapter {
         $gradeduser = $DB->get_record('user', ['id' => $userid], '*', MUST_EXIST);
         $graderuser = $DB->get_record('user', ['id' => $USER->id], '*', MUST_EXIST);
 
-        // Check if advanced grading is active.
-        $gradingmanager = get_grading_manager($this->context, 'mod_forum', 'forum');
-        $controller = $gradingmanager->get_active_controller();
+        // Check if advanced grading is active (only when grading is enabled).
+        $controller = null;
+        if ($this->forum->is_grading_enabled()) {
+            $gradingmanager = get_grading_manager($this->context, 'mod_forum', 'forum');
+            $controller = $gradingmanager->get_active_controller();
+        }
 
         if ($controller && !empty($advancedgradingdata)) {
             // Advanced grading with criteria data — use the gradeitem API.
@@ -480,6 +492,7 @@ class forum_adapter extends base_adapter {
                 $feedbacktext = $gradegrade->feedback ?? '';
             }
         }
+
 
         // Clear existing draft files from the previous student.
         $fs = get_file_storage();
@@ -750,24 +763,36 @@ class forum_adapter extends base_adapter {
 
         $forumid = $this->forum->get_id();
 
-        // Check that a grade record exists with a non-null grade.
-        $graderecord = $DB->get_record('forum_grades', [
-            'forum' => $forumid,
-            'itemnumber' => 1,
-            'userid' => $userid,
-        ]);
-        if (!$graderecord || $graderecord->grade === null) {
-            return false;
+        if ($this->forum->is_grading_enabled()) {
+            // Graded forum: require a numeric grade in forum_grades.
+            $graderecord = $DB->get_record('forum_grades', [
+                'forum' => $forumid,
+                'itemnumber' => 1,
+                'userid' => $userid,
+            ]);
+            if (!$graderecord || $graderecord->grade === null) {
+                return false;
+            }
+        } else {
+            // Grading-disabled forum (grade type "None"): feedback-only.
+            // Consider feedback "released" when a grade_grades record with
+            // non-empty feedback exists — this is the only way the teacher
+            // communicates with the student in this mode.
+            $gradeitem = $this->fetch_grade_item();
+            if (!$gradeitem) {
+                return false;
+            }
+            $gradegrade = \grade_grade::fetch([
+                'itemid' => $gradeitem->id,
+                'userid' => $userid,
+            ]);
+            if (!$gradegrade || empty($gradegrade->feedback)) {
+                return false;
+            }
         }
 
         // Check the gradebook item is not hidden.
-        $gradeitem = \grade_item::fetch([
-            'itemtype' => 'mod',
-            'itemmodule' => 'forum',
-            'iteminstance' => $forumid,
-            'itemnumber' => 1,
-            'courseid' => $this->course->id,
-        ]);
+        $gradeitem = $this->fetch_grade_item();
         if ($gradeitem && $gradeitem->is_hidden()) {
             return false;
         }
@@ -799,13 +824,26 @@ class forum_adapter extends base_adapter {
      * @return \grade_item|null
      */
     protected function fetch_grade_item(): ?\grade_item {
-        $item = \grade_item::fetch([
+        $params = [
             'itemtype' => 'mod',
             'itemmodule' => 'forum',
             'iteminstance' => $this->forum->get_id(),
             'itemnumber' => 1,
             'courseid' => $this->course->id,
-        ]);
+        ];
+        $item = \grade_item::fetch($params);
+
+        if (!$item && !$this->forum->is_grading_enabled()) {
+            // For forums with grade type "None", Moodle's grade_update() skips
+            // creating the grade_item entirely (gradelib.php returns early when
+            // gradetype == GRADE_TYPE_NONE for a new item). Create it manually
+            // so we can store feedback in the gradebook even without a numeric grade.
+            $params['gradetype'] = GRADE_TYPE_NONE;
+            $params['itemname'] = get_string('gradeitemnameforwholeforum', 'forum', $this->forumrecord);
+            $item = new \grade_item($params, false);
+            $item->insert('local/unifiedgrader');
+        }
+
         return $item ?: null;
     }
 
@@ -1387,13 +1425,7 @@ SCRIPT;
      * @param int $feedbackformat
      */
     private function save_feedback_to_gradebook(int $userid, string $feedback, int $feedbackformat): void {
-        $gradeitem = \grade_item::fetch([
-            'itemtype' => 'mod',
-            'itemmodule' => 'forum',
-            'iteminstance' => $this->forum->get_id(),
-            'itemnumber' => 1,
-            'courseid' => $this->course->id,
-        ]);
+        $gradeitem = $this->fetch_grade_item();
 
         if (!$gradeitem) {
             return;
@@ -1408,6 +1440,18 @@ SCRIPT;
             $gradegrade->feedback = $feedback;
             $gradegrade->feedbackformat = $feedbackformat;
             $gradegrade->update('local/unifiedgrader');
+        } else {
+            // No grade_grade record yet — this happens when the teacher writes
+            // feedback before entering a numeric grade. Create a record so
+            // the feedback is persisted in the gradebook.
+            $gradegrade = new \grade_grade();
+            $gradegrade->itemid = $gradeitem->id;
+            $gradegrade->userid = $userid;
+            $gradegrade->feedback = $feedback;
+            $gradegrade->feedbackformat = $feedbackformat;
+            $gradegrade->timecreated = time();
+            $gradegrade->timemodified = time();
+            $gradegrade->insert('local/unifiedgrader');
         }
     }
 

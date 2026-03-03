@@ -51,13 +51,11 @@
                 <i class="fa fa-arrow-left" aria-hidden="true"></i>
             </a>
             <h5 class="mb-0">{{activityname}}</h5>
-            {{#gradedisplay}}
-                <a href="{{feedbackdownloadurl}}" class="btn btn-sm btn-outline-primary ms-2" download="{{downloadfilename}}"
-                   data-region="download-feedback-pdf">
-                    <i class="fa fa-download me-1" aria-hidden="true"></i>
-                    {{#str}} download_feedback_pdf, local_unifiedgrader {{/str}}
-                </a>
-            {{/gradedisplay}}
+            <a href="{{feedbackdownloadurl}}" class="btn btn-sm btn-outline-primary ms-2" download="{{downloadfilename}}"
+               data-region="download-feedback-pdf">
+                <i class="fa fa-download me-1" aria-hidden="true"></i>
+                {{#str}} download_feedback_pdf, local_unifiedgrader {{/str}}
+            </a>
         </div>
         {{#gradedisplay}}
             <span class="badge bg-primary fs-6">

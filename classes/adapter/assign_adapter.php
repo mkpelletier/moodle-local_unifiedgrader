@@ -61,6 +61,9 @@ class assign_adapter extends base_adapter {
         $gradingmanager = get_grading_manager($this->context, 'mod_assign', 'submissions');
         $gradingmethod = $gradingmanager->get_active_method();
 
+        // Grade type "None" means grade == 0 (positive = points, negative = scale).
+        $gradingenabled = (int) $instance->grade !== 0;
+
         // Detect scale-based grading (negative grade = scale ID).
         $rawgrade = (int) $instance->grade;
         $usescale = $rawgrade < 0;
@@ -88,11 +91,15 @@ class assign_adapter extends base_adapter {
                 $instance->introformat,
                 ['context' => $this->context],
             ),
-            'gradingmethod' => $gradingmethod ?: 'simple',
+            // When grading is disabled (grade type "None"), force simple so the
+            // client does not try to render an advanced grading form.
+            'gradingmethod' => $gradingenabled ? ($gradingmethod ?: 'simple') : 'simple',
+            'gradingdisabled' => !$gradingenabled,
             'teamsubmission' => (bool) $instance->teamsubmission,
             'blindmarking' => (bool) $instance->blindmarking,
             'canmanageoverrides' => has_capability('mod/assign:manageoverrides', $this->context),
             'maxattempts' => (int) $instance->maxattempts,
+            'gradepenaltyenabled' => !empty($instance->gradepenalty),
         ];
     }
 
@@ -380,16 +387,34 @@ class assign_adapter extends base_adapter {
         }
 
         // Advanced grading: read the grading definition and current fill.
-        $gradingmanager = get_grading_manager($this->context, 'mod_assign', 'submissions');
-        $controller = $gradingmanager->get_active_controller();
+        // Skip when grading is disabled (grade type "None") — a rubric/marking
+        // guide without a grade type is a non-sequitur.
         $rubricdata = null;
         $gradingdefinition = null;
+        $instance = $this->assign->get_instance();
 
-        if ($controller) {
-            $gradingdefinition = $this->serialize_grading_definition($controller);
+        if ((int) $instance->grade !== 0) {
+            $gradingmanager = get_grading_manager($this->context, 'mod_assign', 'submissions');
+            $controller = $gradingmanager->get_active_controller();
 
-            if ($grade) {
-                $rubricdata = $this->get_rubric_fill($controller, $grade, $userid);
+            if ($controller) {
+                $gradingdefinition = $this->serialize_grading_definition($controller);
+
+                if ($grade) {
+                    $rubricdata = $this->get_rubric_fill($controller, $grade, $userid);
+                }
+            }
+        }
+
+        // Moodle stores assign_grades.penalty as a percentage of the student's
+        // grade (deducted_points / grade * 100), not the max grade. Convert it
+        // to a percentage of max grade so it matches the configured penalty rules.
+        $latepenaltypct = null;
+        if ($grade && isset($grade->penalty) && $grade->penalty > 0 && $grade->grade > 0) {
+            $maxgrade = (float) $instance->grade;
+            if ($maxgrade > 0) {
+                $deductedmark = $grade->grade * $grade->penalty / 100;
+                $latepenaltypct = (int) round($deductedmark / $maxgrade * 100);
             }
         }
 
@@ -413,6 +438,7 @@ class assign_adapter extends base_adapter {
             'gradingdefinition' => $gradingdefinition ? json_encode($gradingdefinition) : '',
             'timegraded' => $grade ? (int) $grade->timemodified : 0,
             'grader' => $grade ? (int) $grade->grader : 0,
+            'latepenaltypct' => $latepenaltypct,
         ];
     }
 
@@ -451,8 +477,13 @@ class assign_adapter extends base_adapter {
         $attemptnumber = $submission ? (int) $submission->attemptnumber : 0;
 
         // Check if advanced grading (rubric/marking guide) is active.
-        $gradingmanager = get_grading_manager($this->context, 'mod_assign', 'submissions');
-        $controller = $gradingmanager->get_active_controller();
+        // Skip when grading is disabled (grade type "None").
+        $controller = null;
+        $instance = $this->assign->get_instance();
+        if ((int) $instance->grade !== 0) {
+            $gradingmanager = get_grading_manager($this->context, 'mod_assign', 'submissions');
+            $controller = $gradingmanager->get_active_controller();
+        }
 
         if ($controller && empty($advancedgradingdata)) {
             // Advanced grading is active but no criteria data provided.

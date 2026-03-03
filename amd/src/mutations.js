@@ -216,6 +216,11 @@ export default class {
      */
     async saveGrade(stateManager, cmid, userid, grade, feedback, draftitemid,
         advancedgradingdata, feedbackfilesdraftid) {
+        // Track the userid we are saving for — if the teacher navigates away
+        // before the save completes, we must skip the post-save state refresh
+        // to avoid overwriting the newly loaded student's data.
+        const savedForUser = userid;
+
         stateManager.setReadOnly(false);
         stateManager.state.ui.saving = true;
         stateManager.setReadOnly(true);
@@ -235,6 +240,16 @@ export default class {
                     attemptnumber: stateManager.state.submission.attemptnumber ?? -1,
                 },
             }])[0];
+
+            // If the teacher has already navigated to a different student,
+            // skip the refresh — loadStudent will have already loaded the
+            // correct data for the new student.
+            if (stateManager.state.currentUser?.id !== savedForUser) {
+                stateManager.setReadOnly(false);
+                stateManager.state.ui.saving = false;
+                stateManager.setReadOnly(true);
+                return;
+            }
 
             // Refresh grade data, participant list, and draft areas after save.
             const currentAttempt = stateManager.state.submission.attemptnumber ?? -1;
@@ -272,6 +287,15 @@ export default class {
             }
 
             const results = await Promise.all(refreshCalls);
+
+            // Check again after refresh — teacher may have navigated while refresh was in flight.
+            if (stateManager.state.currentUser?.id !== savedForUser) {
+                stateManager.setReadOnly(false);
+                stateManager.state.ui.saving = false;
+                stateManager.setReadOnly(true);
+                return;
+            }
+
             const [gradeData, participants] = results;
             const feedbackDraft = (draftitemid ? results[2] : null) || {feedbackhtml: ''};
 
