@@ -72,7 +72,7 @@ if ($cm->modname === 'assign') {
     // For assignments, render submission plugins directly in page context.
     // This allows plugins to use $PAGE->requires->js_call_amd() and CSS.
     $assign = new \assign($context, $cm, $course);
-    $submission = $assign->get_user_submission($userid, false);
+    $submission = $assign->get_user_submission($userid, false, $attemptnum >= 0 ? $attemptnum : -1);
 
     if ($submission) {
         foreach ($assign->get_submission_plugins() as $plugin) {

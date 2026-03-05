@@ -521,6 +521,11 @@ class assign_adapter extends base_adapter {
 
         $this->assign->save_grade($userid, $data);
 
+        // Moodle core only pushes grades to the gradebook for the latest attempt.
+        // If this save triggered a reopen (new attempt), or we're re-grading a
+        // previous attempt, ensure the gradebook reflects the actual grade.
+        $this->ensure_gradebook_sync($userid, $attemptnumber);
+
         // When advanced grading is active, assign::save_grade() calculates the
         // grade from the rubric/guide criteria, ignoring $data->grade. If the
         // admin allows manual grade overrides, apply the teacher's explicit
@@ -638,6 +643,75 @@ class assign_adapter extends base_adapter {
 
         // Push to gradebook and trigger events.
         $this->assign->update_grade($gradeobj);
+
+        // Ensure gradebook reflects the actual grade if the latest attempt is ungraded.
+        $this->ensure_gradebook_sync($userid, $attemptnumber);
+    }
+
+    /**
+     * Ensure the gradebook reflects the most recent actual grade.
+     *
+     * Moodle core's update_grade() only pushes to the gradebook when the graded
+     * attempt matches the latest submission's attempt number. After a reopen
+     * (new attempt created) or when re-grading a previous attempt, the gradebook
+     * may not be updated. This method checks if the latest attempt has no grade
+     * and, if so, pushes the graded attempt's grade to the gradebook.
+     *
+     * @param int $userid The user ID.
+     * @param int $gradedattempt The attempt number that was just graded.
+     */
+    private function ensure_gradebook_sync(int $userid, int $gradedattempt): void {
+        global $CFG;
+        require_once($CFG->dirroot . '/mod/assign/lib.php');
+
+        // Get the latest submission to check if it matches the graded attempt.
+        $latestsubmission = $this->assign->get_user_submission($userid, false);
+        if (!$latestsubmission) {
+            return;
+        }
+
+        $latestattempt = (int) $latestsubmission->attemptnumber;
+        if ($latestattempt === $gradedattempt) {
+            // The graded attempt IS the latest — Moodle core already pushed to gradebook.
+            return;
+        }
+
+        // The graded attempt is NOT the latest (e.g., after a reopen).
+        // Check if the latest attempt has an actual grade.
+        $latestgrade = $this->assign->get_user_grade($userid, false, $latestattempt);
+        if ($latestgrade && $latestgrade->grade !== null && (float) $latestgrade->grade >= 0) {
+            // Latest attempt has a real grade — gradebook is correct, do nothing.
+            return;
+        }
+
+        // Latest attempt has no grade. Push the graded attempt's grade to the gradebook
+        // so it reflects the most recent actual mark.
+        $gradedgradeobj = $this->assign->get_user_grade($userid, false, $gradedattempt);
+        if (!$gradedgradeobj || $gradedgradeobj->grade === null || (float) $gradedgradeobj->grade < 0) {
+            return;
+        }
+
+        // Build the gradebook grade array matching Moodle's convert_grade_for_gradebook() format.
+        $gradebookgrade = [];
+        $gradebookgrade['rawgrade'] = (float) $gradedgradeobj->grade;
+        $gradebookgrade['userid'] = $userid;
+        $gradebookgrade['usermodified'] = (int) $gradedgradeobj->grader;
+        $gradebookgrade['datesubmitted'] = null;
+        $gradebookgrade['dategraded'] = (int) $gradedgradeobj->timemodified;
+
+        // Include feedback if available.
+        foreach ($this->assign->get_feedback_plugins() as $plugin) {
+            if ($plugin->get_type() === 'comments' && $plugin->is_enabled()) {
+                $gradebookgrade['feedback'] = $plugin->text_for_gradebook($gradedgradeobj);
+                $gradebookgrade['feedbackformat'] = $plugin->format_for_gradebook($gradedgradeobj);
+                break;
+            }
+        }
+
+        $instance = clone $this->assign->get_instance();
+        $instance->cmidnumber = $this->cm->idnumber;
+        $instance->gradefeedbackenabled = $this->assign->is_gradebook_feedback_enabled();
+        assign_grade_item_update($instance, $gradebookgrade);
     }
 
     /**

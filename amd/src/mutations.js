@@ -252,7 +252,9 @@ export default class {
                 return;
             }
 
-            // Refresh grade data, participant list, and draft areas after save.
+            // Refresh grade data, participant list, submission data, and draft areas after save.
+            // Fetch the LATEST submission (attemptnumber -1) to detect if Moodle reopened
+            // the submission (created a new attempt) as part of the save.
             const currentAttempt = stateManager.state.submission.attemptnumber ?? -1;
             const refreshCalls = [
                 Ajax.call([{
@@ -269,6 +271,11 @@ export default class {
                         sort: stateManager.state.filters.sort,
                         sortdir: stateManager.state.filters.sortdir,
                     },
+                }])[0],
+                // Fetch latest submission to detect reopen (new attempt created).
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_submission_data',
+                    args: {cmid, userid, attemptnumber: -1},
                 }])[0],
             ];
 
@@ -297,13 +304,25 @@ export default class {
                 return;
             }
 
-            const [gradeData, participants] = results;
-            const feedbackDraft = (draftitemid ? results[2] : null) || {feedbackhtml: ''};
+            const [gradeData, participants, latestSubmission] = results;
+            const feedbackDraft = (draftitemid ? results[3] : null) || {feedbackhtml: ''};
 
             stateManager.setReadOnly(false);
             Object.assign(stateManager.state.grade, gradeData);
             stateManager.state.grade.feedbackdraft = feedbackDraft.feedbackhtml;
             stateManager.state.participants = participants;
+
+            // Detect if a reopen occurred: the latest submission's attempt number
+            // is now higher than the attempt we just graded.
+            if (latestSubmission && latestSubmission.attemptnumber > currentAttempt) {
+                // A new attempt was created (e.g. "reopen until pass").
+                // Update submission state to the new attempt so the UI reflects
+                // the current reality and subsequent saves target the correct attempt.
+                Object.assign(stateManager.state.submission, latestSubmission);
+                stateManager.state.submissionComments.count = latestSubmission.commentcount || 0;
+                stateManager.state.submissionComments.loaded = false;
+            }
+
             stateManager.state.ui.saving = false;
             stateManager.setReadOnly(true);
 

@@ -110,7 +110,8 @@ export default class extends BaseComponent {
         // Reset file selector in the right panel.
         this._renderFileSelector([]);
 
-        if (!submission || submission.status === 'nosubmission' || !submission.status) {
+        if (!submission || submission.status === 'nosubmission' || submission.status === 'reopened'
+                || !submission.status) {
             noSubEl.classList.remove('d-none');
             noSubEl.classList.add('d-flex');
             return;

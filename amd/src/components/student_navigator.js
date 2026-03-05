@@ -398,14 +398,22 @@ export default class extends BaseComponent {
             }
         }
 
+        // Submission date is updated separately via _updateSubmittedDate()
+        // which is called from the submission:updated watcher. On initial load,
+        // fall back to the participant's submittedat if submission state isn't ready yet.
         if (dateEl) {
-            const hasSubmission = student && student.submittedat > 0
-                && student.status !== 'new' && student.status !== 'nosubmission';
-            if (hasSubmission) {
-                const date = new Date(student.submittedat * 1000);
-                dateEl.textContent = 'Submitted: ' + date.toLocaleString();
+            const sub = this.reactive?.stateManager?.state?.submission;
+            if (sub && sub.timemodified > 0) {
+                this._updateSubmittedDate(this.reactive.stateManager.state);
             } else {
-                dateEl.textContent = '';
+                const hasSubmission = student && student.submittedat > 0
+                    && student.status !== 'new' && student.status !== 'nosubmission';
+                if (hasSubmission) {
+                    const date = new Date(student.submittedat * 1000);
+                    dateEl.textContent = 'Submitted: ' + date.toLocaleString();
+                } else {
+                    dateEl.textContent = '';
+                }
             }
         }
 
@@ -471,6 +479,37 @@ export default class extends BaseComponent {
                 this._buildStatusDropdown(wrapper, merged);
             }
             this._updateOverrideIndicator(merged);
+        }
+
+        // Update the submitted date from the current attempt's data.
+        this._updateSubmittedDate(state);
+    }
+
+    /**
+     * Update the "Submitted:" date from the current attempt's submission data.
+     *
+     * Uses state.submission.timemodified which is set per-attempt by
+     * both loadStudent and loadAttempt, ensuring the date reflects
+     * the currently viewed attempt rather than always the latest.
+     *
+     * @param {object} state Current state.
+     */
+    _updateSubmittedDate(state) {
+        if (!this._container) {
+            return;
+        }
+        const dateEl = this._container.querySelector('[data-region="student-submitted-date"]');
+        if (!dateEl) {
+            return;
+        }
+        const sub = state.submission;
+        const hasSubmission = sub && sub.timemodified > 0
+            && sub.status !== 'new' && sub.status !== 'nosubmission' && sub.status !== 'reopened';
+        if (hasSubmission) {
+            const date = new Date(sub.timemodified * 1000);
+            dateEl.textContent = 'Submitted: ' + date.toLocaleString();
+        } else {
+            dateEl.textContent = '';
         }
     }
 
