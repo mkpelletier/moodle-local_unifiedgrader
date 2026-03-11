@@ -61,26 +61,36 @@ $PAGE->navbar->add(get_string('grading_interface', 'local_unifiedgrader'));
 // Resolve group mode and available groups.
 $groupmode = groups_get_activity_groupmode($cm, $course);
 $availablegroups = [];
-$currentgroup = 0;
+$usergroupids = [];
+$currentgroup = '0';
 if ($groupmode != NOGROUPS) {
     $aag = has_capability('moodle/site:accessallgroups', $context);
     $availablegroups = groups_get_all_groups($course->id, 0, $cm->groupingid, 'g.id, g.name');
+    // Always compute user's own group IDs for the "All my groups" option.
+    global $USER;
+    $usergroups = groups_get_all_groups($course->id, $USER->id, $cm->groupingid, 'g.id, g.name');
+    $usergroupids = array_map('intval', array_keys($usergroups));
     // If the user cannot access all groups, restrict to their own groups.
     if (!$aag) {
-        global $USER;
-        $usergroups = groups_get_all_groups($course->id, $USER->id, $cm->groupingid, 'g.id, g.name');
         $availablegroups = $usergroups;
-        // Default to the user's first group.
-        $currentgroup = !empty($usergroups) ? (int) reset($usergroups)->id : 0;
+        // Default to "all my groups" when the teacher has multiple groups.
+        $currentgroup = count($usergroupids) > 1 ? '-1' : (string) (reset($usergroupids) ?: 0);
     }
 }
 
 // Load initial data server-side to avoid loading flash.
 $activityinfo = $adapter->get_activity_info();
+// Resolve initial group IDs for participant fetch.
+$initialgroupids = [];
+if ($currentgroup === '-1') {
+    $initialgroupids = $usergroupids;
+} else if ((int) $currentgroup > 0) {
+    $initialgroupids = [(int) $currentgroup];
+}
 $participants = $adapter->get_participants([
     'sort' => 'submittedat',
     'sortdir' => 'asc',
-    'group' => $currentgroup,
+    'groups' => $initialgroupids,
 ]);
 $initialuserid = $userid ?: ($participants[0]['id'] ?? 0);
 
@@ -134,6 +144,7 @@ $templatedata = [
     'groupsjson' => json_encode(array_values(array_map(function ($g) {
         return ['id' => (int) $g->id, 'name' => format_string($g->name)];
     }, $availablegroups))),
+    'usergroupidsjson' => json_encode($usergroupids),
     'currentgroup' => $currentgroup,
     'allowmanualgradeoverride' => !empty(get_config('local_unifiedgrader', 'allow_manual_grade_override')),
     'gradesposted' => $gradesposted,

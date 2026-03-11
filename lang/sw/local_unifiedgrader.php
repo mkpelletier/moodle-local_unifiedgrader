@@ -83,6 +83,7 @@ $string['filter_notsubmitted'] = 'Hawajawasilisha';
 $string['filter_graded'] = 'Wamewekewa alama';
 $string['filter_late'] = 'Wamechelewa';
 $string['filter_allgroups'] = 'Vikundi vyote';
+$string['filter_mygroups'] = 'Vikundi vyangu vyote';
 $string['studentcount'] = '{$a->current} kati ya {$a->total}';
 $string['status_draft'] = 'Rasimu';
 $string['status_submitted'] = 'Imewasilishwa';

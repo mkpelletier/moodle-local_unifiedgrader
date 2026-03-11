@@ -95,6 +95,7 @@ $string['filter_notsubmitted'] = 'No entregado';
 $string['filter_graded'] = 'Calificado';
 $string['filter_late'] = 'Tarde';
 $string['filter_allgroups'] = 'Todos los grupos';
+$string['filter_mygroups'] = 'Todos mis grupos';
 $string['studentcount'] = '{$a->current} de {$a->total}';
 
 // Statuses.

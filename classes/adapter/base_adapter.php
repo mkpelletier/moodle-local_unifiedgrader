@@ -380,6 +380,60 @@ abstract class base_adapter {
     }
 
     /**
+     * Extract the group filter from the filters array.
+     *
+     * Supports the new 'groups' key (array of group IDs) with fallback
+     * to the legacy 'group' key (single int).
+     *
+     * @param array $filters Filter array from get_participants().
+     * @return int[] Array of group IDs. Empty array means no group filter (all groups).
+     */
+    protected function get_group_ids(array $filters): array {
+        if (isset($filters['groups']) && is_array($filters['groups'])) {
+            return $filters['groups'];
+        }
+        // Legacy: single group ID.
+        $groupid = (int) ($filters['group'] ?? 0);
+        return $groupid > 0 ? [$groupid] : [];
+    }
+
+    /**
+     * Get enrolled users filtered by multiple group IDs, deduplicated.
+     *
+     * When $groupids is empty, returns all enrolled users (no group filter).
+     * When $groupids has one entry, delegates to standard get_enrolled_users.
+     * When $groupids has multiple entries, fetches per group and merges.
+     *
+     * @param \context $context The context to check enrolment in.
+     * @param string $capability Required capability (empty for any enrolled user).
+     * @param int[] $groupids Array of group IDs (empty = all groups).
+     * @param string $fields User fields to return.
+     * @param string|null $sort Sort clause.
+     * @return array Associative array keyed by user ID.
+     */
+    protected function get_enrolled_users_multigroup(
+        \context $context,
+        string $capability,
+        array $groupids,
+        string $fields = 'u.*',
+        ?string $sort = null,
+    ): array {
+        if (empty($groupids)) {
+            return get_enrolled_users($context, $capability, 0, $fields, $sort, 0, 0, true);
+        }
+        if (count($groupids) === 1) {
+            return get_enrolled_users($context, $capability, reset($groupids), $fields, $sort, 0, 0, true);
+        }
+        // Multiple groups: fetch each and merge by user ID.
+        $merged = [];
+        foreach ($groupids as $gid) {
+            $users = get_enrolled_users($context, $capability, $gid, $fields, $sort, 0, 0, true);
+            $merged += $users; // Preserves first occurrence per key.
+        }
+        return $merged;
+    }
+
+    /**
      * Check whether a participant entry matches the selected filter.
      *
      * Filter semantics:

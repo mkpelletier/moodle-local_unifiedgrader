@@ -266,7 +266,7 @@ export default class {
                     args: {
                         cmid,
                         status: stateManager.state.filters.status,
-                        group: stateManager.state.filters.group,
+                        group: String(stateManager.state.filters.group),
                         search: stateManager.state.filters.search,
                         sort: stateManager.state.filters.sort,
                         sortdir: stateManager.state.filters.sortdir,
@@ -377,7 +377,7 @@ export default class {
                 args: {
                     cmid,
                     status: stateManager.state.filters.status,
-                    group: stateManager.state.filters.group,
+                    group: String(stateManager.state.filters.group),
                     search: stateManager.state.filters.search,
                     sort: stateManager.state.filters.sort,
                     sortdir: stateManager.state.filters.sortdir,
@@ -665,7 +665,7 @@ export default class {
                     args: {
                         cmid,
                         status: stateManager.state.filters.status,
-                        group: stateManager.state.filters.group,
+                        group: String(stateManager.state.filters.group),
                         search: stateManager.state.filters.search,
                         sort: stateManager.state.filters.sort,
                         sortdir: stateManager.state.filters.sortdir,
@@ -739,7 +739,7 @@ export default class {
                     args: {
                         cmid,
                         status: stateManager.state.filters.status,
-                        group: stateManager.state.filters.group,
+                        group: String(stateManager.state.filters.group),
                         search: stateManager.state.filters.search,
                         sort: stateManager.state.filters.sort,
                         sortdir: stateManager.state.filters.sortdir,
@@ -791,7 +791,7 @@ export default class {
                     args: {
                         cmid,
                         status: stateManager.state.filters.status,
-                        group: stateManager.state.filters.group,
+                        group: String(stateManager.state.filters.group),
                         search: stateManager.state.filters.search,
                         sort: stateManager.state.filters.sort,
                         sortdir: stateManager.state.filters.sortdir,
@@ -852,7 +852,7 @@ export default class {
                     args: {
                         cmid,
                         status: stateManager.state.filters.status,
-                        group: stateManager.state.filters.group,
+                        group: String(stateManager.state.filters.group),
                         search: stateManager.state.filters.search,
                         sort: stateManager.state.filters.sort,
                         sortdir: stateManager.state.filters.sortdir,

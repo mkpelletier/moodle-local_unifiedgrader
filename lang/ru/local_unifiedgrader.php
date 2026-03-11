@@ -95,6 +95,7 @@ $string['filter_notsubmitted'] = 'Не отправлено';
 $string['filter_graded'] = 'Оценено';
 $string['filter_late'] = 'С опозданием';
 $string['filter_allgroups'] = 'Все группы';
+$string['filter_mygroups'] = 'Все мои группы';
 $string['studentcount'] = '{$a->current} из {$a->total}';
 
 // Statuses.

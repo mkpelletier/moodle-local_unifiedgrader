@@ -95,6 +95,7 @@ $string['filter_notsubmitted'] = 'Okungathunyelwanga';
 $string['filter_graded'] = 'Okuklasisweyo';
 $string['filter_late'] = 'Okushiywe lixesha';
 $string['filter_allgroups'] = 'Onke amaqela';
+$string['filter_mygroups'] = 'Onke amaqela am';
 $string['studentcount'] = '{$a->current} kwe-{$a->total}';
 
 // Statuses.

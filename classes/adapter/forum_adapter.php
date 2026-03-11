@@ -129,24 +129,21 @@ class forum_adapter extends base_adapter {
     public function get_participants(array $filters = []): array {
         global $DB, $PAGE;
 
-        $groupid = $filters['group'] ?? 0;
+        $groupids = $this->get_group_ids($filters);
         $forumid = $this->forum->get_id();
 
         // Get enrolled users who can view discussions (active enrolments only).
-        $enrolledusers = get_enrolled_users(
+        $enrolledusers = $this->get_enrolled_users_multigroup(
             $this->context,
             'mod/forum:viewdiscussion',
-            $groupid,
+            $groupids,
             'u.*',
             'u.lastname, u.firstname',
-            0,
-            0,
-            true,
         );
 
         // Exclude users who can grade — teachers should not appear in the student list.
         // This mirrors what \assign::list_participants() does internally for assignments.
-        $graders = get_enrolled_users($this->context, 'mod/forum:grade', $groupid, 'u.id');
+        $graders = $this->get_enrolled_users_multigroup($this->context, 'mod/forum:grade', $groupids, 'u.id');
         $enrolledusers = array_diff_key($enrolledusers, $graders);
 
         // Batch-load post counts, first post time (for lateness), and last post time per user.

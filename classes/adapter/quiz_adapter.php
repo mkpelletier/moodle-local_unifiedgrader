@@ -135,18 +135,15 @@ class quiz_adapter extends base_adapter {
     public function get_participants(array $filters = []): array {
         global $DB, $PAGE;
 
-        $groupid = $filters['group'] ?? 0;
+        $groupids = $this->get_group_ids($filters);
 
         // Get enrolled users who can attempt quizzes (active enrolments only).
-        $enrolledusers = get_enrolled_users(
+        $enrolledusers = $this->get_enrolled_users_multigroup(
             $this->context,
             'mod/quiz:attempt',
-            $groupid,
+            $groupids,
             'u.*',
             'u.lastname, u.firstname',
-            0,
-            0,
-            true,
         );
 
         // Batch-load attempt stats per user.

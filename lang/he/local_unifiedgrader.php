@@ -95,6 +95,7 @@ $string['filter_notsubmitted'] = 'לא הוגש';
 $string['filter_graded'] = 'צוין';
 $string['filter_late'] = 'באיחור';
 $string['filter_allgroups'] = 'כל הקבוצות';
+$string['filter_mygroups'] = 'כל הקבוצות שלי';
 $string['studentcount'] = '{$a->current} מתוך {$a->total}';
 
 // Statuses.

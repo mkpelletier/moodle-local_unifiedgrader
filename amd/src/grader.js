@@ -60,7 +60,13 @@ export const init = (containerId) => {
     const canmanagenotes = container.dataset.canmanagenotes === '1';
 
     const hasGroupMode = container.dataset.hasgroupmode === '1';
-    const currentGroup = parseInt(container.dataset.currentgroup, 10) || 0;
+    const currentGroup = container.dataset.currentgroup || '0';
+    let userGroupIds = [];
+    try {
+        userGroupIds = JSON.parse(container.dataset.usergroupids || '[]');
+    } catch (e) {
+        userGroupIds = [];
+    }
     const draftitemid = parseInt(container.dataset.draftitemid, 10) || 0;
     const feedbackfilesdraftid = parseInt(container.dataset.feedbackfilesdraftid, 10) || 0;
     const hasfeedbackfileplugin = container.dataset.hasfeedbackfileplugin === '1';
@@ -152,6 +158,7 @@ export const init = (containerId) => {
             comments: [],
         },
         groups: groups,
+        userGroupIds: {ids: userGroupIds},
         filters: {
             status: 'all',
             group: currentGroup,

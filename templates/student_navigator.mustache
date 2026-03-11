@@ -51,9 +51,21 @@
 
         {{! Group filter (only shown when activity has group mode) }}
         <div data-region="group-filter" class="mb-2 d-none">
-            <select data-action="filter-group" class="form-select form-select-sm">
-                <option value="0">{{#str}} filter_allgroups, local_unifiedgrader {{/str}}</option>
-            </select>
+            <div class="dropdown">
+                <button data-action="group-dropdown-toggle"
+                        class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        data-bs-auto-close="outside"
+                        aria-expanded="false">
+                    {{#str}} filter_allgroups, local_unifiedgrader {{/str}}
+                </button>
+                <div data-region="group-dropdown-menu"
+                     class="dropdown-menu w-100 px-2 py-1"
+                     style="max-height: 240px; overflow-y: auto;">
+                    {{! Static options; individual groups added by JS }}
+                </div>
+            </div>
         </div>
 
         {{! Status filter + sort }}

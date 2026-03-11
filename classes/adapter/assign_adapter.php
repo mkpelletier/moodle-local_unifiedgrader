@@ -112,13 +112,25 @@ class assign_adapter extends base_adapter {
     public function get_participants(array $filters = []): array {
         global $PAGE;
 
-        $groupid = $filters['group'] ?? 0;
-        $participants = $this->assign->list_participants($groupid, false);
+        $groupids = $this->get_group_ids($filters);
         $instance = $this->assign->get_instance();
+
+        // Fetch participants (list_participants only takes a single group ID).
+        if (empty($groupids)) {
+            $participants = $this->assign->list_participants(0, false);
+        } else if (count($groupids) === 1) {
+            $participants = $this->assign->list_participants(reset($groupids), false);
+        } else {
+            // Multiple groups: fetch per group and merge by user ID.
+            $participants = [];
+            foreach ($groupids as $gid) {
+                $participants += $this->assign->list_participants($gid, false);
+            }
+        }
 
         // Exclude suspended enrolments — list_participants() may include
         // them depending on user preferences and capabilities.
-        $activeids = get_enrolled_users($this->context, '', $groupid, 'u.id', null, 0, 0, true);
+        $activeids = $this->get_enrolled_users_multigroup($this->context, '', $groupids, 'u.id');
         $participants = array_intersect_key($participants, $activeids);
 
         // Batch-load user overrides to avoid N+1 queries.

@@ -95,6 +95,7 @@ $string['filter_notsubmitted'] = 'Δεν υποβλήθηκε';
 $string['filter_graded'] = 'Βαθμολογήθηκε';
 $string['filter_late'] = 'Εκπρόθεσμο';
 $string['filter_allgroups'] = 'Όλες οι ομάδες';
+$string['filter_mygroups'] = 'Όλες οι ομάδες μου';
 $string['studentcount'] = '{$a->current} από {$a->total}';
 
 // Statuses.

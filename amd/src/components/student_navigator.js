@@ -46,6 +46,8 @@ export default class extends BaseComponent {
             SORT_FIELD: '[data-action="sort-field"]',
             GROUP_FILTER: '[data-region="group-filter"]',
             GROUP_SELECT: '[data-action="filter-group"]',
+            GROUP_DROPDOWN_TOGGLE: '[data-action="group-dropdown-toggle"]',
+            GROUP_DROPDOWN_MENU: '[data-region="group-dropdown-menu"]',
             PARTICIPANT_LIST: '[data-region="participant-list"]',
             PROFILE_TOGGLE: '[data-action="toggle-profile-popout"]',
             PROFILE_POPOUT: '[data-region="profile-popout"]',
@@ -183,13 +185,7 @@ export default class extends BaseComponent {
             });
         }
 
-        // Group filter.
-        const groupSelect = this.getElement(this.selectors.GROUP_SELECT);
-        if (groupSelect) {
-            groupSelect.addEventListener('change', () => {
-                this._applyFilters({group: parseInt(groupSelect.value, 10)});
-            });
-        }
+        // Group filter is handled by _initGroupSelector (checkbox dropdown).
 
         // Keyboard navigation.
         document.addEventListener('keydown', (e) => {
@@ -222,31 +218,213 @@ export default class extends BaseComponent {
      *
      * @param {object} state Current state.
      */
-    _initGroupSelector(state) {
+    async _initGroupSelector(state) {
         if (!state.filters.hasGroupMode) {
             return;
         }
 
         const wrapper = this.getElement(this.selectors.GROUP_FILTER);
-        const select = this.getElement(this.selectors.GROUP_SELECT);
-        if (!wrapper || !select) {
+        const menu = this.getElement(this.selectors.GROUP_DROPDOWN_MENU);
+        const toggle = this.getElement(this.selectors.GROUP_DROPDOWN_TOGGLE);
+        if (!wrapper || !menu || !toggle) {
             return;
         }
 
         // Show the group filter row.
         wrapper.classList.remove('d-none');
 
-        // Populate group options. The "All groups" option is already in the template.
         const groups = [...state.groups.values()];
+        const userGroupIds = state.userGroupIds?.ids || [];
+        const hasMyGroups = userGroupIds.length > 1;
+
+        // Fetch localised labels.
+        const strings = await getStrings([
+            {key: 'filter_allgroups', component: 'local_unifiedgrader'},
+            {key: 'filter_mygroups', component: 'local_unifiedgrader'},
+        ]);
+        const allGroupsLabel = strings[0];
+        const myGroupsLabel = strings[1];
+
+        // Build checkbox items.
+        menu.innerHTML = '';
+
+        // "All groups" option (value "0").
+        this._addGroupCheckbox(menu, '0', allGroupsLabel);
+
+        // "All my groups" option (value "-1") — only if teacher has 2+ groups.
+        if (hasMyGroups) {
+            this._addGroupCheckbox(menu, '-1', myGroupsLabel);
+        }
+
+        // Divider.
+        if (groups.length > 0) {
+            const divider = document.createElement('hr');
+            divider.className = 'dropdown-divider my-1';
+            menu.appendChild(divider);
+        }
+
+        // Individual groups.
         groups.forEach((group) => {
-            const option = document.createElement('option');
-            option.value = group.id;
-            option.textContent = group.name;
-            select.appendChild(option);
+            this._addGroupCheckbox(menu, String(group.id), group.name);
         });
 
-        // Set current selection.
-        select.value = state.filters.group;
+        // Set initial checked state from current filter.
+        this._setGroupCheckState(state.filters.group);
+        this._updateGroupButtonLabel(toggle, allGroupsLabel, myGroupsLabel, groups);
+
+        // Event listener for checkbox changes.
+        menu.addEventListener('change', (e) => {
+            const checkbox = e.target;
+            if (!checkbox.matches('input[type="checkbox"]')) {
+                return;
+            }
+            const value = checkbox.dataset.groupValue;
+
+            if (value === '0' || value === '-1') {
+                // Meta-options: uncheck all individual groups.
+                this._uncheckAllGroupCheckboxes(menu);
+                checkbox.checked = true;
+            } else {
+                // Individual group: uncheck meta-options.
+                const metaBoxes = menu.querySelectorAll('input[data-group-value="0"], input[data-group-value="-1"]');
+                metaBoxes.forEach(cb => {
+                    cb.checked = false;
+                });
+                // If nothing is checked, revert to "All groups".
+                const anyChecked = menu.querySelectorAll('input[type="checkbox"]:checked');
+                if (anyChecked.length === 0) {
+                    const allBox = menu.querySelector('input[data-group-value="0"]');
+                    if (allBox) {
+                        allBox.checked = true;
+                    }
+                }
+            }
+
+            // Compute the group filter value.
+            const groupValue = this._computeGroupFilterValue(menu);
+            this._updateGroupButtonLabel(toggle, allGroupsLabel, myGroupsLabel, groups);
+            this._applyFilters({group: groupValue});
+        });
+    }
+
+    /**
+     * Add a checkbox item to the group dropdown menu.
+     *
+     * @param {HTMLElement} menu The dropdown menu container.
+     * @param {string} value The group value.
+     * @param {string} label The display label.
+     */
+    _addGroupCheckbox(menu, value, label) {
+        const item = document.createElement('label');
+        item.className = 'dropdown-item d-flex align-items-center gap-2 py-1 px-2 user-select-none';
+        item.style.cursor = 'pointer';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.dataset.groupValue = value;
+        checkbox.className = 'form-check-input mt-0';
+        checkbox.style.cursor = 'pointer';
+
+        const text = document.createElement('span');
+        text.className = 'small text-truncate';
+        text.textContent = label;
+
+        item.appendChild(checkbox);
+        item.appendChild(text);
+        menu.appendChild(item);
+    }
+
+    /**
+     * Set checkbox states from a group filter value string.
+     *
+     * @param {string} filterValue Current filter: "0", "-1", or comma-separated IDs.
+     */
+    _setGroupCheckState(filterValue) {
+        const menu = this.getElement(this.selectors.GROUP_DROPDOWN_MENU);
+        if (!menu) {
+            return;
+        }
+        const val = String(filterValue);
+        this._uncheckAllGroupCheckboxes(menu);
+
+        if (val === '0' || val === '-1') {
+            const cb = menu.querySelector(`input[data-group-value="${val}"]`);
+            if (cb) {
+                cb.checked = true;
+            }
+        } else {
+            const ids = val.split(',');
+            ids.forEach(id => {
+                const cb = menu.querySelector(`input[data-group-value="${id}"]`);
+                if (cb) {
+                    cb.checked = true;
+                }
+            });
+        }
+    }
+
+    /**
+     * Uncheck all group checkboxes.
+     *
+     * @param {HTMLElement} menu The dropdown menu.
+     */
+    _uncheckAllGroupCheckboxes(menu) {
+        menu.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.checked = false;
+        });
+    }
+
+    /**
+     * Compute the group filter value from checked checkboxes.
+     *
+     * @param {HTMLElement} menu The dropdown menu.
+     * @returns {string} Filter value: "0", "-1", or comma-separated group IDs.
+     */
+    _computeGroupFilterValue(menu) {
+        // Check meta-options first.
+        const allBox = menu.querySelector('input[data-group-value="0"]');
+        if (allBox?.checked) {
+            return '0';
+        }
+        const myBox = menu.querySelector('input[data-group-value="-1"]');
+        if (myBox?.checked) {
+            return '-1';
+        }
+        // Collect checked individual groups.
+        const checked = [...menu.querySelectorAll('input[type="checkbox"]:checked')];
+        const ids = checked.map(cb => cb.dataset.groupValue).filter(v => v !== '0' && v !== '-1');
+        return ids.length > 0 ? ids.join(',') : '0';
+    }
+
+    /**
+     * Update the dropdown toggle button text based on current selection.
+     *
+     * @param {HTMLElement} toggle The dropdown toggle button.
+     * @param {string} allGroupsLabel Localised "All groups" text.
+     * @param {string} myGroupsLabel Localised "All my groups" text.
+     * @param {Array} groups Array of group objects with id and name.
+     */
+    _updateGroupButtonLabel(toggle, allGroupsLabel, myGroupsLabel, groups) {
+        const menu = this.getElement(this.selectors.GROUP_DROPDOWN_MENU);
+        if (!menu || !toggle) {
+            return;
+        }
+        const value = this._computeGroupFilterValue(menu);
+        if (value === '0') {
+            toggle.textContent = allGroupsLabel;
+            return;
+        }
+        if (value === '-1') {
+            toggle.textContent = myGroupsLabel;
+            return;
+        }
+        // Show selected group names.
+        const ids = value.split(',');
+        const names = ids.map(id => {
+            const g = groups.find(gr => String(gr.id) === id);
+            return g ? g.name : id;
+        });
+        toggle.textContent = names.join(', ');
     }
 
     /**
