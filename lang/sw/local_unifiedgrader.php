@@ -374,6 +374,18 @@ $string['privacy:metadata:scomm:content'] = 'Maudhui ya maoni.';
 $string['privacy_forum_extensions'] = 'Nyongeza za majadiliano';
 $string['privacy_quiz_feedback'] = 'Maoni ya jaribio';
 
+// Muunganisho wa SATS Mail.
+$string['setting_enable_satsmail'] = 'Wezesha muunganisho wa SATS Mail';
+$string['setting_enable_satsmail_desc'] = 'Inapowezeshwa, maoni ya uwasilishaji pia hutumwa kama ujumbe wa SATS Mail. Watumiaji wanaweza kujibu kupitia SATS Mail na majibu yanasawazishwa kama maoni ya uwasilishaji. Inahitaji programu-jalizi ya SATS Mail iwe imewekwa.';
+$string['satsmail_comment_subject'] = 'Maoni: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Maoni ya uwasilishaji kwa <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Faragha: Ramani ya SATS Mail.
+$string['privacy:metadata:smmap'] = 'Inaunganisha ujumbe wa SATS Mail na nyuzi za maoni ya uwasilishaji.';
+$string['privacy:metadata:smmap:cmid'] = 'Moduli ya kozi ambayo nyuzi inamilikiwa.';
+$string['privacy:metadata:smmap:userid'] = 'Mwanafunzi ambaye nyuzi inahusu.';
+$string['privacy:metadata:smmap:messageid'] = 'Kitambulisho cha ujumbe wa SATS Mail.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Arifa za maoni ya uwasilishaji';
 $string['notification_comment_subject'] = 'Maoni mapya kwenye {$a->activityname}';

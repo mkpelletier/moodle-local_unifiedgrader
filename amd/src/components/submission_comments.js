@@ -200,8 +200,9 @@ export default class extends BaseComponent {
         formContainer.setAttribute('data-region', 'comments-form');
         formContainer.innerHTML =
             '<div class="d-flex gap-2 align-items-end">' +
-                '<input type="text" data-region="comment-input"' +
-                    ' class="form-control form-control-sm rounded-pill" placeholder="Type a message...">' +
+                '<textarea data-region="comment-input" rows="3"' +
+                    ' class="form-control form-control-sm" placeholder="Type a message..."' +
+                    ' style="resize: vertical; min-height: 4rem;"></textarea>' +
                 '<button type="button" data-action="post-comment"' +
                     ' class="btn btn-primary btn-sm rounded-circle' +
                     ' d-flex align-items-center justify-content-center"' +
@@ -233,7 +234,7 @@ export default class extends BaseComponent {
         });
 
         input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && input.value.trim()) {
+            if (e.key === 'Enter' && !e.shiftKey && input.value.trim()) {
                 e.preventDefault();
                 this._postComment(input);
             }

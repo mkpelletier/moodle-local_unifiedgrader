@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'Le contenu du commentaire.';
 $string['privacy_forum_extensions'] = 'Prolongations de forum';
 $string['privacy_quiz_feedback'] = 'Commentaires de test';
 
+// Intégration SATS Mail.
+$string['setting_enable_satsmail'] = 'Activer l\'intégration SATS Mail';
+$string['setting_enable_satsmail_desc'] = 'Lorsqu\'activé, les commentaires de soumission sont également envoyés comme messages SATS Mail. Les utilisateurs peuvent répondre via SATS Mail et les réponses sont synchronisées comme commentaires de soumission. Nécessite que le plugin SATS Mail soit installé.';
+$string['satsmail_comment_subject'] = 'Commentaire : {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Commentaire de soumission pour <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Confidentialité : Correspondance SATS Mail.
+$string['privacy:metadata:smmap'] = 'Associe les messages SATS Mail aux fils de commentaires de soumission.';
+$string['privacy:metadata:smmap:cmid'] = 'Le module de cours auquel le fil appartient.';
+$string['privacy:metadata:smmap:userid'] = 'L\'étudiant concerné par le fil.';
+$string['privacy:metadata:smmap:messageid'] = 'L\'identifiant du message SATS Mail.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Notifications de commentaires de soumission';
 $string['notification_comment_subject'] = 'Nouveau commentaire sur {$a->activityname}';

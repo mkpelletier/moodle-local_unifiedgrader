@@ -254,5 +254,25 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026031800, 'local', 'unifiedgrader');
     }
 
+    if ($oldversion < 2026031900) {
+
+        // Create local_unifiedgrader_smmap table for SATS Mail message mapping.
+        $table = new xmldb_table('local_unifiedgrader_smmap');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('messageid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_index('ix_messageid', XMLDB_INDEX_NOTUNIQUE, ['messageid']);
+        $table->add_index('ix_cmid_userid', XMLDB_INDEX_NOTUNIQUE, ['cmid', 'userid']);
+
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026031900, 'local', 'unifiedgrader');
+    }
+
     return true;
 }

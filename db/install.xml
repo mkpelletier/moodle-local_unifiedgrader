@@ -200,5 +200,21 @@
         <INDEX NAME="ix_authorid" UNIQUE="false" FIELDS="authorid"/>
       </INDEXES>
     </TABLE>
+    <TABLE NAME="local_unifiedgrader_smmap" COMMENT="Maps SATS Mail messages to submission comment threads.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="FK to course_modules.id"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student the thread is about"/>
+        <FIELD NAME="messageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="FK to local_satsmail_messages.id"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="ix_messageid" UNIQUE="false" FIELDS="messageid"/>
+        <INDEX NAME="ix_cmid_userid" UNIQUE="false" FIELDS="cmid, userid"/>
+      </INDEXES>
+    </TABLE>
   </TABLES>
 </XMLDB>

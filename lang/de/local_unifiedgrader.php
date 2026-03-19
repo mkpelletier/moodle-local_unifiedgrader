@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'Der Kommentarinhalt.';
 $string['privacy_forum_extensions'] = 'Foren-Verl\u00e4ngerungen';
 $string['privacy_quiz_feedback'] = 'Test-Feedback';
 
+// SATS Mail-Integration.
+$string['setting_enable_satsmail'] = 'SATS Mail-Integration aktivieren';
+$string['setting_enable_satsmail_desc'] = 'Wenn aktiviert, werden Einreichungskommentare auch als SATS Mail-Nachrichten gesendet. Benutzer können über SATS Mail antworten und Antworten werden als Einreichungskommentare zurücksynchronisiert. Erfordert, dass das SATS Mail-Plugin installiert ist.';
+$string['satsmail_comment_subject'] = 'Kommentar: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Einreichungskommentar für <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Datenschutz: SATS Mail-Zuordnung.
+$string['privacy:metadata:smmap'] = 'Ordnet SATS Mail-Nachrichten Einreichungskommentar-Threads zu.';
+$string['privacy:metadata:smmap:cmid'] = 'Das Kursmodul, zu dem der Thread gehört.';
+$string['privacy:metadata:smmap:userid'] = 'Der Student, um den es im Thread geht.';
+$string['privacy:metadata:smmap:messageid'] = 'Die SATS Mail-Nachrichten-ID.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Benachrichtigungen über Abgabekommentare';
 $string['notification_comment_subject'] = 'Neuer Kommentar zu {$a->activityname}';

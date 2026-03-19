@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'Die opmerkingsinhoud.';
 $string['privacy_forum_extensions'] = 'Forumverlengings';
 $string['privacy_quiz_feedback'] = 'Vasvraterugvoer';
 
+// SATS Mail-integrasie.
+$string['setting_enable_satsmail'] = 'Aktiveer SATS Mail-integrasie';
+$string['setting_enable_satsmail_desc'] = 'Wanneer geaktiveer, word indieningsopmerkings ook as SATS Mail-boodskappe gestuur. Gebruikers kan via SATS Mail antwoord en antwoorde word teruggesinkroniseer as indieningsopmerkings. Vereis dat die SATS Mail-inprop geïnstalleer is.';
+$string['satsmail_comment_subject'] = 'Opmerking: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Indieningsopmerking vir <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Privaatheid: SATS Mail-kartering.
+$string['privacy:metadata:smmap'] = 'Karteer SATS Mail-boodskappe na indieningsopmerking-drade.';
+$string['privacy:metadata:smmap:cmid'] = 'Die kursusmodule waaraan die draad behoort.';
+$string['privacy:metadata:smmap:userid'] = 'Die student waaroor die draad gaan.';
+$string['privacy:metadata:smmap:messageid'] = 'Die SATS Mail-boodskap-ID.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Kennisgewings oor indieningsopmerkings';
 $string['notification_comment_subject'] = 'Nuwe opmerking op {$a->activityname}';

@@ -111,6 +111,12 @@ class provider implements
             'content' => 'privacy:metadata:scomm:content',
         ], 'privacy:metadata:scomm');
 
+        $collection->add_database_table('local_unifiedgrader_smmap', [
+            'cmid' => 'privacy:metadata:smmap:cmid',
+            'userid' => 'privacy:metadata:smmap:userid',
+            'messageid' => 'privacy:metadata:smmap:messageid',
+        ], 'privacy:metadata:smmap');
+
         return $collection;
     }
 
@@ -199,6 +205,18 @@ class provider implements
             'contextlevel' => CONTEXT_MODULE,
             'userid1' => $userid,
             'userid2' => $userid,
+        ]);
+
+        // SATS Mail mappings where user is the student.
+        $sql = "SELECT DISTINCT ctx.id
+                  FROM {local_unifiedgrader_smmap} sm
+                  JOIN {course_modules} cm ON cm.id = sm.cmid
+                  JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :contextlevel
+                 WHERE sm.userid = :userid1";
+
+        $contextlist->add_from_sql($sql, [
+            'contextlevel' => CONTEXT_MODULE,
+            'userid1' => $userid,
         ]);
 
         return $contextlist;
@@ -292,6 +310,13 @@ class provider implements
                   JOIN {course_modules} cm ON cm.id = sc.cmid
                  WHERE cm.id = :cmid";
         $userlist->add_from_sql('authorid', $sql, ['cmid' => $context->instanceid]);
+
+        // SATS Mail mappings: students.
+        $sql = "SELECT DISTINCT sm.userid
+                  FROM {local_unifiedgrader_smmap} sm
+                  JOIN {course_modules} cm ON cm.id = sm.cmid
+                 WHERE cm.id = :cmid";
+        $userlist->add_from_sql('userid', $sql, ['cmid' => $context->instanceid]);
     }
 
     /**
@@ -563,6 +588,7 @@ class provider implements
         $DB->delete_records('local_unifiedgrader_fext', ['cmid' => $context->instanceid]);
         $DB->delete_records('local_unifiedgrader_qfb', ['cmid' => $context->instanceid]);
         $DB->delete_records('local_unifiedgrader_scomm', ['cmid' => $context->instanceid]);
+        $DB->delete_records('local_unifiedgrader_smmap', ['cmid' => $context->instanceid]);
     }
 
     /**
@@ -619,6 +645,10 @@ class provider implements
             $DB->delete_records('local_unifiedgrader_scomm', [
                 'cmid' => $context->instanceid,
                 'authorid' => $userid,
+            ]);
+            $DB->delete_records('local_unifiedgrader_smmap', [
+                'cmid' => $context->instanceid,
+                'userid' => $userid,
             ]);
         }
 
@@ -693,6 +723,12 @@ class provider implements
         $DB->delete_records_select('local_unifiedgrader_scomm',
             "cmid = :cmid6 AND (userid {$insql9} OR authorid {$insql10})",
             array_merge(['cmid6' => $context->instanceid], $inparams9, $inparams10),
+        );
+
+        [$insql11, $inparams11] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid11');
+        $DB->delete_records_select('local_unifiedgrader_smmap',
+            "cmid = :cmid7 AND userid {$insql11}",
+            array_merge(['cmid7' => $context->instanceid], $inparams11),
         );
 
         // Delete user-level data.

@@ -74,4 +74,80 @@ class observer {
     public static function handle_submission_updated(\mod_assign\event\submission_updated $event): void {
         // Future: invalidate cached submission data for this activity.
     }
+
+    /**
+     * Handle SATS Mail message_sent event.
+     *
+     * When a user replies to a submission comment thread via SATS Mail,
+     * this syncs the reply back as a submission comment.
+     *
+     * @param \local_satsmail\event\message_sent $event
+     */
+    public static function handle_satsmail_reply(\local_satsmail\event\message_sent $event): void {
+        if (!satsmail\bridge::is_available()) {
+            return;
+        }
+
+        $messageid = $event->objectid;
+
+        // Skip if this message was created by us (loop prevention).
+        if (satsmail\bridge::is_mapped_message($messageid)) {
+            return;
+        }
+
+        try {
+            $message = \local_satsmail\message::get($messageid);
+        } catch (\Throwable $e) {
+            return;
+        }
+
+        // Check backward references to find if this is a reply to a mapped message.
+        $references = $message->get_references(false);
+        if (empty($references)) {
+            return;
+        }
+
+        global $DB;
+
+        foreach ($references as $refmsg) {
+            $mapping = $DB->get_record('local_unifiedgrader_smmap', ['messageid' => $refmsg->id]);
+            if (!$mapping) {
+                continue;
+            }
+
+            // Found a mapped reference — this is a reply to a submission comment thread.
+            $cmid = (int) $mapping->cmid;
+            $studentuserid = (int) $mapping->userid;
+            $authorid = $message->sender()->id;
+
+            // Strip our header from the content if present.
+            $content = $message->content;
+            $headerend = strpos($content, '<hr>');
+            if ($headerend !== false) {
+                // Check if the header contains our marker pattern.
+                $beforehr = substr($content, 0, $headerend);
+                if (strpos($beforehr, 'Submission comment for') !== false) {
+                    $content = trim(substr($content, $headerend + 4));
+                }
+            }
+
+            if (empty(trim(strip_tags($content)))) {
+                return;
+            }
+
+            // Create the submission comment.
+            submission_comment_manager::add_comment($cmid, $studentuserid, $authorid, $content);
+
+            // Send Moodle notification and mirror back to SATS Mail with proper header.
+            // Loop prevention: the bridge stores the mapping immediately, and
+            // is_mapped_message() at the top of this method will skip it.
+            notification\submission_comment_notification::send($cmid, $studentuserid, $authorid, $content);
+
+            // Store mapping for the new message (thread continuity).
+            satsmail\bridge::store_mapping($cmid, $studentuserid, $messageid);
+
+            // Only process the first match.
+            return;
+        }
+    }
 }

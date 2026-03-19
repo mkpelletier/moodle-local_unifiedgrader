@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'Okuqukethwe ngamazwana.';
 $string['privacy_forum_extensions'] = 'Izikhathi ezengeziwe zeforamu';
 $string['privacy_quiz_feedback'] = 'Impendulo yequiz';
 
+// Ukuhlanganiswa kwe-SATS Mail.
+$string['setting_enable_satsmail'] = 'Nika amandla ukuhlanganiswa kwe-SATS Mail';
+$string['setting_enable_satsmail_desc'] = 'Uma kunikiwe amandla, amazwana okuthumela athunywa futhi njengomyalezo we-SATS Mail. Abasebenzisi bangaphendula nge-SATS Mail futhi izimpendulo zivumelaniswa njengamazwana okuthumela. Kudingeka i-plugin ye-SATS Mail ifakwe.';
+$string['satsmail_comment_subject'] = 'Amazwana: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Amazwana okuthumela e <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Ubumfihlo: Ukumapisha kwe-SATS Mail.
+$string['privacy:metadata:smmap'] = 'Imapisha imiyalezo ye-SATS Mail emisebenzini yamazwana okuthumela.';
+$string['privacy:metadata:smmap:cmid'] = 'Imoduli yekosi okuyiyona yomsebenzi.';
+$string['privacy:metadata:smmap:userid'] = 'Umfundi omsebenzi ongowakhe.';
+$string['privacy:metadata:smmap:messageid'] = 'I-ID yomyalezo we-SATS Mail.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Izaziso zamazwana okufaka';
 $string['notification_comment_subject'] = 'Amazwana amasha ku-{$a->activityname}';

@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'תוכן ההערה.';
 $string['privacy_forum_extensions'] = 'הארכות פורום';
 $string['privacy_quiz_feedback'] = 'משוב בוחן';
 
+// שילוב SATS Mail.
+$string['setting_enable_satsmail'] = 'הפעלת שילוב SATS Mail';
+$string['setting_enable_satsmail_desc'] = 'כאשר מופעל, הערות הגשה נשלחות גם כהודעות SATS Mail. משתמשים יכולים להשיב דרך SATS Mail והתשובות מסונכרנות בחזרה כהערות הגשה. דורש שתוסף SATS Mail יהיה מותקן.';
+$string['satsmail_comment_subject'] = 'הערה: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>הערת הגשה עבור <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// פרטיות: מיפוי SATS Mail.
+$string['privacy:metadata:smmap'] = 'ממפה הודעות SATS Mail לשרשורי הערות הגשה.';
+$string['privacy:metadata:smmap:cmid'] = 'מודול הקורס שאליו השרשור שייך.';
+$string['privacy:metadata:smmap:userid'] = 'הסטודנט שעליו השרשור.';
+$string['privacy:metadata:smmap:messageid'] = 'מזהה הודעת SATS Mail.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'התראות על הערות הגשה';
 $string['notification_comment_subject'] = 'הערה חדשה ב-{$a->activityname}';

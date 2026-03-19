@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'Il contenuto del commento.';
 $string['privacy_forum_extensions'] = 'Proroghe del forum';
 $string['privacy_quiz_feedback'] = 'Feedback del quiz';
 
+// Integrazione SATS Mail.
+$string['setting_enable_satsmail'] = 'Abilita integrazione SATS Mail';
+$string['setting_enable_satsmail_desc'] = 'Quando abilitato, i commenti di consegna vengono inviati anche come messaggi SATS Mail. Gli utenti possono rispondere tramite SATS Mail e le risposte vengono sincronizzate come commenti di consegna. Richiede che il plugin SATS Mail sia installato.';
+$string['satsmail_comment_subject'] = 'Commento: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Commento di consegna per <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Privacy: Mappatura SATS Mail.
+$string['privacy:metadata:smmap'] = 'Mappa i messaggi SATS Mail ai thread dei commenti di consegna.';
+$string['privacy:metadata:smmap:cmid'] = 'Il modulo del corso a cui appartiene il thread.';
+$string['privacy:metadata:smmap:userid'] = 'Lo studente a cui si riferisce il thread.';
+$string['privacy:metadata:smmap:messageid'] = 'L\'ID del messaggio SATS Mail.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Notifiche dei commenti alla consegna';
 $string['notification_comment_subject'] = 'Nuovo commento su {$a->activityname}';

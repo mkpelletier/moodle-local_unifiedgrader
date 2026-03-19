@@ -41,4 +41,8 @@ $observers = [
         'eventname' => '\mod_assign\event\submission_updated',
         'callback' => '\local_unifiedgrader\observer::handle_submission_updated',
     ],
+    [
+        'eventname' => '\local_satsmail\event\message_sent',
+        'callback' => '\local_unifiedgrader\observer::handle_satsmail_reply',
+    ],
 ];

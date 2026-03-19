@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'Το περιεχόμενο του 
 $string['privacy_forum_extensions'] = 'Παρατάσεις φόρουμ';
 $string['privacy_quiz_feedback'] = 'Ανατροφοδότηση κουίζ';
 
+// Ενσωμάτωση SATS Mail.
+$string['setting_enable_satsmail'] = 'Ενεργοποίηση ενσωμάτωσης SATS Mail';
+$string['setting_enable_satsmail_desc'] = 'Όταν είναι ενεργοποιημένο, τα σχόλια υποβολής αποστέλλονται επίσης ως μηνύματα SATS Mail. Οι χρήστες μπορούν να απαντήσουν μέσω SATS Mail και οι απαντήσεις συγχρονίζονται ως σχόλια υποβολής. Απαιτεί την εγκατάσταση του πρόσθετου SATS Mail.';
+$string['satsmail_comment_subject'] = 'Σχόλιο: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Σχόλιο υποβολής για <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Απόρρητο: Αντιστοίχιση SATS Mail.
+$string['privacy:metadata:smmap'] = 'Αντιστοιχίζει μηνύματα SATS Mail σε νήματα σχολίων υποβολής.';
+$string['privacy:metadata:smmap:cmid'] = 'Η ενότητα μαθήματος στην οποία ανήκει το νήμα.';
+$string['privacy:metadata:smmap:userid'] = 'Ο φοιτητής για τον οποίο αφορά το νήμα.';
+$string['privacy:metadata:smmap:messageid'] = 'Το αναγνωριστικό μηνύματος SATS Mail.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Ειδοποιήσεις σχολίων υποβολής';
 $string['notification_comment_subject'] = 'Νέο σχόλιο στο {$a->activityname}';

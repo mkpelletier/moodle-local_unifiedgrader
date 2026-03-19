@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'The comment content.';
 $string['privacy_forum_extensions'] = 'Forum extensions';
 $string['privacy_quiz_feedback'] = 'Quiz feedback';
 
+// SATS Mail integration.
+$string['setting_enable_satsmail'] = 'Enable SATS Mail integration';
+$string['setting_enable_satsmail_desc'] = 'When enabled, submission comments are also sent as SATS Mail messages. Users can reply via SATS Mail and replies are synced back as submission comments. Requires the SATS Mail plugin to be installed.';
+$string['satsmail_comment_subject'] = 'Comment: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Submission comment for <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Privacy: SATS Mail mapping.
+$string['privacy:metadata:smmap'] = 'Maps SATS Mail messages to submission comment threads.';
+$string['privacy:metadata:smmap:cmid'] = 'The course module the thread belongs to.';
+$string['privacy:metadata:smmap:userid'] = 'The student the thread is about.';
+$string['privacy:metadata:smmap:messageid'] = 'The SATS Mail message ID.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Submission comment notifications';
 $string['notification_comment_subject'] = 'New comment on {$a->activityname}';

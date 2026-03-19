@@ -41,8 +41,9 @@ class submission_comment_notification {
      * @param int $studentuserid The student user ID (whom the comment thread is about).
      * @param int $authorid The user who posted the comment.
      * @param string $content The comment content.
+     * @param bool $skipsatsmail If true, skip SATS Mail (used to prevent loops when syncing replies).
      */
-    public static function send(int $cmid, int $studentuserid, int $authorid, string $content): void {
+    public static function send(int $cmid, int $studentuserid, int $authorid, string $content, bool $skipsatsmail = false): void {
         [$course, $cm] = get_course_and_cm_from_cmid($cmid);
         $context = \context_module::instance($cmid);
         $author = \core_user::get_user($authorid);
@@ -71,6 +72,11 @@ class submission_comment_notification {
                 }
                 self::send_message($author, $grader, $course, $cm, $graderurl, $content);
             }
+        }
+
+        // Mirror to SATS Mail if enabled and not coming from a SATS Mail reply.
+        if (!$skipsatsmail) {
+            \local_unifiedgrader\satsmail\bridge::send_comment_as_mail($cmid, $studentuserid, $authorid, $content);
         }
     }
 

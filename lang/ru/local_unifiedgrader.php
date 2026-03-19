@@ -440,6 +440,18 @@ $string['privacy:metadata:scomm:content'] = 'Содержание коммент
 $string['privacy_forum_extensions'] = 'Продления форумов';
 $string['privacy_quiz_feedback'] = 'Отзывы по тестам';
 
+// Интеграция SATS Mail.
+$string['setting_enable_satsmail'] = 'Включить интеграцию SATS Mail';
+$string['setting_enable_satsmail_desc'] = 'При включении комментарии к работам также отправляются как сообщения SATS Mail. Пользователи могут отвечать через SATS Mail, и ответы синхронизируются обратно как комментарии к работам. Требуется установка плагина SATS Mail.';
+$string['satsmail_comment_subject'] = 'Комментарий: {$a}';
+$string['satsmail_comment_header'] = '<p><strong>Комментарий к работе для <a href="{$a->activityurl}">{$a->activityname}</a></strong></p><hr>';
+
+// Конфиденциальность: Сопоставление SATS Mail.
+$string['privacy:metadata:smmap'] = 'Сопоставляет сообщения SATS Mail с цепочками комментариев к работам.';
+$string['privacy:metadata:smmap:cmid'] = 'Модуль курса, к которому относится цепочка.';
+$string['privacy:metadata:smmap:userid'] = 'Студент, о котором идёт речь в цепочке.';
+$string['privacy:metadata:smmap:messageid'] = 'Идентификатор сообщения SATS Mail.';
+
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Уведомления о комментариях к работам';
 $string['notification_comment_subject'] = 'Новый комментарий к {$a->activityname}';
