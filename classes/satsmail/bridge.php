@@ -79,14 +79,14 @@ class bridge {
         $smcourse = \local_satsmail\course::get($course->id);
 
         // Determine recipients and the appropriate URL for them.
-        // Teacher→student: student sees assignment view. Student→teacher: teacher sees grader.
+        // Teacher→student: student sees activity view. Student→teacher: teacher sees grader.
         $isgrader = has_capability('local/unifiedgrader:grade', $context, $authorid);
         $recipients = [];
 
         if ($isgrader) {
-            // Teacher sent → student receives → link to assignment view.
+            // Teacher sent → student receives → link to activity view.
             $recipients[] = \local_satsmail\user::get($studentuserid);
-            $activityurl = (new \moodle_url('/mod/assign/view.php', ['id' => $cmid]))->out(false);
+            $activityurl = (new \moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cmid]))->out(false);
         } else {
             // Student sent → teachers receive → link to unified grader.
             $graders = get_enrolled_users($context, 'local/unifiedgrader:grade');
