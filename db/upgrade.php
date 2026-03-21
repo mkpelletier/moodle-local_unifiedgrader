@@ -248,7 +248,6 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
     }
 
     if ($oldversion < 2026031900) {
-
         // Create local_unifiedgrader_smmap table for SATS Mail message mapping.
         $table = new xmldb_table('local_unifiedgrader_smmap');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
