@@ -33,6 +33,26 @@
         * description - string: criterion description
         * scoreDisplay - string: e.g. "– / 5"
 
+    Example context (json):
+    {
+        "description": "Assessment criteria for this activity.",
+        "isRubric": true,
+        "isGuide": false,
+        "criteria": [
+            {
+                "description": "Content quality",
+                "shortname": "Content",
+                "scoreDisplay": "0 / 5",
+                "levels": [
+                    {
+                        "definition": "Excellent understanding",
+                        "scoreDisplay": "5"
+                    }
+                ]
+            }
+        ]
+    }
+
     @package local_unifiedgrader
     @copyright 2026 South African Theological Seminary
     @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
