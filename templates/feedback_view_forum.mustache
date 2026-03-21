@@ -37,6 +37,43 @@
     - hasadvancedgrading: Whether rubric or guide is active
     - gradingmethodname: Display name of the grading method
     - showrightcolumn: Whether to show the right column
+
+    Example context (json):
+    {
+        "cmid": 1,
+        "activityname": "Forum 1",
+        "activityurl": "https://example.com",
+        "gradedisplay": "85 / 100",
+        "feedback": "<p>Good discussion.</p>",
+        "hasfeedback": true,
+        "postcontent": "<p>Student post content...</p>",
+        "hasposts": true,
+        "haspdffiles": false,
+        "selectedfileid": 0,
+        "selectedfileurl": "",
+        "selectedfilename": "",
+        "pdffiles": [],
+        "hasmultiplefiles": false,
+        "pdffilesjson": "[]",
+        "hasannotatedpdf": false,
+        "annotatedpdfurl": "",
+        "downloadfilename": "feedback.pdf",
+        "annotatedpdfmapjson": "{}",
+        "feedbackdownloadurl": "https://example.com/download",
+        "userid": 2,
+        "hasrubric": false,
+        "rubriccriteria": [],
+        "rubrictotal": 0,
+        "hasguide": false,
+        "guidecriteria": [],
+        "guidetotal": 0,
+        "guidemaxtotal": 0,
+        "hasadvancedgrading": false,
+        "gradingmethodname": "",
+        "showrightcolumn": true,
+        "haspenalties": false,
+        "penalties": []
+    }
 }}
 <div class="local-unifiedgrader-feedback" data-region="feedback-viewer"
      data-cmid="{{cmid}}" data-fileid="{{selectedfileid}}"

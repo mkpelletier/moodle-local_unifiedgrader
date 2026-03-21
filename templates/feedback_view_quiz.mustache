@@ -24,6 +24,29 @@
     - selectedattempt: Currently selected attempt number
     - hascommentsfeature: Whether submission comments are enabled
     - commentcount: Number of existing submission comments
+
+    Example context (json):
+    {
+        "cmid": 1,
+        "activityname": "Quiz 1",
+        "activityurl": "https://example.com",
+        "gradedisplay": "85 / 100",
+        "feedback": "<p>Well done.</p>",
+        "hasfeedback": true,
+        "attemptcontent": "<p>Question 1 answer...</p>",
+        "hasattempt": true,
+        "feedbackdownloadurl": "https://example.com/download",
+        "downloadfilename": "feedback.pdf",
+        "userid": 2,
+        "showrightcolumn": true,
+        "haspenalties": false,
+        "penalties": [],
+        "hasmultipleattempts": false,
+        "attempts": [],
+        "selectedattempt": 1,
+        "hascommentsfeature": true,
+        "commentcount": 0
+    }
 }}
 <div class="local-unifiedgrader-feedback" data-region="feedback-viewer"
      data-cmid="{{cmid}}">

@@ -43,6 +43,58 @@
     - submissionpreviewurl: URL for iframe-based submission preview (non-PDF)
     - hasmultipleattempts: Whether there are multiple submission attempts
     - attempts: Array of attempt objects with attemptnumber, label, date, selected, url
+
+    Example context (json):
+    {
+        "cmid": 1,
+        "activityname": "Assignment 1",
+        "activityurl": "https://example.com",
+        "gradedisplay": "85 / 100",
+        "feedback": "<p>Good work.</p>",
+        "hasfeedback": true,
+        "selectedfileid": 1,
+        "selectedfileurl": "https://example.com/file.pdf",
+        "selectedfilename": "submission.pdf",
+        "pdffiles": [
+            {
+                "fileid": 1,
+                "previewurl": "https://example.com/file.pdf",
+                "filename": "submission.pdf",
+                "selected": true
+            }
+        ],
+        "hasmultiplefiles": false,
+        "pdffilesjson": "[]",
+        "hasannotatedpdf": true,
+        "annotatedpdfurl": "https://example.com/annotated.pdf",
+        "downloadfilename": "feedback.pdf",
+        "annotatedpdfmapjson": "{}",
+        "feedbackdownloadurl": "https://example.com/download",
+        "userid": 2,
+        "hasfeedbackfiles": false,
+        "feedbackfiles": [],
+        "feedbackfilecount": 0,
+        "feedbackfilesjson": "[]",
+        "hascommentsfeature": true,
+        "commentcount": 2,
+        "canpostcomments": true,
+        "showrightcolumn": true,
+        "hasrubric": false,
+        "rubriccriteria": [],
+        "rubrictotal": 0,
+        "hasguide": false,
+        "guidecriteria": [],
+        "guidetotal": 0,
+        "guidemaxtotal": 0,
+        "hasadvancedgrading": false,
+        "gradingmethodname": "",
+        "haspdffiles": true,
+        "submissionpreviewurl": "https://example.com/preview",
+        "hasmultipleattempts": false,
+        "attempts": [],
+        "haspenalties": false,
+        "penalties": []
+    }
 }}
 <div class="local-unifiedgrader-feedback" data-region="feedback-viewer"
      data-cmid="{{cmid}}" data-fileid="{{selectedfileid}}"
