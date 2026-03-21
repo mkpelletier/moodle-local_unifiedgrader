@@ -26,7 +26,6 @@ namespace local_unifiedgrader;
  * @covers \local_unifiedgrader\hook_callbacks
  */
 final class hook_callbacks_test extends \advanced_testcase {
-
     /**
      * Helper: Create a hook instance and invoke the callback.
      *

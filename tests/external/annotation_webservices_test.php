@@ -33,7 +33,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\get_student_annotations
  */
 final class annotation_webservices_test extends \advanced_testcase {
-
     /** @var int Fake file ID for testing (annotations reference file IDs but do not validate them). */
     private const FAKE_FILEID = 12345;
 

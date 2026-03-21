@@ -40,7 +40,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\import_shared_comment
  */
 final class comment_library_webservices_test extends \advanced_testcase {
-
     // -------------------------------------------------------------------------
     // get_library_comments tests.
     // -------------------------------------------------------------------------

@@ -26,7 +26,6 @@ namespace local_unifiedgrader;
  * @covers \local_unifiedgrader\comment_library_manager
  */
 final class comment_library_manager_test extends \advanced_testcase {
-
     /**
      * Test creating a new comment.
      */

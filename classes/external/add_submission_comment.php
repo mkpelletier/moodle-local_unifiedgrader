@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
@@ -37,7 +35,6 @@ use local_unifiedgrader\notification\submission_comment_notification;
  * Adds a comment to a student's submission.
  */
 class add_submission_comment extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

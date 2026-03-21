@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
@@ -36,7 +34,6 @@ use local_unifiedgrader\adapter\adapter_factory;
  * Performs a submission status action (revert to draft, remove, lock, unlock).
  */
 class submission_action extends external_api {
-
     /** @var string[] Allowed action identifiers. */
     private const ALLOWED_ACTIONS = ['revert_to_draft', 'remove', 'lock', 'unlock', 'submit'];
 

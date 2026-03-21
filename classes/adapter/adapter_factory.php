@@ -24,13 +24,10 @@
 
 namespace local_unifiedgrader\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Resolves a course module ID to the correct adapter subclass.
  */
 class adapter_factory {
-
     /** @var array<string, class-string<base_adapter>> Registered adapter classes. */
     private const ADAPTERS = [
         'assign' => assign_adapter::class,

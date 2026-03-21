@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Manages reusable comment library entries.
  *
@@ -33,7 +31,6 @@ defined('MOODLE_INTERNAL') || die();
  * Each teacher has their own library.
  */
 class comment_library {
-
     /**
      * Get comments for a user, optionally filtered by course.
      *

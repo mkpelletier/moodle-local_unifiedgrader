@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\privacy;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_privacy\local\metadata\collection;
 use core_privacy\local\request\approved_contextlist;
 use core_privacy\local\request\approved_userlist;
@@ -38,9 +36,8 @@ use core_privacy\local\request\writer;
  */
 class provider implements
     \core_privacy\local\metadata\provider,
-    \core_privacy\local\request\plugin\provider,
-    \core_privacy\local\request\core_userlist_provider {
-
+    \core_privacy\local\request\core_userlist_provider,
+    \core_privacy\local\request\plugin\provider {
     /**
      * Describe the personal data stored by this plugin.
      *
@@ -321,7 +318,7 @@ class provider implements
             ]);
 
             if ($notes) {
-                $exportdata = array_map(function($note) {
+                $exportdata = array_map(function ($note) {
                     return [
                         'content' => $note->content,
                         'timecreated' => \core_privacy\local\request\transform::datetime($note->timecreated),
@@ -341,7 +338,7 @@ class provider implements
             ]);
 
             if ($authored) {
-                $exportdata = array_map(function($note) {
+                $exportdata = array_map(function ($note) {
                     return [
                         'content' => $note->content,
                         'timecreated' => \core_privacy\local\request\transform::datetime($note->timecreated),
@@ -361,7 +358,7 @@ class provider implements
             ]);
 
             if ($annotations) {
-                $exportdata = array_map(function($annot) {
+                $exportdata = array_map(function ($annot) {
                     return [
                         'fileid' => (int) $annot->fileid,
                         'pagenum' => (int) $annot->pagenum,
@@ -383,7 +380,7 @@ class provider implements
             ]);
 
             if ($penalties) {
-                $exportdata = array_map(function($penalty) {
+                $exportdata = array_map(function ($penalty) {
                     return [
                         'category' => $penalty->category,
                         'label' => $penalty->label,
@@ -405,7 +402,7 @@ class provider implements
             ]);
 
             if ($fexts) {
-                $exportdata = array_map(function($fext) {
+                $exportdata = array_map(function ($fext) {
                     return [
                         'extensionduedate' => \core_privacy\local\request\transform::datetime(
                             $fext->extensionduedate
@@ -427,7 +424,7 @@ class provider implements
             ]);
 
             if ($qfbs) {
-                $exportdata = array_map(function($qfb) {
+                $exportdata = array_map(function ($qfb) {
                     return [
                         'attemptnumber' => (int) $qfb->attemptnumber,
                         'feedback' => $qfb->feedback,
@@ -449,7 +446,7 @@ class provider implements
             ]);
 
             if ($scomments) {
-                $exportdata = array_map(function($sc) {
+                $exportdata = array_map(function ($sc) {
                     return [
                         'content' => $sc->content,
                         'authorid' => (int) $sc->authorid,
@@ -470,7 +467,7 @@ class provider implements
             ]);
 
             if ($authoredsc) {
-                $exportdata = array_map(function($sc) {
+                $exportdata = array_map(function ($sc) {
                     return [
                         'content' => $sc->content,
                         'userid' => (int) $sc->userid,
@@ -488,7 +485,7 @@ class provider implements
         // Export comment library (user-level, not context-specific).
         $comments = $DB->get_records('local_unifiedgrader_comments', ['userid' => $userid]);
         if ($comments) {
-            $exportdata = array_map(function($comment) {
+            $exportdata = array_map(function ($comment) {
                 return [
                     'content' => $comment->content,
                     'timecreated' => \core_privacy\local\request\transform::datetime($comment->timecreated),
@@ -504,7 +501,7 @@ class provider implements
         // Export comment library v2 (clib).
         $clibitems = $DB->get_records('local_unifiedgrader_clib', ['userid' => $userid]);
         if ($clibitems) {
-            $exportdata = array_map(function($item) {
+            $exportdata = array_map(function ($item) {
                 return [
                     'coursecode' => $item->coursecode,
                     'content' => $item->content,
@@ -522,7 +519,7 @@ class provider implements
         // Export comment library v2 tags.
         $tags = $DB->get_records('local_unifiedgrader_cltag', ['userid' => $userid]);
         if ($tags) {
-            $exportdata = array_map(function($tag) {
+            $exportdata = array_map(function ($tag) {
                 return [
                     'name' => $tag->name,
                     'timecreated' => \core_privacy\local\request\transform::datetime($tag->timecreated),
@@ -657,40 +654,46 @@ class provider implements
         [$insql1, $inparams1] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid1');
         [$insql2, $inparams2] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid2');
 
-        $DB->delete_records_select('local_unifiedgrader_notes',
+        $DB->delete_records_select(
+            'local_unifiedgrader_notes',
             "cmid = :cmid AND (userid {$insql1} OR authorid {$insql2})",
             array_merge(['cmid' => $context->instanceid], $inparams1, $inparams2),
         );
 
         [$insql3, $inparams3] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid3');
-        $DB->delete_records_select('local_unifiedgrader_annot',
+        $DB->delete_records_select(
+            'local_unifiedgrader_annot',
             "cmid = :cmid2 AND userid {$insql3}",
             array_merge(['cmid2' => $context->instanceid], $inparams3),
         );
 
         [$insql4, $inparams4] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid4');
         [$insql5, $inparams5] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid5');
-        $DB->delete_records_select('local_unifiedgrader_penalty',
+        $DB->delete_records_select(
+            'local_unifiedgrader_penalty',
             "cmid = :cmid3 AND (userid {$insql4} OR authorid {$insql5})",
             array_merge(['cmid3' => $context->instanceid], $inparams4, $inparams5),
         );
 
         [$insql6, $inparams6] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid6');
         [$insql7, $inparams7] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid7');
-        $DB->delete_records_select('local_unifiedgrader_fext',
+        $DB->delete_records_select(
+            'local_unifiedgrader_fext',
             "cmid = :cmid4 AND (userid {$insql6} OR authorid {$insql7})",
             array_merge(['cmid4' => $context->instanceid], $inparams6, $inparams7),
         );
 
         [$insql8, $inparams8] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid8');
-        $DB->delete_records_select('local_unifiedgrader_qfb',
+        $DB->delete_records_select(
+            'local_unifiedgrader_qfb',
             "cmid = :cmid5 AND userid {$insql8}",
             array_merge(['cmid5' => $context->instanceid], $inparams8),
         );
 
         [$insql9, $inparams9] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid9');
         [$insql10, $inparams10] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid10');
-        $DB->delete_records_select('local_unifiedgrader_scomm',
+        $DB->delete_records_select(
+            'local_unifiedgrader_scomm',
             "cmid = :cmid6 AND (userid {$insql9} OR authorid {$insql10})",
             array_merge(['cmid6' => $context->instanceid], $inparams9, $inparams10),
         );

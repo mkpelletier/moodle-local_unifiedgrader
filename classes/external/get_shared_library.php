@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
@@ -37,7 +35,6 @@ use local_unifiedgrader\comment_library_manager;
  * Returns instance-wide shared comments from other teachers.
  */
 class get_shared_library extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

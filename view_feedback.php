@@ -71,9 +71,7 @@ if (!$adapter->is_grade_released($userid)) {
     exit;
 }
 
-// ──────────────────────────────────────────────
-//  Forum feedback view.
-// ──────────────────────────────────────────────
+// Forum feedback view.
 if ($cm->modname === 'forum') {
     $gradedata = $adapter->get_grade_data($userid);
     $submissiondata = $adapter->get_submission_data($userid);
@@ -202,9 +200,7 @@ if ($cm->modname === 'forum') {
     exit;
 }
 
-// ──────────────────────────────────────────────
-//  Quiz feedback view.
-// ──────────────────────────────────────────────
+// Quiz feedback view.
 if ($cm->modname === 'quiz') {
     $attemptnum = optional_param('attempt', 0, PARAM_INT);
     $activityinfo = $adapter->get_activity_info();
@@ -258,8 +254,10 @@ if ($cm->modname === 'quiz') {
     if ($selectedattempt > 0) {
         $downloadparams['attempt'] = $selectedattempt;
     }
-    $feedbackdownloadurl = (new moodle_url('/local/unifiedgrader/download_feedback.php',
-        $downloadparams))->out(false);
+    $feedbackdownloadurl = (new moodle_url(
+        '/local/unifiedgrader/download_feedback.php',
+        $downloadparams,
+    ))->out(false);
 
     // Build attempt selector data for the template.
     $attemptlist = [];
@@ -311,9 +309,7 @@ if ($cm->modname === 'quiz') {
     exit;
 }
 
-// ──────────────────────────────────────────────
-//  Assignment feedback view.
-// ──────────────────────────────────────────────
+// Assignment feedback view.
 
 // Load attempts and determine which one to show.
 $attemptnum = optional_param('attempt', -1, PARAM_INT);
@@ -482,8 +478,10 @@ $downloadparams = [
 if ($selectedattempt >= 0) {
     $downloadparams['attempt'] = $selectedattempt;
 }
-$feedbackdownloadurl = (new moodle_url('/local/unifiedgrader/download_feedback.php',
-    $downloadparams))->out(false);
+$feedbackdownloadurl = (new moodle_url(
+    '/local/unifiedgrader/download_feedback.php',
+    $downloadparams,
+))->out(false);
 
 // Build attempt selector data for the template.
 $attemptlist = [];

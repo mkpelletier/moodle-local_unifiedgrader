@@ -80,7 +80,7 @@
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Owner teacher"/>
-        <FIELD NAME="coursecode" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="" SEQUENCE="false" COMMENT="Extracted course code"/>
+        <FIELD NAME="coursecode" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Extracted course code"/>
         <FIELD NAME="content" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="Comment text"/>
         <FIELD NAME="shared" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="1 = visible to all teachers"/>
         <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
@@ -134,7 +134,7 @@
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student being penalized"/>
         <FIELD NAME="authorid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Teacher who applied the penalty"/>
         <FIELD NAME="category" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="wordcount or other"/>
-        <FIELD NAME="label" TYPE="char" LENGTH="15" NOTNULL="true" DEFAULT="" SEQUENCE="false" COMMENT="Custom label for other penalties"/>
+        <FIELD NAME="label" TYPE="char" LENGTH="15" NOTNULL="true" SEQUENCE="false" COMMENT="Custom label for other penalties"/>
         <FIELD NAME="percentage" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Penalty as integer percent of max grade"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>

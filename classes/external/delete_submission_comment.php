@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
@@ -36,7 +34,6 @@ use local_unifiedgrader\submission_comment_manager;
  * Deletes a submission comment.
  */
 class delete_submission_comment extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

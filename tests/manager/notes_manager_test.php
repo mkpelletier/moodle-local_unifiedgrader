@@ -26,7 +26,6 @@ namespace local_unifiedgrader;
  * @covers \local_unifiedgrader\notes_manager
  */
 final class notes_manager_test extends \advanced_testcase {
-
     /**
      * Test creating a new note.
      */

@@ -16,8 +16,6 @@
 
 namespace local_unifiedgrader\pdf;
 
-defined('MOODLE_INTERNAL') || die();
-
 global $CFG;
 require_once($CFG->libdir . '/pdflib.php');
 
@@ -32,7 +30,6 @@ require_once($CFG->libdir . '/pdflib.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class feedback_summary_pdf extends \pdf {
-
     /** @var int Color for grades >= 75%. */
     private const COLOR_GREEN = 0x28A745;
 

@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Manages annotation data stored per page per file per student.
  *
@@ -34,7 +32,6 @@ defined('MOODLE_INTERNAL') || die();
  * a unique annotation record.
  */
 class annotation_manager {
-
     /**
      * Get all annotations for a specific file.
      *

@@ -24,13 +24,10 @@
 
 namespace local_unifiedgrader\notification;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Sends Moodle notifications when submission comments are posted.
  */
 class submission_comment_notification {
-
     /**
      * Send notification(s) for a new submission comment.
      *

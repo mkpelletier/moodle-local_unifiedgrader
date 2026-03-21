@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 global $CFG;
 require_once($CFG->dirroot . '/mod/assign/locallib.php');
 require_once($CFG->dirroot . '/grade/grading/lib.php');
@@ -35,7 +33,6 @@ use local_unifiedgrader\submission_comment_manager;
  * Concrete adapter wrapping mod_assign's internal API.
  */
 class assign_adapter extends base_adapter {
-
     /** @var \assign The native assign instance. */
     private \assign $assign;
 

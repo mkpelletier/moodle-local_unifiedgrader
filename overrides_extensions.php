@@ -84,7 +84,6 @@ if ($modname === 'assign') {
     if ($flags && (int) $flags->extensionduedate > 0) {
         $overrides['extensionduedate'] = (int) $flags->extensionduedate;
     }
-
 } else if ($modname === 'quiz') {
     $quiz = $DB->get_record('quiz', ['id' => $cm->instance], '*', MUST_EXIST);
     $hasduedateplugin = class_exists('\quizaccess_duedate\override_manager');
@@ -122,7 +121,6 @@ if ($modname === 'assign') {
             $overrides['extensionduedate'] = (int) $ext['duedate'];
         }
     }
-
 } else if ($modname === 'forum') {
     $forum = $DB->get_record('forum', ['id' => $cm->instance], '*', MUST_EXIST);
 
@@ -137,7 +135,6 @@ if ($modname === 'assign') {
     if ($ext) {
         $overrides['extensionduedate'] = (int) $ext['extensionduedate'];
     }
-
 } else {
     throw new moodle_exception('invalidmodule', 'local_unifiedgrader');
 }

@@ -28,8 +28,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
@@ -40,7 +38,6 @@ use local_unifiedgrader\adapter\adapter_factory;
  * Prepares the draft area with a student's feedback files.
  */
 class prepare_feedback_draft extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

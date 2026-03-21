@@ -27,8 +27,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
@@ -38,7 +36,6 @@ use core_external\external_value;
  * Stores a flattened annotated PDF in Moodle file storage.
  */
 class save_annotated_pdf extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

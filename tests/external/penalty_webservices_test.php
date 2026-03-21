@@ -32,7 +32,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\delete_penalty
  */
 final class penalty_webservices_test extends \advanced_testcase {
-
     /**
      * Helper: create a grading scenario and set the teacher as current user.
      *

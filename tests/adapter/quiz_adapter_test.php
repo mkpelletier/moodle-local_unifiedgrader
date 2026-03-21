@@ -26,7 +26,6 @@ namespace local_unifiedgrader\adapter;
  * @covers \local_unifiedgrader\adapter\quiz_adapter
  */
 final class quiz_adapter_test extends \advanced_testcase {
-
     /**
      * Helper: create a quiz scenario and return the adapter.
      *

@@ -26,7 +26,6 @@ namespace local_unifiedgrader;
  * @covers \local_unifiedgrader\annotation_manager
  */
 final class annotation_manager_test extends \advanced_testcase {
-
     /**
      * Test saving a new annotation.
      */

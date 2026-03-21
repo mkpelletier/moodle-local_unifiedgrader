@@ -33,7 +33,6 @@ use core_privacy\tests\provider_testcase;
  * @covers \local_unifiedgrader\privacy\provider
  */
 final class provider_test extends provider_testcase {
-
     /**
      * Test that metadata declares all tables.
      */

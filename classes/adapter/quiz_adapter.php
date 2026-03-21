@@ -28,8 +28,6 @@
 
 namespace local_unifiedgrader\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 use local_unifiedgrader\submission_comment_manager;
 
 global $CFG;
@@ -48,7 +46,6 @@ use question_state;
  * Concrete adapter wrapping mod_quiz's grading API.
  */
 class quiz_adapter extends base_adapter {
-
     /** @var \stdClass The raw quiz DB record. */
     private \stdClass $quiz;
 
