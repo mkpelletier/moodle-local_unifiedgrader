@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Manages private teacher notes stored per student per activity.
  *
@@ -33,7 +31,6 @@ defined('MOODLE_INTERNAL') || die();
  * and are never shown to students.
  */
 class notes_manager {
-
     /**
      * Get all notes for a student in a specific activity.
      *

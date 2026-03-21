@@ -28,7 +28,6 @@ use local_unifiedgrader\penalty_manager;
  * @covers \local_unifiedgrader\penalty_manager
  */
 final class penalty_manager_test extends \advanced_testcase {
-
     /**
      * Test saving and retrieving a wordcount penalty.
      */
@@ -43,7 +42,12 @@ final class penalty_manager_test extends \advanced_testcase {
         $student = $gen->create_user();
 
         $id = penalty_manager::save_penalty(
-            $cm->id, $student->id, $teacher->id, 'wordcount', '', 10,
+            $cm->id,
+            $student->id,
+            $teacher->id,
+            'wordcount',
+            '',
+            10,
         );
 
         $this->assertGreaterThan(0, $id);
@@ -69,7 +73,12 @@ final class penalty_manager_test extends \advanced_testcase {
         $student = $gen->create_user();
 
         $id = penalty_manager::save_penalty(
-            $cm->id, $student->id, $teacher->id, 'other', 'Formatting', 5,
+            $cm->id,
+            $student->id,
+            $teacher->id,
+            'other',
+            'Formatting',
+            5,
         );
 
         $penalties = penalty_manager::get_penalties($cm->id, $student->id);
@@ -323,7 +332,13 @@ final class penalty_manager_test extends \advanced_testcase {
 
         // Update by explicit ID.
         $updatedid = penalty_manager::save_penalty(
-            $cm->id, $student->id, $teacher->id, 'wordcount', '', 25, $id,
+            $cm->id,
+            $student->id,
+            $teacher->id,
+            'wordcount',
+            '',
+            25,
+            $id,
         );
 
         $this->assertEquals($id, $updatedid);
@@ -347,7 +362,12 @@ final class penalty_manager_test extends \advanced_testcase {
         $student = $gen->create_user();
 
         penalty_manager::save_penalty(
-            $cm->id, $student->id, $teacher->id, 'other', 'This is a very long label', 5,
+            $cm->id,
+            $student->id,
+            $teacher->id,
+            'other',
+            'This is a very long label',
+            5,
         );
 
         $penalties = penalty_manager::get_penalties($cm->id, $student->id);

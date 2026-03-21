@@ -46,7 +46,9 @@ $convert = optional_param('convert', '', PARAM_ALPHA);
 
 // Validate context and capability.
 $context = context_module::instance($cmid);
-require_login(get_course($context->get_course_context()->instanceid), false, get_coursemodule_from_id('', $cmid, 0, false, MUST_EXIST));
+$course = get_course($context->get_course_context()->instanceid);
+$cm = get_coursemodule_from_id('', $cmid, 0, false, MUST_EXIST);
+require_login($course, false, $cm);
 
 // Teachers with grade capability can access any file in this context.
 // Students with viewfeedback capability can only access their own files after grade release.

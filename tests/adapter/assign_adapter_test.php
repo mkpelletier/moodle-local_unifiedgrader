@@ -26,7 +26,6 @@ namespace local_unifiedgrader\adapter;
  * @covers \local_unifiedgrader\adapter\assign_adapter
  */
 final class assign_adapter_test extends \advanced_testcase {
-
     /**
      * Helper: create a scenario and return the adapter.
      *

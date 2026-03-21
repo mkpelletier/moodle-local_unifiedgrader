@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Manages submission comments stored per student per activity.
  *
@@ -33,7 +31,6 @@ defined('MOODLE_INTERNAL') || die();
  * grading capability in the activity context.
  */
 class submission_comment_manager {
-
     /** @var string The database table name. */
     private const TABLE = 'local_unifiedgrader_scomm';
 

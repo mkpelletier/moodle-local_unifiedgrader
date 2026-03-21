@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
@@ -36,7 +34,6 @@ use local_unifiedgrader\comment_library_manager;
  * Deletes a comment library tag.
  */
 class delete_library_tag extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

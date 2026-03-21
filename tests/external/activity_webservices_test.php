@@ -33,7 +33,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\get_grade_data
  */
 final class activity_webservices_test extends \advanced_testcase {
-
     /**
      * Helper: create a grading scenario and set the teacher as current user.
      *

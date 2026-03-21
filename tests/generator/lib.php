@@ -32,7 +32,6 @@ defined('MOODLE_INTERNAL') || die();
  * and common grading scenarios.
  */
 class local_unifiedgrader_generator extends component_generator_base {
-
     /** @var int Counter for notes. */
     protected int $notecount = 0;
 

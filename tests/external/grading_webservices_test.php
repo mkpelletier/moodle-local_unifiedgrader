@@ -32,7 +32,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\submission_action
  */
 final class grading_webservices_test extends \advanced_testcase {
-
     /**
      * Helper: create a grading scenario and set the teacher as current user.
      *
@@ -262,7 +261,7 @@ final class grading_webservices_test extends \advanced_testcase {
         // Create quiz with marks hidden (reviewmarks has no LATER_WHILE_OPEN or AFTER_CLOSE bits).
         $scenario = $plugingen->create_grading_scenario('quiz', [
             'modparams' => [
-                'reviewmarks' => 0x11000,    // DURING + IMMEDIATELY_AFTER only.
+                'reviewmarks' => 0x11000, // DURING + IMMEDIATELY_AFTER only.
                 'reviewmaxmarks' => 0x11000, // DURING + IMMEDIATELY_AFTER only.
             ],
         ]);
@@ -276,7 +275,7 @@ final class grading_webservices_test extends \advanced_testcase {
         // Verify review options updated.
         $quiz = $DB->get_record('quiz', ['id' => $scenario->activity->id]);
         $laterwhileopen = 0x00100;
-        $afterclose     = 0x00010;
+        $afterclose = 0x00010;
 
         $this->assertNotEquals(0, $quiz->reviewmarks & $laterwhileopen, 'LATER_WHILE_OPEN bit should be set on reviewmarks');
         $this->assertNotEquals(0, $quiz->reviewmarks & $afterclose, 'AFTER_CLOSE bit should be set on reviewmarks');
@@ -301,7 +300,7 @@ final class grading_webservices_test extends \advanced_testcase {
         // Create quiz with marks visible in all time periods.
         $scenario = $plugingen->create_grading_scenario('quiz', [
             'modparams' => [
-                'reviewmarks' => 0x11110,    // All time periods.
+                'reviewmarks' => 0x11110, // All time periods.
                 'reviewmaxmarks' => 0x11110, // All time periods.
             ],
         ]);
@@ -315,7 +314,7 @@ final class grading_webservices_test extends \advanced_testcase {
         // Verify LATER_WHILE_OPEN and AFTER_CLOSE bits are cleared.
         $quiz = $DB->get_record('quiz', ['id' => $scenario->activity->id]);
         $laterwhileopen = 0x00100;
-        $afterclose     = 0x00010;
+        $afterclose = 0x00010;
 
         $this->assertEquals(0, $quiz->reviewmarks & $laterwhileopen, 'LATER_WHILE_OPEN bit should be cleared');
         $this->assertEquals(0, $quiz->reviewmarks & $afterclose, 'AFTER_CLOSE bit should be cleared');

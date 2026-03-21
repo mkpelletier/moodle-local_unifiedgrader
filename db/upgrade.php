@@ -36,7 +36,6 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
     $dbman = $DB->get_manager();
 
     if ($oldversion < 2026022006) {
-
         // 1. Create local_unifiedgrader_clib table.
         $table = new xmldb_table('local_unifiedgrader_clib');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
@@ -149,7 +148,6 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
     }
 
     if ($oldversion < 2026022502) {
-
         // Create local_unifiedgrader_penalty table.
         $table = new xmldb_table('local_unifiedgrader_penalty');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
@@ -172,7 +170,6 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
     }
 
     if ($oldversion < 2026022701) {
-
         // Create local_unifiedgrader_fext table for forum due date extensions.
         $table = new xmldb_table('local_unifiedgrader_fext');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
@@ -193,7 +190,6 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
     }
 
     if ($oldversion < 2026022702) {
-
         // Create local_unifiedgrader_qfb table for per-attempt quiz feedback.
         $table = new xmldb_table('local_unifiedgrader_qfb');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
@@ -216,7 +212,6 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
     }
 
     if ($oldversion < 2026031800) {
-
         // Create local_unifiedgrader_scomm table for submission comments.
         $table = new xmldb_table('local_unifiedgrader_scomm');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);

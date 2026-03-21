@@ -34,7 +34,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\delete_duedate_extension
  */
 final class override_webservices_test extends \advanced_testcase {
-
     // -------------------------------------------------------------------------
     // delete_user_override tests (assignment).
     // -------------------------------------------------------------------------

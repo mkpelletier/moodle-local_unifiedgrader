@@ -32,7 +32,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\delete_annotated_pdf
  */
 final class annotated_pdf_webservices_test extends \advanced_testcase {
-
     /**
      * Helper: create a grading scenario for assignments.
      *
@@ -306,15 +305,23 @@ final class annotated_pdf_webservices_test extends \advanced_testcase {
 
         // Student1's file should be gone.
         $file1 = $fs->get_file(
-            $scenario->context->id, 'local_unifiedgrader', 'annotatedpdf',
-            $fileid, '/' . $student1->id . '/', $filename,
+            $scenario->context->id,
+            'local_unifiedgrader',
+            'annotatedpdf',
+            $fileid,
+            '/' . $student1->id . '/',
+            $filename,
         );
         $this->assertFalse($file1);
 
         // Student2's file should still exist.
         $file2 = $fs->get_file(
-            $scenario->context->id, 'local_unifiedgrader', 'annotatedpdf',
-            $fileid, '/' . $student2->id . '/', $filename,
+            $scenario->context->id,
+            'local_unifiedgrader',
+            'annotatedpdf',
+            $fileid,
+            '/' . $student2->id . '/',
+            $filename,
         );
         $this->assertNotFalse($file2);
     }

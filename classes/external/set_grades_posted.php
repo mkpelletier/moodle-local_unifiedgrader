@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
@@ -41,7 +39,6 @@ use local_unifiedgrader\adapter\adapter_factory;
  *   >1 = Unix timestamp (hidden until that date, then auto-visible)
  */
 class set_grades_posted extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

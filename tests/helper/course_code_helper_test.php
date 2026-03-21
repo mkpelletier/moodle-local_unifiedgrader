@@ -26,7 +26,6 @@ namespace local_unifiedgrader;
  * @covers \local_unifiedgrader\course_code_helper
  */
 final class course_code_helper_test extends \advanced_testcase {
-
     /**
      * Test extract_code with no regex configured returns full shortname.
      */

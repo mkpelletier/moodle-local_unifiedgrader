@@ -24,13 +24,10 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Manages comment library entries, tags, and tag mappings.
  */
 class comment_library_manager {
-
     /**
      * Get comments for a teacher, optionally filtered by course code and/or tag.
      *

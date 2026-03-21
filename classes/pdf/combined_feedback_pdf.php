@@ -16,8 +16,6 @@
 
 namespace local_unifiedgrader\pdf;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Combines a feedback summary PDF with an annotated submission PDF.
  *
@@ -33,7 +31,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class combined_feedback_pdf {
-
     /**
      * Combine a summary PDF with an annotated PDF using GhostScript.
      *

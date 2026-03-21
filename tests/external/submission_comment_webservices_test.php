@@ -33,7 +33,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\delete_submission_comment
  */
 final class submission_comment_webservices_test extends \advanced_testcase {
-
     /**
      * Helper: create a grading scenario and set teacher as current user.
      *
@@ -523,9 +522,11 @@ final class submission_comment_webservices_test extends \advanced_testcase {
         // Find the notification sent to the student.
         $found = false;
         foreach ($messages as $msg) {
-            if ((int) $msg->useridto === (int) $scenario->students[0]->id
-                    && $msg->component === 'local_unifiedgrader'
-                    && $msg->eventtype === 'submission_comment') {
+            if (
+                (int) $msg->useridto === (int) $scenario->students[0]->id
+                && $msg->component === 'local_unifiedgrader'
+                && $msg->eventtype === 'submission_comment'
+            ) {
                 $found = true;
                 $this->assertStringContainsString('Please review my feedback', $msg->fullmessagehtml);
                 $this->assertStringContainsString(fullname($scenario->teacher), $msg->fullmessagehtml);
@@ -558,9 +559,11 @@ final class submission_comment_webservices_test extends \advanced_testcase {
         // Find the notification sent to the teacher.
         $found = false;
         foreach ($messages as $msg) {
-            if ((int) $msg->useridto === (int) $scenario->teacher->id
-                    && $msg->component === 'local_unifiedgrader'
-                    && $msg->eventtype === 'submission_comment') {
+            if (
+                (int) $msg->useridto === (int) $scenario->teacher->id
+                && $msg->component === 'local_unifiedgrader'
+                && $msg->eventtype === 'submission_comment'
+            ) {
                 $found = true;
                 $this->assertStringContainsString('I have a question about my grade', $msg->fullmessagehtml);
                 break;

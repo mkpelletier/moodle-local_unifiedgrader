@@ -27,8 +27,6 @@
 
 namespace local_unifiedgrader\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 use local_unifiedgrader\submission_comment_manager;
 
 global $CFG;
@@ -44,7 +42,6 @@ use mod_forum\grades\forum_gradeitem;
  * Concrete adapter wrapping mod_forum's grading API.
  */
 class forum_adapter extends base_adapter {
-
     /** @var forum_entity The forum entity. */
     private forum_entity $forum;
 

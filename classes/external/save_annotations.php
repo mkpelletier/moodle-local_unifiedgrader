@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
@@ -37,7 +35,6 @@ use local_unifiedgrader\annotation_manager;
  * Saves annotations for multiple pages of a file in a single batch call.
  */
 class save_annotations extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

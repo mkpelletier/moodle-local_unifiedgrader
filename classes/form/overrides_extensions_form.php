@@ -27,8 +27,6 @@
 
 namespace local_unifiedgrader\form;
 
-defined('MOODLE_INTERNAL') || die();
-
 global $CFG;
 require_once($CFG->libdir . '/formslib.php');
 
@@ -36,7 +34,6 @@ require_once($CFG->libdir . '/formslib.php');
  * Unified overrides and extensions form.
  */
 class overrides_extensions_form extends \moodleform {
-
     /**
      * Form definition.
      */

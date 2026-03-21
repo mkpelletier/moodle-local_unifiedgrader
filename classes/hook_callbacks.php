@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * PSR-14 hook callback implementations.
  *
@@ -34,7 +32,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class hook_callbacks {
-
     /**
      * Inject grade button overrides for teachers and feedback banners for students.
      *

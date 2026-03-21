@@ -16,8 +16,6 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Helper for parsing and formatting feedback data.
  *
@@ -29,7 +27,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class feedback_data_helper {
-
     /**
      * Format the grade display string and compute percentage.
      *
@@ -90,7 +87,8 @@ class feedback_data_helper {
             $settings = $DB->get_record('quizaccess_duedate_instances', ['quizid' => $cm->instance]);
             if ($settings && $settings->penaltyenabled && $settings->duedate) {
                 $effectiveduedate = \quizaccess_duedate\override_manager::get_effective_duedate(
-                    $cm->instance, $userid,
+                    $cm->instance,
+                    $userid,
                 );
                 if ($effectiveduedate) {
                     $firstattempt = $DB->get_record_sql(

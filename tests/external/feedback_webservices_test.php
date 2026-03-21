@@ -34,7 +34,6 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\save_feedback_files
  */
 final class feedback_webservices_test extends \advanced_testcase {
-
     /**
      * Helper: create an assignment grading scenario and return the scenario object.
      *

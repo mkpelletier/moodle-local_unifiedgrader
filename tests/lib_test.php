@@ -26,7 +26,6 @@ namespace local_unifiedgrader;
  * @coversDefaultClass \local_unifiedgrader
  */
 final class lib_test extends \advanced_testcase {
-
     /**
      * Test pluginfile returns false for non-module context.
      */
@@ -37,7 +36,12 @@ final class lib_test extends \advanced_testcase {
         $context = \context_course::instance($course->id);
 
         $result = \local_unifiedgrader_pluginfile(
-            $course, null, $context, 'annotatedpdf', [1, 2, 'file.pdf'], false,
+            $course,
+            null,
+            $context,
+            'annotatedpdf',
+            [1, 2, 'file.pdf'],
+            false,
         );
         $this->assertFalse($result);
     }
@@ -62,7 +66,12 @@ final class lib_test extends \advanced_testcase {
         $PAGE = new \moodle_page();
 
         $result = \local_unifiedgrader_pluginfile(
-            $course, $cm, $context, 'unknownarea', [1, $teacher->id, 'file.pdf'], false,
+            $course,
+            $cm,
+            $context,
+            'unknownarea',
+            [1, $teacher->id, 'file.pdf'],
+            false,
         );
         $this->assertFalse($result);
     }
@@ -92,7 +101,12 @@ final class lib_test extends \advanced_testcase {
         $PAGE = new \moodle_page();
 
         $result = \local_unifiedgrader_pluginfile(
-            $course, $cm, $context, 'annotatedpdf', [1, $user->id, 'file.pdf'], false,
+            $course,
+            $cm,
+            $context,
+            'annotatedpdf',
+            [1, $user->id, 'file.pdf'],
+            false,
         );
         $this->assertFalse($result);
     }
@@ -123,7 +137,12 @@ final class lib_test extends \advanced_testcase {
 
         // Try to access student2's PDF.
         $result = \local_unifiedgrader_pluginfile(
-            $course, $cm, $context, 'annotatedpdf', [1, $student2->id, 'file.pdf'], false,
+            $course,
+            $cm,
+            $context,
+            'annotatedpdf',
+            [1, $student2->id, 'file.pdf'],
+            false,
         );
         $this->assertFalse($result);
     }
@@ -150,7 +169,12 @@ final class lib_test extends \advanced_testcase {
         $PAGE = new \moodle_page();
 
         $result = \local_unifiedgrader_pluginfile(
-            $course, $cm, $context, 'annotatedpdf', [99999, $teacher->id, 'nonexistent.pdf'], false,
+            $course,
+            $cm,
+            $context,
+            'annotatedpdf',
+            [99999, $teacher->id, 'nonexistent.pdf'],
+            false,
         );
         $this->assertFalse($result);
     }

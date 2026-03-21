@@ -27,13 +27,10 @@
 
 namespace local_unifiedgrader\form;
 
-defined('MOODLE_INTERNAL') || die();
-
 global $CFG;
 require_once($CFG->libdir . '/formslib.php');
 
 class forum_extension_form extends \moodleform {
-
     /**
      * Form definition.
      */

@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\adapter;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Base adapter defining the contract that all activity adapters must implement.
  *
@@ -33,7 +31,6 @@ defined('MOODLE_INTERNAL') || die();
  * that normalizes its data into a common format for the unified grading interface.
  */
 abstract class base_adapter {
-
     /** @var \cm_info Course module info. */
     protected \cm_info $cm;
 

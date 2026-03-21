@@ -26,7 +26,6 @@ namespace local_unifiedgrader\adapter;
  * @covers \local_unifiedgrader\adapter\adapter_factory
  */
 final class adapter_factory_test extends \advanced_testcase {
-
     /**
      * Test creating an assign adapter.
      */

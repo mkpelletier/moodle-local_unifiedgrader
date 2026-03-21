@@ -24,13 +24,10 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Extracts course codes from course short names using a configurable regex.
  */
 class course_code_helper {
-
     /**
      * Extract a course code from a course short name using the admin-configured regex.
      *

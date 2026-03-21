@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader\external;
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_external\external_api;
 use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
@@ -38,7 +36,6 @@ use local_unifiedgrader\penalty_manager;
  * Returns grade penalties for a student in an activity.
  */
 class get_penalties extends external_api {
-
     /**
      * Parameter definition.
      * @return external_function_parameters

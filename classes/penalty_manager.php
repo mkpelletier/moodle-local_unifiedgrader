@@ -24,8 +24,6 @@
 
 namespace local_unifiedgrader;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Manages grade penalties per student per activity.
  *
@@ -34,7 +32,6 @@ defined('MOODLE_INTERNAL') || die();
  * (one per unique label per student/activity).
  */
 class penalty_manager {
-
     /** @var string Table name. */
     private const TABLE = 'local_unifiedgrader_penalty';
 

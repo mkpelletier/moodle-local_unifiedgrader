@@ -26,7 +26,6 @@ namespace local_unifiedgrader\adapter;
  * @covers \local_unifiedgrader\adapter\forum_adapter
  */
 final class forum_adapter_test extends \advanced_testcase {
-
     /**
      * Helper: create a forum scenario and return the adapter.
      *

@@ -18,8 +18,6 @@ namespace local_unifiedgrader;
 
 use local_unifiedgrader\adapter\adapter_factory;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Comprehensive integration tests for the Unified Grader plugin.
  *
@@ -34,7 +32,6 @@ defined('MOODLE_INTERNAL') || die();
  * @covers     \local_unifiedgrader\adapter\quiz_adapter
  */
 class integration_test extends \advanced_testcase {
-
     /** @var \local_unifiedgrader_generator */
     private $gen;
 
@@ -95,13 +92,13 @@ class integration_test extends \advanced_testcase {
         // Grade student 1.
         $result = $adapter->save_grade(
             $student1->id,
-            85, // grade
+            85,
             '<p>Great work on this assignment!</p>',
             FORMAT_HTML,
-            [], // no advanced grading
-            0,  // draftitemid
-            0,  // feedbackfilesdraftid
-            -1  // latest attempt
+            [],
+            0,
+            0,
+            -1,
         );
         $this->assertTrue($result);
 
@@ -256,9 +253,14 @@ class integration_test extends \advanced_testcase {
 
         // Grade the student.
         $result = $adapter->save_grade(
-            $student->id, 90,
+            $student->id,
+            90,
             '<p>Excellent discussion contribution!</p>',
-            FORMAT_HTML, [], 0, 0, -1
+            FORMAT_HTML,
+            [],
+            0,
+            0,
+            -1,
         );
         $this->assertTrue($result);
 
@@ -293,9 +295,14 @@ class integration_test extends \advanced_testcase {
         // Save feedback without a grade (grade = -1).
         $this->setUser($scenario->teacher);
         $result = $adapter->save_grade(
-            $student->id, -1,
+            $student->id,
+            -1,
             '<p>Good posts, but no grade is given for this forum.</p>',
-            FORMAT_HTML, [], 0, 0, -1
+            FORMAT_HTML,
+            [],
+            0,
+            0,
+            -1,
         );
         $this->assertTrue($result);
 
