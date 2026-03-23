@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.1.2 (2026-03-23)
+- Add capability checks to comment library external services (guest and sharecomments validation)
+- Add Frankenstyle prefix to all global functions in override and extension pages
+- Add GPL boilerplate headers to all source files (mustache, CSS, JS)
+- Add thirdpartylibs.xml documenting PDF.js, Fabric.js, and pdf-lib
+- Replace hard-coded language strings with get_string() API across JS components
+- Replace innerHTML with DOM manipulation in save status indicator
+- Add automated test suite with 367 tests and 921 assertions
+
 ## v2.1.1 (2026-03-21)
 - Add student submission comments for quiz and forum activities (popout chat bubble)
 - Add submission comment popout to quiz feedback viewer
