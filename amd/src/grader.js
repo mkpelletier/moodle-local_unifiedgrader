@@ -312,25 +312,39 @@ const _setupSaveStatusIndicator = (container) => {
     getString('saving', 'local_unifiedgrader').then(s => { strings.saving = s; }).catch(() => {});
     getString('offlinesavedlocally', 'local_unifiedgrader').then(s => { strings.offline = s; }).catch(() => {});
 
+    /**
+     * Set status indicator using DOM manipulation.
+     *
+     * @param {string} iconClass Font Awesome icon classes.
+     * @param {string} colorClass Bootstrap text color class.
+     * @param {string} text Status text to display.
+     */
+    const setStatus = (iconClass, colorClass, text) => {
+        statusEl.textContent = '';
+        const icon = document.createElement('i');
+        icon.className = iconClass + ' ' + colorClass + ' me-1';
+        const span = document.createElement('span');
+        span.className = colorClass;
+        span.textContent = text;
+        statusEl.appendChild(icon);
+        statusEl.appendChild(span);
+    };
+
     const updateStatus = () => {
         const queueLength = SaveQueue.getQueueLength();
         const online = SaveQueue.isOnline();
         const dirty = DirtyTracker.isDirty();
 
         if (!online || queueLength > 0) {
-            statusEl.innerHTML = '<i class="fa fa-exclamation-triangle text-warning me-1"></i>'
-                + '<span class="text-warning">' + (strings.offline || 'Offline — saved locally') + '</span>';
+            setStatus('fa fa-exclamation-triangle', 'text-warning', strings.offline || 'Offline — saved locally');
         } else if (wasSaving) {
             // Just finished saving — show "All saved" briefly.
             wasSaving = false;
-            statusEl.innerHTML = '<i class="fa fa-check text-success me-1"></i>'
-                + '<span class="text-success">' + (strings.saved || 'All changes saved') + '</span>';
+            setStatus('fa fa-check', 'text-success', strings.saved || 'All changes saved');
         } else if (dirty) {
-            statusEl.innerHTML = '<i class="fa fa-pencil text-muted me-1"></i>'
-                + '<span class="text-muted">' + (strings.editing || 'Editing...') + '</span>';
+            setStatus('fa fa-pencil', 'text-muted', strings.editing || 'Editing...');
         } else {
-            statusEl.innerHTML = '<i class="fa fa-check text-success me-1"></i>'
-                + '<span class="text-success">' + (strings.saved || 'All changes saved') + '</span>';
+            setStatus('fa fa-check', 'text-success', strings.saved || 'All changes saved');
         }
     };
 
@@ -341,8 +355,7 @@ const _setupSaveStatusIndicator = (container) => {
             const state = reactiveInstance?.state;
             if (state?.ui?.saving) {
                 wasSaving = true;
-                statusEl.innerHTML = '<i class="fa fa-spinner fa-spin text-primary me-1"></i>'
-                    + '<span class="text-primary">' + (strings.saving || 'Saving...') + '</span>';
+                setStatus('fa fa-spinner fa-spin', 'text-primary', strings.saving || 'Saving...');
                 return;
             }
         }

@@ -59,6 +59,9 @@ class delete_library_comment extends external_api {
 
         $context = \context_system::instance();
         self::validate_context($context);
+        if (isguestuser()) {
+            throw new \moodle_exception('noguest');
+        }
 
         comment_library_manager::delete_comment($params['commentid'], $USER->id);
 

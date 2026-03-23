@@ -60,6 +60,7 @@ class get_shared_library extends external_api {
 
         $context = \context_system::instance();
         self::validate_context($context);
+        require_capability('local/unifiedgrader:sharecomments', $context);
 
         return comment_library_manager::get_shared_comments($USER->id, $params['tagid']);
     }

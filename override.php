@@ -50,9 +50,9 @@ $PAGE->set_url(new moodle_url('/local/unifiedgrader/override.php', [
 $modname = $cm->modname;
 
 if ($modname === 'assign') {
-    handle_assign_override($cm, $context, $course, $userid, $overrideid);
+    local_unifiedgrader_handle_assign_override($cm, $context, $course, $userid, $overrideid);
 } else if ($modname === 'quiz') {
-    handle_quiz_override($cm, $context, $course, $userid, $overrideid);
+    local_unifiedgrader_handle_quiz_override($cm, $context, $course, $userid, $overrideid);
 } else {
     throw new moodle_exception('invalidmodule', 'local_unifiedgrader');
 }
@@ -66,7 +66,7 @@ if ($modname === 'assign') {
  * @param int $userid
  * @param int $overrideid
  */
-function handle_assign_override($cm, $context, $course, $userid, $overrideid) {
+function local_unifiedgrader_handle_assign_override($cm, $context, $course, $userid, $overrideid) {
     global $CFG, $DB, $PAGE, $OUTPUT;
 
     require_once($CFG->dirroot . '/mod/assign/locallib.php');
@@ -107,14 +107,14 @@ function handle_assign_override($cm, $context, $course, $userid, $overrideid) {
     $mform->set_data($data);
 
     if ($mform->is_cancelled()) {
-        output_postmessage('override_cancelled');
+        local_unifiedgrader_output_postmessage('override_cancelled');
         return;
     }
 
     $fromform = $mform->get_data();
     if ($fromform) {
-        save_assign_override($assign, $instance, $context, $override, $fromform, $keys, $userid, $cm);
-        output_postmessage('override_saved');
+        local_unifiedgrader_save_assign_override($assign, $instance, $context, $override, $fromform, $keys, $userid, $cm);
+        local_unifiedgrader_output_postmessage('override_saved');
         return;
     }
 
@@ -137,7 +137,7 @@ function handle_assign_override($cm, $context, $course, $userid, $overrideid) {
  * @param int $userid
  * @param cm_info $cm
  */
-function save_assign_override($assign, $instance, $context, $override, $fromform, $keys, $userid, $cm) {
+function local_unifiedgrader_save_assign_override($assign, $instance, $context, $override, $fromform, $keys, $userid, $cm) {
     global $DB;
 
     $fromform->assignid = $instance->id;
@@ -216,7 +216,7 @@ function save_assign_override($assign, $instance, $context, $override, $fromform
  * @param int $userid
  * @param int $overrideid
  */
-function handle_quiz_override($cm, $context, $course, $userid, $overrideid) {
+function local_unifiedgrader_handle_quiz_override($cm, $context, $course, $userid, $overrideid) {
     global $CFG, $DB, $PAGE, $OUTPUT;
 
     require_once($CFG->dirroot . '/mod/quiz/lib.php');
@@ -257,7 +257,7 @@ function handle_quiz_override($cm, $context, $course, $userid, $overrideid) {
     $mform->set_data($data);
 
     if ($mform->is_cancelled()) {
-        output_postmessage('override_cancelled');
+        local_unifiedgrader_output_postmessage('override_cancelled');
         return;
     }
 
@@ -271,7 +271,7 @@ function handle_quiz_override($cm, $context, $course, $userid, $overrideid) {
         $manager = $quizobj->get_override_manager();
         $manager->save_override((array) $fromform);
 
-        output_postmessage('override_saved');
+        local_unifiedgrader_output_postmessage('override_saved');
         return;
     }
 
@@ -285,7 +285,7 @@ function handle_quiz_override($cm, $context, $course, $userid, $overrideid) {
  *
  * @param string $type Message type ('override_saved' or 'override_cancelled').
  */
-function output_postmessage(string $type) {
+function local_unifiedgrader_output_postmessage(string $type) {
     global $OUTPUT;
     echo $OUTPUT->header();
     echo '<script>window.parent.postMessage({type: "' . $type . '"}, "*");</script>';

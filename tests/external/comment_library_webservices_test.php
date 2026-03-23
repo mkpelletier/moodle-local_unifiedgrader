@@ -40,6 +40,17 @@ use core_external\external_api;
  * @covers \local_unifiedgrader\external\import_shared_comment
  */
 final class comment_library_webservices_test extends \advanced_testcase {
+    /**
+     * Grant the sharecomments capability to a user at system context.
+     *
+     * @param int $userid The user ID.
+     */
+    private function grant_sharecomments(int $userid): void {
+        $roleid = $this->getDataGenerator()->create_role();
+        assign_capability('local/unifiedgrader:sharecomments', CAP_ALLOW, $roleid, \context_system::instance());
+        role_assign($roleid, $userid, \context_system::instance());
+    }
+
     // Get_library_comments tests.
 
     /**
@@ -540,6 +551,7 @@ final class comment_library_webservices_test extends \advanced_testcase {
         $plugingen->create_library_comment(['userid' => $user2->id, 'content' => 'Shared by Alice', 'shared' => 1]);
 
         $this->setUser($user1);
+        $this->grant_sharecomments($user1->id);
         $result = get_shared_library::execute();
 
         $this->assertCount(1, $result);
@@ -561,6 +573,7 @@ final class comment_library_webservices_test extends \advanced_testcase {
         $plugingen->create_library_comment(['userid' => $user2->id, 'content' => 'Shared', 'shared' => 1]);
 
         $this->setUser($user1);
+        $this->grant_sharecomments($user1->id);
         $result = get_shared_library::execute();
         $cleaned = external_api::clean_returnvalue(get_shared_library::execute_returns(), $result);
 
@@ -590,6 +603,7 @@ final class comment_library_webservices_test extends \advanced_testcase {
         $plugingen->create_library_comment(['userid' => $user2->id, 'content' => 'Other shared', 'shared' => 1]);
 
         $this->setUser($user1);
+        $this->grant_sharecomments($user1->id);
         $result = get_shared_library::execute();
 
         $this->assertCount(1, $result);
@@ -616,6 +630,7 @@ final class comment_library_webservices_test extends \advanced_testcase {
         ]);
 
         $this->setUser($user2);
+        $this->grant_sharecomments($user2->id);
         $result = import_shared_comment::execute((int) $source->id, 'BIB201');
 
         $this->assertArrayHasKey('commentid', $result);
@@ -648,6 +663,7 @@ final class comment_library_webservices_test extends \advanced_testcase {
         ]);
 
         $this->setUser($user2);
+        $this->grant_sharecomments($user2->id);
         $result = import_shared_comment::execute((int) $source->id, '');
         $cleaned = external_api::clean_returnvalue(import_shared_comment::execute_returns(), $result);
 
@@ -672,6 +688,7 @@ final class comment_library_webservices_test extends \advanced_testcase {
         ]);
 
         $this->setUser($user2);
+        $this->grant_sharecomments($user2->id);
 
         $this->expectException(\dml_missing_record_exception::class);
         import_shared_comment::execute((int) $private->id, 'BIB101');
@@ -696,6 +713,7 @@ final class comment_library_webservices_test extends \advanced_testcase {
         $plugingen->create_tag_mapping(['commentid' => $source->id, 'tagid' => $tag->id]);
 
         $this->setUser($user2);
+        $this->grant_sharecomments($user2->id);
         $result = import_shared_comment::execute((int) $source->id, '');
 
         // Verify the imported comment has the tag mapping.

@@ -123,6 +123,17 @@ export default class extends BaseComponent {
             'overrides_extensions',
             'action_clear_overrides',
             'confirm_clear_overrides',
+            'status_submitted',
+            'status_graded',
+            'status_draft',
+            'status_nosubmission',
+            'status_new',
+            'status_short_submitted',
+            'status_short_graded',
+            'status_short_draft',
+            'override_active',
+            'extension_granted',
+            'submitted_prefix',
         ];
         try {
             const values = await getStrings(keys.map(key => ({key, component: 'local_unifiedgrader'})));
@@ -518,7 +529,7 @@ export default class extends BaseComponent {
                 const overrideIcon = document.createElement('i');
                 overrideIcon.className = 'fa fa-clock-o text-danger';
                 overrideIcon.style.fontSize = '0.7em';
-                overrideIcon.title = 'Override active';
+                overrideIcon.title = this._strings?.override_active || 'Override active';
                 statusWrapper.appendChild(overrideIcon);
             }
 
@@ -527,7 +538,7 @@ export default class extends BaseComponent {
                 const extIcon = document.createElement('i');
                 extIcon.className = 'fa fa-calendar-plus-o text-info';
                 extIcon.style.fontSize = '0.7em';
-                extIcon.title = 'Extension granted';
+                extIcon.title = this._strings?.extension_granted || 'Extension granted';
                 statusWrapper.appendChild(extIcon);
             }
 
@@ -618,7 +629,7 @@ export default class extends BaseComponent {
                     && student.status !== 'new' && student.status !== 'nosubmission';
                 if (hasSubmission) {
                     const date = new Date(student.submittedat * 1000);
-                    dateEl.textContent = 'Submitted: ' + date.toLocaleString();
+                    dateEl.textContent = (this._strings?.submitted_prefix || 'Submitted: ') + date.toLocaleString();
                 } else {
                     dateEl.textContent = '';
                 }
@@ -715,7 +726,7 @@ export default class extends BaseComponent {
             && sub.status !== 'new' && sub.status !== 'nosubmission' && sub.status !== 'reopened';
         if (hasSubmission) {
             const date = new Date(sub.timemodified * 1000);
-            dateEl.textContent = 'Submitted: ' + date.toLocaleString();
+            dateEl.textContent = (this._strings?.submitted_prefix || 'Submitted: ') + date.toLocaleString();
         } else {
             dateEl.textContent = '';
         }
@@ -1011,12 +1022,13 @@ export default class extends BaseComponent {
      * @return {object} Object with label and cls properties.
      */
     _getStatusInfo(status) {
+        const s = this._strings || {};
         const map = {
-            submitted: {label: 'Submitted', cls: 'bg-success'},
-            graded: {label: 'Graded', cls: 'bg-info'},
-            draft: {label: 'Draft', cls: 'bg-warning'},
-            nosubmission: {label: 'No submission', cls: 'bg-secondary'},
-            new: {label: 'Not submitted', cls: 'bg-secondary'},
+            submitted: {label: s.status_submitted || 'Submitted', cls: 'bg-success'},
+            graded: {label: s.status_graded || 'Graded', cls: 'bg-info'},
+            draft: {label: s.status_draft || 'Draft', cls: 'bg-warning'},
+            nosubmission: {label: s.status_nosubmission || 'No submission', cls: 'bg-secondary'},
+            new: {label: s.status_new || 'Not submitted', cls: 'bg-secondary'},
         };
         return map[status] || {label: status, cls: 'bg-secondary'};
     }
@@ -1321,10 +1333,11 @@ export default class extends BaseComponent {
      * @return {string} Short label.
      */
     _getStatusShortLabel(status) {
+        const s = this._strings || {};
         const map = {
-            submitted: 'Sub',
-            graded: 'Grd',
-            draft: 'Dft',
+            submitted: s.status_short_submitted || 'Sub',
+            graded: s.status_short_graded || 'Grd',
+            draft: s.status_short_draft || 'Dft',
             nosubmission: '--',
             new: '--',
         };

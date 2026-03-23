@@ -27,7 +27,7 @@
  */
 
 import {BaseComponent} from 'core/reactive';
-import {get_string as getString} from 'core/str';
+import {get_string as getString, get_strings as getStrings} from 'core/str';
 import PdfjsLoader from 'local_unifiedgrader/lib/pdfjs_loader';
 import FabricLoader from 'local_unifiedgrader/lib/fabric_loader';
 import AnnotationLayer from 'local_unifiedgrader/components/annotation_layer';
@@ -196,6 +196,33 @@ export default class PdfViewer extends BaseComponent {
         this._onTextSelectMouseUp = null;
         /** @type {?Function} Bound mousedown handler to hide word count tooltip. */
         this._onTextSelectMouseDown = null;
+
+        // Localised strings (loaded asynchronously, fallbacks used until ready).
+        /** @type {?object} */
+        this._strings = null;
+        this._loadStrings();
+    }
+
+    /**
+     * Load localised strings asynchronously.
+     *
+     * @private
+     */
+    async _loadStrings() {
+        try {
+            const keys = [
+                {key: 'search_no_results', component: 'local_unifiedgrader'},
+                {key: 'search_x_of_y', component: 'local_unifiedgrader'},
+            ];
+            const values = await getStrings(keys);
+            this._strings = {
+                search_no_results: values[0],
+                search_x_of_y: values[1],
+            };
+        } catch (e) {
+            // Fallback: leave _strings null so fallback literals are used.
+            window.console.warn('[PdfViewer] Failed to load lang strings', e);
+        }
     }
 
     /**
@@ -1980,9 +2007,13 @@ export default class PdfViewer extends BaseComponent {
             if (!this._searchQuery) {
                 countEl.textContent = '';
             } else if (this._searchMatches.length === 0) {
-                countEl.textContent = '0 results';
+                countEl.textContent = (this._strings?.search_no_results || '0 results');
             } else {
-                countEl.textContent = (this._searchIndex + 1) + ' of ' + this._searchMatches.length;
+                const current = this._searchIndex + 1;
+                const total = this._searchMatches.length;
+                countEl.textContent = (this._strings?.search_x_of_y || (current + ' of ' + total))
+                    .replace('{$a->current}', current)
+                    .replace('{$a->total}', total);
             }
         }
 

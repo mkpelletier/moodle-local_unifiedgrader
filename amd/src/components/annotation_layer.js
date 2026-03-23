@@ -37,6 +37,7 @@ import {
     validateAnnotationJson,
 } from 'local_unifiedgrader/annotation/types';
 import Ajax from 'core/ajax';
+import {get_strings as getStrings} from 'core/str';
 import * as OfflineCache from 'local_unifiedgrader/offline_cache';
 
 /** Color palette for tag badges (matches comment_library_popout.js). */
@@ -143,6 +144,11 @@ export default class AnnotationLayer {
         /** @type {boolean} */
         this._libraryLoaded = false;
 
+        // Localised strings (loaded asynchronously, fallbacks used until ready).
+        /** @type {?object} */
+        this._strings = null;
+        this._loadStrings();
+
         // Callbacks (arrays to support multiple listeners).
         /** @type {Function[]} */
         this._onChangeCallbacks = [];
@@ -169,6 +175,32 @@ export default class AnnotationLayer {
             this._setupReadOnlyEventHandlers();
         } else {
             this._setupEventHandlers();
+        }
+    }
+
+    /**
+     * Load localised strings asynchronously.
+     *
+     * @private
+     */
+    async _loadStrings() {
+        try {
+            const keys = [
+                {key: 'save', component: 'local_unifiedgrader'},
+                {key: 'cancel', component: 'local_unifiedgrader'},
+                {key: 'clib_all', component: 'local_unifiedgrader'},
+                {key: 'nocommentsyet', component: 'local_unifiedgrader'},
+            ];
+            const values = await getStrings(keys);
+            this._strings = {
+                save: values[0],
+                cancel: values[1],
+                clib_all: values[2],
+                nocommentsyet: values[3],
+            };
+        } catch (e) {
+            // Fallback: leave _strings null so fallback literals are used.
+            window.console.warn('[AnnotationLayer] Failed to load lang strings', e);
         }
     }
 
@@ -945,11 +977,11 @@ export default class AnnotationLayer {
 
         const saveBtn = document.createElement('button');
         saveBtn.className = 'btn btn-sm btn-primary';
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = (this._strings?.save || 'Save');
 
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'btn btn-sm btn-secondary';
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = (this._strings?.cancel || 'Cancel');
 
         btnRow.appendChild(saveBtn);
         btnRow.appendChild(cancelBtn);
@@ -1230,7 +1262,7 @@ export default class AnnotationLayer {
             ? 'badge bg-primary' : 'badge bg-light text-dark border';
         allChip.style.cursor = 'pointer';
         allChip.style.fontSize = '0.7rem';
-        allChip.textContent = 'All';
+        allChip.textContent = (this._strings?.clib_all || 'All');
         allChip.addEventListener('click', (e) => {
             e.stopPropagation();
             onTagClick(0);
@@ -1277,7 +1309,7 @@ export default class AnnotationLayer {
         if (filtered.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'picker-empty';
-            empty.textContent = 'No comments yet.';
+            empty.textContent = (this._strings?.nocommentsyet || 'No comments yet.');
             container.appendChild(empty);
             return;
         }

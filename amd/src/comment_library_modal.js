@@ -546,6 +546,10 @@ const _commentCard = (comment) => {
     editBtn.className = 'btn btn-sm btn-outline-secondary py-0 px-1';
     editBtn.innerHTML = '<i class="fa fa-pencil"></i>';
     editBtn.title = 'Edit';
+    getString('edit', 'local_unifiedgrader').then((s) => {
+        editBtn.title = s;
+        return s;
+    }).catch(() => {});
     editBtn.addEventListener('click', () => {
         _editingId = comment.id;
         _renderComments();
@@ -564,6 +568,10 @@ const _commentCard = (comment) => {
     deleteBtn.className = 'btn btn-sm btn-outline-danger py-0 px-1';
     deleteBtn.innerHTML = '<i class="fa fa-trash"></i>';
     deleteBtn.title = 'Delete';
+    getString('delete', 'local_unifiedgrader').then((s) => {
+        deleteBtn.title = s;
+        return s;
+    }).catch(() => {});
     deleteBtn.addEventListener('click', () => _handleDelete(comment.id));
 
     actions.appendChild(editBtn);
@@ -620,6 +628,10 @@ const _editForm = (comment) => {
     courseInput.className = 'form-control form-control-sm';
     courseInput.style.width = '100px';
     courseInput.placeholder = 'Course';
+    getString('course', 'local_unifiedgrader').then((s) => {
+        courseInput.placeholder = s;
+        return s;
+    }).catch(() => {});
     courseInput.value = comment.coursecode || '';
 
     const sharedCheck = document.createElement('label');
@@ -629,7 +641,12 @@ const _editForm = (comment) => {
     sharedInput.className = 'form-check-input';
     sharedInput.checked = !!comment.shared;
     sharedCheck.appendChild(sharedInput);
-    sharedCheck.appendChild(document.createTextNode(' Share'));
+    const shareTextNode = document.createTextNode(' Share');
+    sharedCheck.appendChild(shareTextNode);
+    getString('clib_share', 'local_unifiedgrader').then((s) => {
+        shareTextNode.textContent = ' ' + s;
+        return s;
+    }).catch(() => {});
 
     const btnGroup = document.createElement('div');
     btnGroup.className = 'd-flex gap-1';
@@ -638,6 +655,10 @@ const _editForm = (comment) => {
     saveBtn.type = 'button';
     saveBtn.className = 'btn btn-sm btn-primary';
     saveBtn.textContent = 'Save';
+    getString('save', 'local_unifiedgrader').then((s) => {
+        saveBtn.textContent = s;
+        return s;
+    }).catch(() => {});
     saveBtn.addEventListener('click', async() => {
         const selectedTags = [...tagRow.querySelectorAll('.bg-primary')]
             .map((el) => parseInt(el.dataset.tagid, 10));
@@ -660,6 +681,10 @@ const _editForm = (comment) => {
     cancelBtn.type = 'button';
     cancelBtn.className = 'btn btn-sm btn-outline-secondary';
     cancelBtn.textContent = 'Cancel';
+    getString('cancel', 'local_unifiedgrader').then((s) => {
+        cancelBtn.textContent = s;
+        return s;
+    }).catch(() => {});
     cancelBtn.addEventListener('click', () => {
         _editingId = null;
         _renderComments();
