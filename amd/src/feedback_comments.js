@@ -28,6 +28,7 @@
 
 import Ajax from 'core/ajax';
 import Notification from 'core/notification';
+import {get_string as getString} from 'core/str';
 
 /** @type {number} Current logged-in user ID. */
 let currentUserId = 0;
@@ -293,6 +294,10 @@ function createBubble(comment, cmid, userid, listEl) {
         deleteBtn.type = 'button';
         deleteBtn.className = 'btn btn-link btn-sm p-0 text-danger comment-delete-btn';
         deleteBtn.title = 'Delete';
+        getString('delete', 'local_unifiedgrader').then((s) => {
+            deleteBtn.title = s;
+            return s;
+        }).catch(() => {});
         deleteBtn.innerHTML = '<i class="fa fa-trash-o"></i>';
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();

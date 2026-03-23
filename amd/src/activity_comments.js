@@ -350,6 +350,10 @@ function createBubble(comment, cmid, userid, listEl) {
         deleteBtn.type = 'button';
         deleteBtn.className = 'btn btn-link btn-sm p-0 text-danger comment-delete-btn';
         deleteBtn.title = 'Delete';
+        getString('delete', 'local_unifiedgrader').then((s) => {
+            deleteBtn.title = s;
+            return s;
+        }).catch(() => {});
         deleteBtn.innerHTML = '<i class="fa fa-trash-o"></i>';
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();

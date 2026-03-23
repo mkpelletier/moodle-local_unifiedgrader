@@ -107,7 +107,13 @@ $string['status_graded'] = 'Graded';
 $string['status_nosubmission'] = 'No submission';
 $string['status_needsgrading'] = 'Needs grading';
 $string['status_new'] = 'Not submitted';
+$string['status_short_submitted'] = 'Sub';
+$string['status_short_graded'] = 'Grd';
+$string['status_short_draft'] = 'Dft';
 $string['status_late'] = 'Late: {$a}';
+$string['override_active'] = 'Override active';
+$string['extension_granted'] = 'Extension granted';
+$string['submitted_prefix'] = 'Submitted: ';
 
 // Teacher notes.
 $string['notes'] = 'Teacher notes';
@@ -468,3 +474,13 @@ $string['recoveredunsavedchanges'] = 'Recovered unsaved changes from your last s
 $string['restore'] = 'Restore';
 $string['discard'] = 'Discard';
 $string['mark_as_graded'] = 'Mark as graded';
+
+// Generic UI strings.
+$string['save'] = 'Save';
+$string['cancel'] = 'Cancel';
+$string['edit'] = 'Edit';
+$string['delete'] = 'Delete';
+$string['course'] = 'Course';
+$string['maxgrade_prefix'] = 'Max: ';
+$string['search_no_results'] = '0 results';
+$string['search_x_of_y'] = '{$a->current} of {$a->total}';

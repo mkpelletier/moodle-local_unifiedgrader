@@ -1275,6 +1275,10 @@ export default class extends BaseComponent {
             clibBtn.className = 'btn btn-link btn-sm p-0 text-muted mt-1';
             clibBtn.dataset.action = 'toggle-comment-library';
             clibBtn.title = 'Comment Library';
+            getString('clib_title', 'local_unifiedgrader').then((s) => {
+                clibBtn.title = s;
+                return s;
+            }).catch(() => {});
             clibBtn.innerHTML = '<i class="fa fa-commenting" aria-hidden="true"></i>';
             clibBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1386,6 +1390,10 @@ export default class extends BaseComponent {
             const maxEl = document.createElement('span');
             maxEl.className = 'badge bg-secondary';
             maxEl.textContent = 'Max: ' + criterion.maxscore;
+            getString('maxgrade_prefix', 'local_unifiedgrader').then((s) => {
+                maxEl.textContent = s + criterion.maxscore;
+                return s;
+            }).catch(() => {});
 
             header.appendChild(nameEl);
             header.appendChild(maxEl);
@@ -1412,6 +1420,10 @@ export default class extends BaseComponent {
             scoreInput.max = String(criterion.maxscore);
             scoreInput.step = 'any';
             scoreInput.placeholder = 'Score';
+            getString('score', 'local_unifiedgrader').then((s) => {
+                scoreInput.placeholder = s;
+                return s;
+            }).catch(() => {});
             scoreInput.value = currentFill[criterion.id]?.score ?? '';
             scoreInput.dataset.criterionid = criterion.id;
 
@@ -1426,6 +1438,10 @@ export default class extends BaseComponent {
             remarkInput.rows = 3;
             remarkInput.className = 'form-control form-control-sm flex-grow-1';
             remarkInput.placeholder = 'Remark';
+            getString('remark', 'local_unifiedgrader').then((s) => {
+                remarkInput.placeholder = s;
+                return s;
+            }).catch(() => {});
             remarkInput.textContent = currentFill[criterion.id]?.remark ?? '';
             remarkInput.dataset.criterionid = criterion.id;
 
@@ -1441,6 +1457,10 @@ export default class extends BaseComponent {
             clibBtn.className = 'btn btn-link btn-sm p-0 text-muted align-self-start mt-1';
             clibBtn.dataset.action = 'toggle-comment-library';
             clibBtn.title = 'Comment Library';
+            getString('clib_title', 'local_unifiedgrader').then((s) => {
+                clibBtn.title = s;
+                return s;
+            }).catch(() => {});
             clibBtn.innerHTML = '<i class="fa fa-commenting" aria-hidden="true"></i>';
             clibBtn.addEventListener('click', (e) => {
                 e.stopPropagation();

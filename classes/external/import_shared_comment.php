@@ -62,6 +62,7 @@ class import_shared_comment extends external_api {
 
         $context = \context_system::instance();
         self::validate_context($context);
+        require_capability('local/unifiedgrader:sharecomments', $context);
 
         $newid = comment_library_manager::import_shared_comment(
             $params['commentid'],

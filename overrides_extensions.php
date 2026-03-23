@@ -167,11 +167,11 @@ if ($mform->is_cancelled()) {
 $fromform = $mform->get_data();
 if ($fromform) {
     if ($modname === 'assign') {
-        save_assign_overrides($assign, $context, $cm, $userid, $fromform, $defaults, $overrides);
+        local_unifiedgrader_save_assign_overrides($assign, $context, $cm, $userid, $fromform, $defaults, $overrides);
     } else if ($modname === 'quiz') {
-        save_quiz_overrides($adapter, $cm, $userid, $fromform, $defaults, $overrides);
+        local_unifiedgrader_save_quiz_overrides($adapter, $cm, $userid, $fromform, $defaults, $overrides);
     } else if ($modname === 'forum') {
-        save_forum_overrides($adapter, $cm, $userid, $fromform, $defaults, $overrides);
+        local_unifiedgrader_save_forum_overrides($adapter, $cm, $userid, $fromform, $defaults, $overrides);
     }
 
     echo $OUTPUT->header();
@@ -197,7 +197,7 @@ echo $OUTPUT->footer();
  * @param array $defaults
  * @param array $existingoverrides
  */
-function save_assign_overrides($assign, $context, $cm, $userid, $fromform, $defaults, $existingoverrides) {
+function local_unifiedgrader_save_assign_overrides($assign, $context, $cm, $userid, $fromform, $defaults, $existingoverrides) {
     global $DB;
 
     $instance = $assign->get_instance();
@@ -298,7 +298,7 @@ function save_assign_overrides($assign, $context, $cm, $userid, $fromform, $defa
  * @param array $defaults
  * @param array $existingoverrides
  */
-function save_quiz_overrides($adapter, $cm, $userid, $fromform, $defaults, $existingoverrides) {
+function local_unifiedgrader_save_quiz_overrides($adapter, $cm, $userid, $fromform, $defaults, $existingoverrides) {
     global $DB;
 
     $extensiondate = 0;
@@ -381,7 +381,7 @@ function save_quiz_overrides($adapter, $cm, $userid, $fromform, $defaults, $exis
  * @param array $defaults
  * @param array $existingoverrides
  */
-function save_forum_overrides($adapter, $cm, $userid, $fromform, $defaults, $existingoverrides) {
+function local_unifiedgrader_save_forum_overrides($adapter, $cm, $userid, $fromform, $defaults, $existingoverrides) {
     if (!empty($fromform->override_extensionduedate)) {
         $adapter->save_forum_extension($userid, (int) $fromform->extensionduedate);
     } else {

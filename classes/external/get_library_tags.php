@@ -53,6 +53,9 @@ class get_library_tags extends external_api {
 
         $context = \context_system::instance();
         self::validate_context($context);
+        if (isguestuser()) {
+            throw new \moodle_exception('noguest');
+        }
 
         return comment_library_manager::get_tags($USER->id);
     }

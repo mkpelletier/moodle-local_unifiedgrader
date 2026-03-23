@@ -60,6 +60,9 @@ class get_comment_library extends external_api {
 
         $context = \context_course::instance($params['courseid']);
         self::validate_context($context);
+        if (isguestuser()) {
+            throw new \moodle_exception('noguest');
+        }
 
         return comment_library::get_comments($USER->id, $params['courseid']);
     }
