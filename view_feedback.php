@@ -317,12 +317,22 @@ $activityinfo = $adapter->get_activity_info();
 $attempts = $adapter->get_attempts($userid);
 $hasmultipleattempts = count($attempts) > 1;
 
-// Default to latest attempt (highest attemptnumber).
+// Default to the latest graded attempt. If no attempts are graded, fall
+// back to the latest attempt. This handles auto-reopen scenarios where
+// the newest attempt is empty but an earlier one has feedback.
 $selectedattempt = -1;
 if ($attemptnum >= 0) {
     $selectedattempt = $attemptnum;
 } else if (!empty($attempts)) {
-    $selectedattempt = end($attempts)['attemptnumber'];
+    // Find the latest graded attempt.
+    $gradedattempts = array_filter($attempts, function ($a) {
+        return !empty($a['graded']);
+    });
+    if (!empty($gradedattempts)) {
+        $selectedattempt = end($gradedattempts)['attemptnumber'];
+    } else {
+        $selectedattempt = end($attempts)['attemptnumber'];
+    }
 }
 
 // Load grade data and submission files for the selected attempt.

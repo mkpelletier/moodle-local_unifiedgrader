@@ -26,6 +26,7 @@ namespace local_unifiedgrader\external;
 
 use core_external\external_api;
 use core_external\external_function_parameters;
+use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
 use local_unifiedgrader\adapter\adapter_factory;
@@ -74,6 +75,21 @@ class get_activity_info extends external_api {
             'duedate' => new external_value(PARAM_INT, 'Due date timestamp'),
             'cutoffdate' => new external_value(PARAM_INT, 'Cutoff date timestamp'),
             'maxgrade' => new external_value(PARAM_FLOAT, 'Maximum grade'),
+            'usescale' => new external_value(
+                PARAM_BOOL,
+                'Whether scale-based grading is used',
+                VALUE_DEFAULT,
+                false,
+            ),
+            'scaleitems' => new external_multiple_structure(
+                new external_single_structure([
+                    'value' => new external_value(PARAM_INT, 'Scale value'),
+                    'label' => new external_value(PARAM_TEXT, 'Scale label'),
+                ]),
+                'Scale items (empty if not using scale)',
+                VALUE_DEFAULT,
+                [],
+            ),
             'intro' => new external_value(PARAM_RAW, 'Activity description HTML'),
             'gradingmethod' => new external_value(PARAM_TEXT, 'Grading method'),
             'gradingdisabled' => new external_value(

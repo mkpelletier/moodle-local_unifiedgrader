@@ -124,6 +124,7 @@ class quiz_adapter extends base_adapter {
             'canmanageextensions' => $hasduedateplugin
                 && has_capability('quizaccess/duedate:manageoverrides', $this->context),
             'maxattempts' => (int) ($this->quiz->attempts ?? 0),
+            'gradepenaltyenabled' => false,
         ];
     }
 
@@ -225,6 +226,7 @@ class quiz_adapter extends base_adapter {
                 'status' => $status,
                 'submittedat' => $submittedat,
                 'gradevalue' => $usergrade ? (float) $usergrade->grade : null,
+                'locked' => false,
                 'hasoverride' => isset($overrideset[$userid]),
                 'hasextension' => isset($duedateextensions[$userid]),
                 'islate' => $islate,
@@ -772,19 +774,38 @@ class quiz_adapter extends base_adapter {
             }
 
             $files = $qa->get_last_qt_files('attachments', $this->context->id);
+            $converter = new \core_files\converter();
             foreach ($files as $file) {
                 $downloadurl = $qa->get_response_file_url($file);
-                $previewurl = new \moodle_url('/local/unifiedgrader/preview_file.php', [
+                $mimetype = $file->get_mimetype();
+                $extension = pathinfo($file->get_filename(), PATHINFO_EXTENSION);
+
+                // Check if the file can be converted to PDF (for non-PDF files).
+                $convertible = false;
+                if ($mimetype !== 'application/pdf' && $extension) {
+                    $convertible = $converter->can_convert_format_to($extension, 'pdf');
+                }
+
+                $previewparams = [
                     'fileid' => $file->get_id(),
                     'cmid' => $this->cm->id,
-                ]);
+                ];
+                if ($convertible) {
+                    $previewparams['convert'] = 'pdf';
+                }
+                $previewurl = new \moodle_url(
+                    '/local/unifiedgrader/preview_file.php',
+                    $previewparams,
+                );
+
                 $result[] = [
                     'fileid' => (int) $file->get_id(),
                     'filename' => $file->get_filename(),
-                    'mimetype' => $file->get_mimetype(),
+                    'mimetype' => $mimetype,
                     'filesize' => (int) $file->get_filesize(),
                     'url' => $downloadurl,
                     'previewurl' => $previewurl->out(false),
+                    'convertible' => $convertible,
                 ];
             }
         }
@@ -1527,11 +1548,13 @@ class quiz_adapter extends base_adapter {
             'userid' => $userid,
             'status' => 'nosubmission',
             'content' => '',
+            'hascontent' => false,
             'files' => [],
             'onlinetext' => '',
             'timecreated' => 0,
             'timemodified' => 0,
             'attemptnumber' => 0,
+            'locked' => false,
             'commentcount' => submission_comment_manager::count_comments($this->cm->id, $userid),
         ];
     }

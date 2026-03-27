@@ -82,10 +82,27 @@ if ($isstudent) {
         throw new moodle_exception('filenotfound', 'error');
     }
 
-    // File must belong to this student's submission.
-    $submissionfiles = $adapter->get_submission_files((int) $USER->id);
-    $fileids = array_column($submissionfiles, 'fileid');
-    if (!in_array($fileid, $fileids)) {
+    // File must belong to one of this student's submissions (any attempt).
+    // For multi-attempt assignments, files from earlier attempts must remain
+    // accessible even when a newer (possibly empty) attempt exists.
+    $allfileids = [];
+    $attempts = $adapter->get_attempts((int) $USER->id);
+    if (!empty($attempts)) {
+        foreach ($attempts as $att) {
+            $attemptfiles = $adapter->get_submission_files_for_attempt(
+                (int) $USER->id,
+                $att['attemptnumber'],
+            );
+            foreach ($attemptfiles as $af) {
+                $allfileids[] = $af['fileid'];
+            }
+        }
+    } else {
+        // No attempts (e.g. forum/quiz) — fall back to default file list.
+        $submissionfiles = $adapter->get_submission_files((int) $USER->id);
+        $allfileids = array_column($submissionfiles, 'fileid');
+    }
+    if (!in_array($fileid, $allfileids)) {
         throw new moodle_exception('filenotfound', 'error');
     }
 }

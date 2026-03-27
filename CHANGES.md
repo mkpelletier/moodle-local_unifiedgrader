@@ -8,6 +8,9 @@
 - Replace hard-coded language strings with get_string() API across JS components
 - Replace innerHTML with DOM manipulation in save status indicator
 - Add automated test suite with 367 tests and 921 assertions
+- Fix external API validation errors on quiz and forum grading (missing return fields)
+- Fix student feedback banner not showing for ungraded multi-attempt assignments
+- Fix student PDF preview 404 for multi-attempt assignments with auto-reopen
 
 ## v2.1.1 (2026-03-21)
 - Add student submission comments for quiz and forum activities (popout chat bubble)

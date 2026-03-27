@@ -117,7 +117,11 @@ class forum_adapter extends base_adapter {
             'gradingdisabled' => !$gradingenabled,
             'teamsubmission' => false,
             'blindmarking' => false,
+            'canmanageoverrides' => false,
+            'hasduedateplugin' => false,
             'canmanageextensions' => has_capability('local/unifiedgrader:grade', $this->context),
+            'maxattempts' => 1,
+            'gradepenaltyenabled' => false,
         ];
     }
 
@@ -223,6 +227,8 @@ class forum_adapter extends base_adapter {
                 'status' => $status,
                 'submittedat' => $submittedat,
                 'gradevalue' => $hasgrade ? (float) $usergrade->grade : null,
+                'locked' => false,
+                'hasoverride' => false,
                 'islate' => $islate,
                 'hasextension' => isset($extensionset[$userid]),
             ];
@@ -315,6 +321,7 @@ class forum_adapter extends base_adapter {
             'userid' => $userid,
             'status' => 'submitted',
             'content' => $content,
+            'hascontent' => !empty($content),
             'files' => $this->get_submission_files($userid),
             'onlinetext' => '',
             'timecreated' => $timecreated,
@@ -901,11 +908,13 @@ class forum_adapter extends base_adapter {
             'userid' => $userid,
             'status' => 'nosubmission',
             'content' => '',
+            'hascontent' => false,
             'files' => [],
             'onlinetext' => '',
             'timecreated' => 0,
             'timemodified' => 0,
             'attemptnumber' => 0,
+            'locked' => false,
             'commentcount' => submission_comment_manager::count_comments($this->cm->id, $userid),
         ];
     }

@@ -275,12 +275,24 @@ class assign_adapter extends base_adapter {
         $result = [];
         foreach ($submissions as $sub) {
             $grade = $this->assign->get_user_grade($userid, false, (int) $sub->attemptnumber);
+            // For "Grade: None" assignments, grade = -1 means graded (teacher interacted).
+            $isgraded = false;
+            if ($grade && $grade->grade !== null) {
+                $instance = $this->assign->get_instance();
+                if ((int) $instance->grade === 0) {
+                    // Grade type "None": any non-null grade means teacher has interacted.
+                    $isgraded = true;
+                } else {
+                    $isgraded = ($grade->grade >= 0);
+                }
+            }
+
             $result[] = [
                 'id' => (int) $sub->attemptnumber,
                 'attemptnumber' => (int) $sub->attemptnumber,
                 'status' => $sub->status,
                 'timemodified' => (int) $sub->timemodified,
-                'graded' => ($grade && $grade->grade !== null && $grade->grade >= 0),
+                'graded' => $isgraded,
             ];
         }
         return $result;
@@ -858,17 +870,49 @@ class assign_adapter extends base_adapter {
      * @return bool
      */
     public function is_grade_released(int $userid): bool {
-        // 1. Check that a grade exists and is non-null.
+        global $DB;
+
+        $instance = $this->assign->get_instance();
+        $gradingdisabled = ((int) $instance->grade === 0);
+
+        // 1. Check that a grade record exists.
+        // For multi-attempt assignments with auto-reopen, the latest attempt may
+        // be ungraded while a previous attempt has feedback. Check all attempts.
         $grade = $this->assign->get_user_grade($userid, false) ?: null;
+
         if (!$grade || $grade->grade === null || $grade->grade < 0) {
-            return false;
+            if ($gradingdisabled) {
+                // Grade type "None": grade = -1 means teacher has interacted (mark as graded / feedback).
+                // Also check older attempts — auto-reopen creates a new empty attempt.
+                $hasgraderecord = $DB->record_exists_select(
+                    'assign_grades',
+                    'assignment = ? AND userid = ? AND grade IS NOT NULL',
+                    [$instance->id, $userid],
+                );
+                if (!$hasgraderecord) {
+                    return false;
+                }
+            } else if ($grade && $grade->grade !== null && $grade->grade < 0) {
+                // Numeric grading but grade is -1 (unset). Check if an earlier
+                // attempt was graded (multi-attempt auto-reopen scenario).
+                $haspositive = $DB->record_exists_select(
+                    'assign_grades',
+                    'assignment = ? AND userid = ? AND grade IS NOT NULL AND grade >= 0',
+                    [$instance->id, $userid],
+                );
+                if (!$haspositive) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
 
         // 2. Check the gradebook item is not hidden.
         $gradeitem = \grade_item::fetch([
             'itemtype' => 'mod',
             'itemmodule' => 'assign',
-            'iteminstance' => $this->assign->get_instance()->id,
+            'iteminstance' => $instance->id,
             'itemnumber' => 0,
             'courseid' => $this->course->id,
         ]);
@@ -877,7 +921,6 @@ class assign_adapter extends base_adapter {
         }
 
         // 3. If marking workflow is enabled, require state = RELEASED.
-        $instance = $this->assign->get_instance();
         if (!empty($instance->markingworkflow)) {
             $workflowstate = $this->assign->get_user_flags($userid, false);
             if (!$workflowstate || $workflowstate->workflowstate !== ASSIGN_MARKING_WORKFLOW_STATE_RELEASED) {
