@@ -1354,7 +1354,13 @@ class quiz_adapter extends base_adapter {
             $mark = isset($data['mark']) && $data['mark'] !== '' ? (float) $data['mark'] : null;
             $comment = $data['comment'] ?? '';
 
-            if ($mark !== null) {
+            $qa = $quba->get_question_attempt($slot);
+            $maxmark = (float) $qa->get_max_mark();
+
+            // Skip grading when max mark is 0 — Moodle's question engine divides
+            // mark by maxmark to compute the fraction, causing division by zero.
+            // Still allow comment-only saves via the null-mark path.
+            if ($mark !== null && $maxmark > 0) {
                 // Mark provided — save both mark and comment.
                 $quba->manual_grade($slot, $comment, $mark, FORMAT_HTML);
             } else if (!empty($comment)) {
@@ -1362,7 +1368,6 @@ class quiz_adapter extends base_adapter {
                 // When $existingmark is null (never graded), manual_grade() with
                 // null mark saves just the comment via the question engine's
                 // comment-only path (no grade change, state preserved).
-                $qa = $quba->get_question_attempt($slot);
                 $existingmark = $qa->get_mark();
                 $quba->manual_grade($slot, $comment, $existingmark, FORMAT_HTML);
             }

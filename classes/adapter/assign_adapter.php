@@ -343,12 +343,23 @@ class assign_adapter extends base_adapter {
             }
         }
 
+        $files = $this->build_submission_files($submission);
+
+        // When the "Render online text as PDF" setting is enabled and there is
+        // online text, generate a PDF so the teacher can annotate it.
+        if (!empty($onlinetext) && get_config('local_unifiedgrader', 'onlinetext_as_pdf')) {
+            $pdffile = $this->get_onlinetext_pdf($submission, $onlinetext);
+            if ($pdffile) {
+                array_unshift($files, $pdffile);
+            }
+        }
+
         return [
             'userid' => $userid,
             'status' => $submission->status,
             'content' => $this->get_submission_content($submission),
             'hascontent' => $hascontent,
-            'files' => $this->build_submission_files($submission),
+            'files' => $files,
             'onlinetext' => $onlinetext,
             'timecreated' => (int) $submission->timecreated,
             'timemodified' => (int) $submission->timemodified,
@@ -1413,6 +1424,134 @@ class assign_adapter extends base_adapter {
             }
         }
         return '';
+    }
+
+    /**
+     * Convert online text to a PDF stored in the plugin's file area.
+     *
+     * Uses Moodle's document converter (unoconv / Google Drive) to convert
+     * an HTML file to PDF. The result is cached in the local_unifiedgrader
+     * 'onlinetextpdf' file area so it only needs to be generated once per
+     * submission modification.
+     *
+     * @param \stdClass $submission The submission record.
+     * @param string $text The online text HTML content.
+     * @return array|null File descriptor array compatible with build_submission_files(), or null on failure.
+     */
+    private function get_onlinetext_pdf(\stdClass $submission, string $text): ?array {
+        global $CFG;
+
+        $fs = get_file_storage();
+        $itemid = (int) $submission->id;
+
+        // Check for an existing cached PDF that is newer than the submission.
+        $existingpdf = $fs->get_file(
+            $this->context->id,
+            'local_unifiedgrader',
+            'onlinetextpdf',
+            $itemid,
+            '/',
+            'onlinetext.pdf',
+        );
+        if ($existingpdf && $existingpdf->get_timemodified() >= (int) $submission->timemodified) {
+            return $this->build_onlinetext_pdf_entry($existingpdf);
+        }
+
+        // Delete stale cached PDF if it exists.
+        if ($existingpdf) {
+            $existingpdf->delete();
+        }
+
+        // Build a full HTML document for conversion.
+        $html = '<!DOCTYPE html><html><head>'
+            . '<meta charset="utf-8">'
+            . '<style>body { font-family: sans-serif; font-size: 12pt; margin: 2cm; }</style>'
+            . '</head><body>'
+            . format_text($text, FORMAT_HTML, ['context' => $this->context])
+            . '</body></html>';
+
+        // Store the HTML as a temporary file for the converter.
+        $htmlfile = $fs->create_file_from_string([
+            'contextid' => $this->context->id,
+            'component' => 'local_unifiedgrader',
+            'filearea' => 'onlinetextpdf',
+            'itemid' => $itemid,
+            'filepath' => '/tmp/',
+            'filename' => 'onlinetext.html',
+        ], $html);
+
+        // Attempt conversion via Moodle's converter API.
+        $converter = new \core_files\converter();
+        $conversion = $converter->start_conversion($htmlfile, 'pdf');
+
+        // Poll briefly for synchronous converters.
+        $maxpolls = 5;
+        for ($i = 0; $i < $maxpolls; $i++) {
+            $status = $conversion->get('status');
+            if (
+                $status === \core_files\conversion::STATUS_COMPLETE
+                || $status === \core_files\conversion::STATUS_FAILED
+            ) {
+                break;
+            }
+            sleep(1);
+            $converter->poll_conversion($conversion);
+        }
+
+        // Clean up the temp HTML file.
+        $htmlfile->delete();
+
+        if ($conversion->get('status') !== \core_files\conversion::STATUS_COMPLETE) {
+            return null;
+        }
+
+        $convertedfile = $conversion->get_destfile();
+        if (!$convertedfile) {
+            return null;
+        }
+
+        // Copy the converted PDF to our file area for caching.
+        $pdffile = $fs->create_file_from_storedfile([
+            'contextid' => $this->context->id,
+            'component' => 'local_unifiedgrader',
+            'filearea' => 'onlinetextpdf',
+            'itemid' => $itemid,
+            'filepath' => '/',
+            'filename' => 'onlinetext.pdf',
+        ], $convertedfile);
+
+        return $this->build_onlinetext_pdf_entry($pdffile);
+    }
+
+    /**
+     * Build a file descriptor for the online text PDF.
+     *
+     * @param \stored_file $file The stored PDF file.
+     * @return array File descriptor compatible with the submission files array.
+     */
+    private function build_onlinetext_pdf_entry(\stored_file $file): array {
+        $previewurl = new \moodle_url('/local/unifiedgrader/preview_file.php', [
+            'fileid' => $file->get_id(),
+            'cmid' => $this->cm->id,
+        ]);
+        $downloadurl = \moodle_url::make_pluginfile_url(
+            $file->get_contextid(),
+            $file->get_component(),
+            $file->get_filearea(),
+            $file->get_itemid(),
+            $file->get_filepath(),
+            $file->get_filename(),
+        );
+
+        return [
+            'fileid' => (int) $file->get_id(),
+            'filename' => get_string('onlinetext', 'local_unifiedgrader') . '.pdf',
+            'mimetype' => 'application/pdf',
+            'filesize' => (int) $file->get_filesize(),
+            'url' => $downloadurl->out(false),
+            'previewurl' => $previewurl->out(false),
+            'convertible' => false,
+        ];
     }
 
     /**

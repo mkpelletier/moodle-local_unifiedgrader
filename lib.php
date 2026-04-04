@@ -136,7 +136,7 @@ function local_unifiedgrader_pluginfile(
         return false;
     }
 
-    $validfileareas = ['annotatedpdf', 'forumfeedback', 'quizfeedback'];
+    $validfileareas = ['annotatedpdf', 'forumfeedback', 'quizfeedback', 'onlinetextpdf'];
     if (!in_array($filearea, $validfileareas)) {
         return false;
     }

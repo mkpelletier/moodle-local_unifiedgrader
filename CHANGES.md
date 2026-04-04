@@ -1,6 +1,18 @@
 # Changelog
 
-## v2.1.2 (2026-03-23)
+## v2.1.4 (2026-04-04)
+- Fix online text submissions not displaying in preview panel
+- Add "Render online text as PDF" setting for PDF annotation of text submissions
+- Fix marking guide grade normalization when guide total differs from activity max grade
+- Fix unicode escape sequences in Spanish, French, German, and Afrikaans language files
+- Fix quiz division by zero when grading zero-mark questions
+- Disable score input for zero-mark quiz questions in marking panel
+
+## v2.1.3 (2026-03-31)
+- Fix quiz question numbering skew when description/label items are present
+- Fix comment library offline banner for non-manager teachers (permission check too strict)
+
+## v2.1.2 (2026-03-25)
 - Add capability checks to comment library external services (guest and sharecomments validation)
 - Add Frankenstyle prefix to all global functions in override and extension pages
 - Add GPL boilerplate headers to all source files (mustache, CSS, JS)
@@ -11,8 +23,6 @@
 - Fix external API validation errors on quiz and forum grading (missing return fields)
 - Fix student feedback banner not showing for ungraded multi-attempt assignments
 - Fix student PDF preview 404 for multi-attempt assignments with auto-reopen
-- Fix quiz question numbering skew when description/label items are present
-- Fix comment library offline banner for non-manager teachers (permission check too strict)
 
 ## v2.1.1 (2026-03-21)
 - Add student submission comments for quiz and forum activities (popout chat bubble)

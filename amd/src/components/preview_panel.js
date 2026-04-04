@@ -127,6 +127,8 @@ export default class extends BaseComponent {
             : !!submission.hascontent;
 
         if (files.length > 0) {
+            // Always pass hasContent so the file selector includes an "Online text"
+            // button when there is non-file content alongside file attachments.
             this._renderFileSelector(files, hasContent, isForum);
 
             // Auto-preview the first previewable file.
@@ -135,20 +137,15 @@ export default class extends BaseComponent {
                 this._previewFile(firstPreviewable);
                 return;
             }
+
+            // Files exist but none are previewable — fall through to show
+            // submission content (online text, audio, etc.) if available.
         }
 
         // Show submission content in an iframe via a proper Moodle page.
         // This ensures submission plugin CSS, JS, and AMD modules load correctly
-        // (e.g. ytsubmission's YouTube player and timestamped feedback interface).
-        if (hasContent) {
-            this._showSubmissionContent();
-            return;
-        }
-
-        // Fallback: submission exists but has no previewable files and no
-        // non-file content. Show submission content iframe anyway — submission
-        // plugins (e.g. audio recording) may render their own player there.
-        if (files.length === 0 && submission.status === 'submitted') {
+        // (e.g. ytsubmission's YouTube player, online text, etc.).
+        if (hasContent || submission.status === 'submitted') {
             this._showSubmissionContent();
             return;
         }

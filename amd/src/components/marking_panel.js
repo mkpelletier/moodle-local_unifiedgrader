@@ -1427,6 +1427,16 @@ export default class extends BaseComponent {
             scoreInput.value = currentFill[criterion.id]?.score ?? '';
             scoreInput.dataset.criterionid = criterion.id;
 
+            // Disable score input for zero-mark questions (e.g. information-only
+            // essay items) — grading would cause a division by zero in the
+            // question engine. Comments can still be entered.
+            if (criterion.maxscore === 0) {
+                scoreInput.disabled = true;
+                scoreInput.value = '0';
+                scoreInput.title = 'No marks available for this question';
+                scoreInput.style.opacity = '0.5';
+            }
+
             this._guideScores[criterion.id] = scoreInput.value;
 
             scoreInput.addEventListener('input', () => {
@@ -1531,7 +1541,16 @@ export default class extends BaseComponent {
                 const newGrade = Math.max(0, Math.round((this._quizBaseGrade + delta) * 100) / 100);
                 gradeInput.value = newGrade;
             } else {
-                gradeInput.value = total;
+                // Normalize the guide total to the assignment's grade scale.
+                // A marking guide may have a different max total than the activity
+                // max grade (e.g. guide criteria sum to 13 but assignment is out of 10).
+                // Moodle normalizes on save; we must match that in the UI.
+                const activityMax = parseFloat(gradeInput.max) || 0;
+                if (maxTotal > 0 && activityMax > 0 && maxTotal !== activityMax) {
+                    gradeInput.value = Math.round((total / maxTotal) * activityMax * 100) / 100;
+                } else {
+                    gradeInput.value = total;
+                }
             }
         }
         this._updatePercentage();

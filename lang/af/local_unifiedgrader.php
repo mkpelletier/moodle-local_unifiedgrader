@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 // General.
-$string['pluginname'] = 'Ge\u00efntegreerde Nasiener';
-$string['grading_interface'] = 'Ge\u00efntegreerde Nasiener';
+$string['pluginname'] = 'Geïntegreerde Nasiener';
+$string['grading_interface'] = 'Geïntegreerde Nasiener';
 $string['nopermission'] = 'Jy het nie toestemming om die Geïntegreerde Nasiener te gebruik nie.';
 $string['invalidactivitytype'] = 'Hierdie aktiwiteittipe word nie deur die Geïntegreerde Nasiener ondersteun nie.';
 $string['invalidmodule'] = 'Ongeldige aktiwiteitsmodule.';

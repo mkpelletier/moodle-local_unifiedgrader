@@ -53,6 +53,8 @@ $string['setting_enable_quiz'] = 'Enable for Quizzes';
 $string['setting_enable_quiz_desc'] = 'Allow the Unified Grader to be used for quiz activities.';
 $string['setting_enable_quiz_post_grades'] = 'Enable post grades for quizzes';
 $string['setting_enable_quiz_post_grades_desc'] = 'Quiz grade visibility is normally managed by the quiz\'s review options. When enabled, the Unified Grader\'s "Post grades" toggle will update the quiz review options programmatically to show or hide marks. When disabled (default), the post grades toggle is hidden for quizzes.';
+$string['setting_onlinetext_as_pdf'] = 'Render online text as PDF';
+$string['setting_onlinetext_as_pdf_desc'] = 'When enabled, online text submissions are converted to PDF so teachers can annotate them with the PDF markup tools. Requires a document converter (unoconv or Google Drive) to be configured in Moodle. When disabled, online text is displayed in an inline preview.';
 $string['setting_allow_manual_override'] = 'Allow manual grade override';
 $string['setting_allow_manual_override_desc'] = 'When enabled, teachers can manually type a grade even when a rubric or marking guide is configured. When disabled, the grade is calculated exclusively from the rubric or marking guide criteria.';
 
