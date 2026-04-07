@@ -95,6 +95,7 @@ export default class extends BaseComponent {
         this._clibPopout = null;
         this._autoSaveTimer = null;
         this._suppressAutoSave = false;
+        this._saveInFlight = false;
         this._reportButtonLabel = 'Report academic impropriety';
         getString('report_impropriety', 'local_unifiedgrader').then(str => {
             this._reportButtonLabel = str;
@@ -753,6 +754,9 @@ export default class extends BaseComponent {
                 saveBtn.disabled = false;
                 saveBtn.textContent = await getString('savefeedback', 'local_unifiedgrader');
 
+                // Save cycle complete — allow future saves.
+                this._saveInFlight = false;
+
                 // When saving transitions to false, the save completed — mark clean.
                 const gradeInputEl = this.getElement(this.selectors.GRADE_INPUT);
                 const scaleInputEl = this.getElement(this.selectors.SCALE_INPUT);
@@ -1402,10 +1406,30 @@ export default class extends BaseComponent {
             // Trust boundary: descriptionmarkers is sanitized server-side via format_text()
             // in the adapter. innerHTML is intentional to preserve rich formatting.
             if (criterion.descriptionmarkers) {
-                const markerDesc = document.createElement('div');
-                markerDesc.className = 'small text-muted mb-2';
-                markerDesc.innerHTML = criterion.descriptionmarkers;
-                row.appendChild(markerDesc);
+                const markerBox = document.createElement('div');
+                markerBox.className = 'small mb-2 p-2 rounded';
+                markerBox.style.backgroundColor = 'var(--bs-info-bg-subtle, #cff4fc)';
+                markerBox.style.border = '1px solid var(--bs-info-border-subtle, #9eeaf9)';
+
+                const markerLabel = document.createElement('div');
+                markerLabel.className = 'fw-bold mb-1';
+                const markerIcon = document.createElement('i');
+                markerIcon.className = 'fa fa-info-circle me-1';
+                markerIcon.setAttribute('aria-hidden', 'true');
+                markerLabel.appendChild(markerIcon);
+                getString('informationforgraders', 'local_unifiedgrader').then((s) => {
+                    markerLabel.appendChild(document.createTextNode(s));
+                    return s;
+                }).catch(() => {
+                    markerLabel.appendChild(document.createTextNode('Information for graders'));
+                });
+                markerBox.appendChild(markerLabel);
+
+                const markerContent = document.createElement('div');
+                markerContent.innerHTML = criterion.descriptionmarkers;
+                markerBox.appendChild(markerContent);
+
+                row.appendChild(markerBox);
             }
 
             // Score input + remark row.
@@ -1751,7 +1775,7 @@ export default class extends BaseComponent {
      * Skips if a save is already in progress to prevent re-render → focusout → save loops.
      */
     _debouncedAutoSave() {
-        if (this._suppressAutoSave || this.reactive.state.ui.saving) {
+        if (this._suppressAutoSave || this._saveInFlight || this.reactive.state.ui.saving) {
             return;
         }
         if (this._autoSaveTimer) {
@@ -1759,14 +1783,15 @@ export default class extends BaseComponent {
         }
         this._autoSaveTimer = setTimeout(() => {
             this._autoSaveTimer = null;
-            // Only auto-save if something actually changed — prevents the save loop
-            // where a post-save state refresh triggers another empty save that clears
-            // existing marking guide fillings via clear_attempt().
-            if (!this._suppressAutoSave && !this.reactive.state.ui.saving
+            // Only auto-save if something actually changed and no save is in progress.
+            // This prevents the save loop where a post-save state refresh triggers
+            // another empty save that clears existing marking guide fillings.
+            if (!this._suppressAutoSave && !this._saveInFlight
+                && !this.reactive.state.ui.saving
                 && (DirtyTracker.isDirty('grade') || DirtyTracker.isDirty('feedback'))) {
                 this._handleSaveGrade();
             }
-        }, 600);
+        }, 1500);
     }
 
     /**
@@ -1778,6 +1803,14 @@ export default class extends BaseComponent {
             clearTimeout(this._autoSaveTimer);
             this._autoSaveTimer = null;
         }
+
+        // Prevent overlapping saves — if a save is already in flight,
+        // skip this one entirely to avoid stale data overwriting fresh data.
+        if (this._saveInFlight) {
+            return;
+        }
+        this._saveInFlight = true;
+
         const state = this.reactive.state;
 
         // Read grade from the appropriate input (scale dropdown or numeric input).

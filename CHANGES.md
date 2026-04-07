@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.1.5 (2026-04-07)
+- Fix group/team submissions not displaying in the grading interface
+- Fix quiz question ordering for shuffled quizzes (use attempt layout order)
+- Close participant list panel when clicking outside or focusing TinyMCE editor
+- Add labeled info box for grader information in quiz marking panel
+- Fix auto-save race condition that could overwrite marking guide data
+
 ## v2.1.4 (2026-04-04)
 - Fix online text submissions not displaying in preview panel
 - Add "Render online text as PDF" setting for PDF annotation of text submissions

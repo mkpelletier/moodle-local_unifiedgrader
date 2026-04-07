@@ -172,6 +172,24 @@ export default class extends BaseComponent {
             });
         }
 
+        // Close the participant list when clicking outside the navigator.
+        document.addEventListener('click', (e) => {
+            if (!this._filtersVisible) {
+                return;
+            }
+            if (this.element && !this.element.contains(e.target)) {
+                this._collapseFilters();
+            }
+        });
+
+        // Also close when focus moves to an iframe (e.g. TinyMCE editor),
+        // since iframe clicks don't bubble to the parent document.
+        window.addEventListener('blur', () => {
+            if (this._filtersVisible) {
+                this._collapseFilters();
+            }
+        });
+
         // Search with debounce.
         const searchInput = this.getElement(this.selectors.SEARCH_INPUT);
         if (searchInput) {

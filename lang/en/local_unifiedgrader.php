@@ -155,6 +155,7 @@ $string['layout_preview'] = 'Preview only';
 $string['layout_grade'] = 'Grading only';
 $string['manualquestions'] = 'Manual questions';
 $string['response'] = 'Response';
+$string['informationforgraders'] = 'Information for graders';
 $string['teachercomment'] = 'Teacher comment';
 
 // Submission comments.

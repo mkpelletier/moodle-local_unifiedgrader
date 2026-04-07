@@ -163,7 +163,7 @@ class assign_adapter extends base_adapter {
 
         $result = [];
         foreach ($participants as $participant) {
-            $submission = $this->assign->get_user_submission($participant->id, false) ?: null;
+            $submission = $this->get_submission($participant->id) ?: null;
             $grade = $this->assign->get_user_grade($participant->id, false) ?: null;
             $status = $this->resolve_status($submission, $grade);
 
@@ -248,7 +248,7 @@ class assign_adapter extends base_adapter {
      * @return array
      */
     public function get_submission_data(int $userid): array {
-        $submission = $this->assign->get_user_submission($userid, false);
+        $submission = $this->get_submission($userid);
         return $this->build_submission_data($userid, $submission ?: null);
     }
 
@@ -260,7 +260,7 @@ class assign_adapter extends base_adapter {
      * @return array
      */
     public function get_submission_data_for_attempt(int $userid, int $attemptnumber = -1): array {
-        $submission = $this->assign->get_user_submission($userid, false, $attemptnumber);
+        $submission = $this->get_submission($userid, $attemptnumber);
         return $this->build_submission_data($userid, $submission ?: null);
     }
 
@@ -444,7 +444,7 @@ class assign_adapter extends base_adapter {
         $latepenaltypct = null;
         if ($grade && isset($grade->penalty) && $grade->penalty > 0 && $grade->grade > 0) {
             $effectiveduedate = $this->get_effective_duedate($userid);
-            $submission = $this->assign->get_user_submission($userid, false);
+            $submission = $this->get_submission($userid);
             $submittedat = $submission ? (int) $submission->timecreated : 0;
 
             // Only report the penalty if the submission is actually late.
@@ -511,9 +511,9 @@ class assign_adapter extends base_adapter {
         // which submission attempt the grade applies to.
         // When attemptnumber is -1 (default), use the latest submission's attempt.
         if ($attemptnumber >= 0) {
-            $submission = $this->assign->get_user_submission($userid, false, $attemptnumber) ?: null;
+            $submission = $this->get_submission($userid, $attemptnumber) ?: null;
         } else {
-            $submission = $this->assign->get_user_submission($userid, false) ?: null;
+            $submission = $this->get_submission($userid) ?: null;
         }
         $attemptnumber = $submission ? (int) $submission->attemptnumber : 0;
 
@@ -713,7 +713,7 @@ class assign_adapter extends base_adapter {
         require_once($CFG->dirroot . '/mod/assign/lib.php');
 
         // Get the latest submission to check if it matches the graded attempt.
-        $latestsubmission = $this->assign->get_user_submission($userid, false);
+        $latestsubmission = $this->get_submission($userid);
         if (!$latestsubmission) {
             return;
         }
@@ -769,7 +769,7 @@ class assign_adapter extends base_adapter {
      * @return array
      */
     public function get_submission_files(int $userid): array {
-        $submission = $this->assign->get_user_submission($userid, false);
+        $submission = $this->get_submission($userid);
         return $this->build_submission_files($submission ?: null);
     }
 
@@ -781,7 +781,7 @@ class assign_adapter extends base_adapter {
      * @return array
      */
     public function get_submission_files_for_attempt(int $userid, int $attemptnumber = -1): array {
-        $submission = $this->assign->get_user_submission($userid, false, $attemptnumber);
+        $submission = $this->get_submission($userid, $attemptnumber);
         return $this->build_submission_files($submission ?: null);
     }
 
@@ -1063,7 +1063,7 @@ class assign_adapter extends base_adapter {
 
         require_once($CFG->libdir . '/plagiarismlib.php');
 
-        $submission = $this->assign->get_user_submission($userid, false);
+        $submission = $this->get_submission($userid);
         if (!$submission) {
             return [];
         }
@@ -1417,6 +1417,30 @@ class assign_adapter extends base_adapter {
      * @param \stdClass $submission
      * @return string
      */
+    /**
+     * Get the submission for a user, handling both individual and group submissions.
+     *
+     * When team submission is enabled, the submission is stored with userid=0
+     * under the group's ID. This method transparently fetches the correct record.
+     *
+     * @param int $userid The user ID.
+     * @param int $attemptnumber Attempt number (-1 for latest).
+     * @return \stdClass|false The submission record, or false if not found.
+     */
+    private function get_submission(int $userid, int $attemptnumber = -1) {
+        $instance = $this->assign->get_instance();
+        if (!empty($instance->teamsubmission)) {
+            return $this->assign->get_group_submission($userid, 0, false, $attemptnumber);
+        }
+        return $this->assign->get_user_submission($userid, false, $attemptnumber);
+    }
+
+    /**
+     * Get online text content from a submission.
+     *
+     * @param \stdClass $submission The submission record.
+     * @return string The online text HTML, or empty string if not available.
+     */
     private function get_onlinetext(\stdClass $submission): string {
         foreach ($this->assign->get_submission_plugins() as $plugin) {
             if ($plugin->get_type() === 'onlinetext' && $plugin->is_enabled()) {
@@ -1708,7 +1732,7 @@ class assign_adapter extends base_adapter {
     protected function submit_for_grading(int $userid): bool {
         global $DB;
 
-        $submission = $this->assign->get_user_submission($userid, false);
+        $submission = $this->get_submission($userid);
         if (!$submission || $submission->status !== ASSIGN_SUBMISSION_STATUS_DRAFT) {
             throw new \moodle_exception('invalidaction', 'local_unifiedgrader');
         }

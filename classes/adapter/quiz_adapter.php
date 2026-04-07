@@ -338,7 +338,7 @@ class quiz_adapter extends base_adapter {
      */
     private function build_submission_data(int $userid, \stdClass $attempt): array {
         $quba = question_engine::load_questions_usage_by_activity($attempt->uniqueid);
-        $slots = $quba->get_slots();
+        $slots = $this->get_display_order_slots($attempt, $quba);
         $content = $this->render_attempt_as_html($quba, $slots, $attempt);
 
         return [
@@ -470,7 +470,8 @@ class quiz_adapter extends base_adapter {
 
         if ($attempt) {
             $quba = question_engine::load_questions_usage_by_activity($attempt->uniqueid);
-            $manualquestions = $this->get_manual_questions($quba);
+            $manualslots = $this->get_display_order_slots($attempt, $quba);
+            $manualquestions = $this->get_manual_questions($quba, $manualslots);
 
             if (!empty($manualquestions['criteria'])) {
                 $gradingdefinition = json_encode([
@@ -1274,10 +1275,13 @@ class quiz_adapter extends base_adapter {
      * Get manual (essay) question definitions and current fill data from a QUBA.
      *
      * @param \question_usage_by_activity $quba
+     * @param array $slots Ordered slot numbers (empty = use QUBA default order).
      * @return array With keys 'criteria' (definition) and 'fill' (current data).
      */
-    private function get_manual_questions(\question_usage_by_activity $quba): array {
-        $slots = $quba->get_slots();
+    private function get_manual_questions(\question_usage_by_activity $quba, array $slots = []): array {
+        if (empty($slots)) {
+            $slots = $quba->get_slots();
+        }
         $criteria = [];
         $fill = [];
 
@@ -1388,6 +1392,34 @@ class quiz_adapter extends base_adapter {
 
         // Sync to gradebook.
         quiz_update_grades($this->quiz, (int) $attempt->userid);
+    }
+
+    /**
+     * Get quiz question slots in the display order for a specific attempt.
+     *
+     * The attempt's layout field contains the actual display order (which may
+     * differ from the sequential slot numbers when shuffling is enabled).
+     * Falls back to $quba->get_slots() if layout is empty.
+     *
+     * @param \stdClass $attempt The attempt record.
+     * @param \question_usage_by_activity $quba The question usage.
+     * @return array Slot numbers in display order.
+     */
+    private function get_display_order_slots(\stdClass $attempt, \question_usage_by_activity $quba): array {
+        if (!empty($attempt->layout)) {
+            // Layout is comma-separated slot numbers with 0 as page breaks.
+            $slots = array_filter(
+                explode(',', $attempt->layout),
+                function ($s) {
+                    return $s !== '' && (int) $s > 0;
+                },
+            );
+            return array_values(array_map('intval', $slots));
+        }
+        // Fallback: ascending slot order from the question usage.
+        $slots = $quba->get_slots();
+        sort($slots, SORT_NUMERIC);
+        return $slots;
     }
 
     /**
