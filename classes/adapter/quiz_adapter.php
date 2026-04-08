@@ -1245,6 +1245,8 @@ class quiz_adapter extends base_adapter {
         global $DB;
 
         // Find all finished quiz attempts, then check for needsgrading questions.
+        // Exclude zero-mark questions — they can never be graded (no mark possible),
+        // so they'd stay in needsgrading state indefinitely if included.
         $sql = "SELECT DISTINCT qa_outer.userid
                   FROM {quiz_attempts} qa_outer
                   JOIN {question_attempts} qatt ON qatt.questionusageid = qa_outer.uniqueid
@@ -1252,6 +1254,7 @@ class quiz_adapter extends base_adapter {
                  WHERE qa_outer.quiz = :quizid
                    AND qa_outer.preview = 0
                    AND qa_outer.state = :finished
+                   AND qatt.maxmark > 0
                    AND qas.sequencenumber = (
                        SELECT MAX(qas2.sequencenumber)
                          FROM {question_attempt_steps} qas2

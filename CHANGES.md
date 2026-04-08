@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.6 (2026-04-09)
+- Replace penalty recalculation gate with post-save confirmation dialog
+- Extensions save immediately; teacher is prompted to recalculate penalty if grades exist
+- Fix extensions not recalculating penalties when granted after grading
+- Fix quiz attempts incorrectly flagged as needing grading when zero-mark questions are present
+
 ## v2.1.5 (2026-04-07)
 - Fix group/team submissions not displaying in the grading interface
 - Fix quiz question ordering for shuffled quizzes (use attempt layout order)

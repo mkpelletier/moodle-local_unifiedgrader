@@ -95,9 +95,16 @@ if ($fromform) {
 
     if ($result) {
         // Recalculate the late penalty now that the effective due date has changed.
-        // If the extension covers the submission time, Moodle core will clear the
-        // penalty from assign_grades and update the gradebook grade accordingly.
-        if (class_exists('\mod_assign\penalty\helper')) {
+        // Call assign_update_grades() first to do a full gradebook recalculation,
+        // then apply_penalty_to_user() to update the penalty field in assign_grades.
+        if (
+            class_exists('\mod_assign\penalty\helper')
+                && \mod_assign\penalty\helper::is_penalty_enabled($cm->instance)
+        ) {
+            require_once($CFG->dirroot . '/mod/assign/lib.php');
+            $assigninstance = clone $assign->get_instance();
+            $assigninstance->cmidnumber = $cm->idnumber;
+            assign_update_grades($assigninstance, $userid);
             \mod_assign\penalty\helper::apply_penalty_to_user($cm->instance, $userid);
         }
 

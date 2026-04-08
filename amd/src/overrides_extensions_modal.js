@@ -23,6 +23,7 @@
  */
 
 import Modal from 'core/modal';
+import Notification from 'core/notification';
 import {getString} from 'core/str';
 
 /**
@@ -60,6 +61,11 @@ export const openOverridesExtensionsModal = async(cmid, userid) => {
             if (event.data.type === 'overrides_saved') {
                 saved = true;
                 modal.destroy();
+            } else if (event.data.type === 'overrides_saved_ask_recalc') {
+                saved = true;
+                modal.destroy();
+                // After the modal closes, ask whether to recalculate the penalty.
+                _askRecalculatePenalty(event.data.cmid, event.data.userid);
             } else if (event.data.type === 'overrides_cancelled') {
                 modal.destroy();
             }
@@ -75,4 +81,41 @@ export const openOverridesExtensionsModal = async(cmid, userid) => {
 
         modal.show();
     });
+};
+
+/**
+ * Show a confirmation dialog asking whether to recalculate the late penalty
+ * after an extension was granted on a graded assignment.
+ *
+ * @param {number} cmid Course module ID.
+ * @param {number} userid Student user ID.
+ */
+const _askRecalculatePenalty = async(cmid, userid) => {
+    const message = await getString('recalculate_penalty_confirm', 'local_unifiedgrader');
+    const title = await getString('recalculatepenalty', 'local_unifiedgrader');
+
+    Notification.confirm(
+        title,
+        message,
+        await getString('yes'),
+        await getString('no'),
+        async() => {
+            // Teacher chose Yes — call the recalculation endpoint.
+            try {
+                const url = M.cfg.wwwroot + '/local/unifiedgrader/recalculate_penalty.php'
+                    + '?cmid=' + cmid + '&userid=' + userid + '&sesskey=' + M.cfg.sesskey;
+                const resp = await fetch(url, {method: 'POST'});
+                if (resp.ok) {
+                    // Trigger a page-level reload of the current student's data
+                    // so the updated penalty is reflected in the grading interface.
+                    document.dispatchEvent(new CustomEvent(
+                        'unifiedgrader:penaltyrecalculated',
+                        {detail: {cmid, userid}},
+                    ));
+                }
+            } catch (err) {
+                window.console.warn('[overrides_modal] Penalty recalculation failed:', err);
+            }
+        },
+    );
 };

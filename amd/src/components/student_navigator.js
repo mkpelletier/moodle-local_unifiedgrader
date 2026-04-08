@@ -190,6 +190,17 @@ export default class extends BaseComponent {
             }
         });
 
+        // Reload the current student's data after penalty recalculation.
+        document.addEventListener('unifiedgrader:penaltyrecalculated', (e) => {
+            const state = this.reactive.state;
+            const cmid = state.activity?.cmid;
+            const userid = state.currentUser?.id;
+            if (cmid && userid && e.detail?.userid === userid) {
+                this.reactive.dispatch('loadStudent', cmid, userid);
+                this.reactive.dispatch('updateFilters', cmid, {});
+            }
+        });
+
         // Search with debounce.
         const searchInput = this.getElement(this.selectors.SEARCH_INPUT);
         if (searchInput) {

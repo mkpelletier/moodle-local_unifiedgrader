@@ -149,6 +149,7 @@ $mform = new \local_unifiedgrader\form\overrides_extensions_form($url, [
     'activitytype' => $modname,
     'defaults' => $defaults,
     'overrides' => $overrides,
+    'assignid' => ($modname === 'assign') ? $cm->instance : 0,
 ]);
 
 // Pre-populate hidden fields.
@@ -174,8 +175,30 @@ if ($fromform) {
         local_unifiedgrader_save_forum_overrides($adapter, $cm, $userid, $fromform, $defaults, $overrides);
     }
 
+    // Check if we should prompt for penalty recalculation.
+    // Conditions: assign activity + penalties enabled + grades exist + extension was changed.
+    $askrecalc = false;
+    if (
+        $modname === 'assign'
+            && !empty($fromform->override_extensionduedate)
+            && class_exists('\mod_assign\penalty\helper')
+            && \mod_assign\penalty\helper::is_penalty_enabled($cm->instance)
+    ) {
+        $hasgrades = $DB->record_exists_select(
+            'assign_grades',
+            'assignment = ? AND userid = ? AND grade >= 0',
+            [$cm->instance, $userid],
+        );
+        $askrecalc = $hasgrades;
+    }
+
     echo $OUTPUT->header();
-    echo '<script>window.parent.postMessage({type: "overrides_saved"}, "*");</script>';
+    if ($askrecalc) {
+        echo '<script>window.parent.postMessage({type: "overrides_saved_ask_recalc", '
+            . 'cmid: ' . $cmid . ', userid: ' . $userid . '}, "*");</script>';
+    } else {
+        echo '<script>window.parent.postMessage({type: "overrides_saved"}, "*");</script>';
+    }
     echo $OUTPUT->footer();
     exit;
 }
@@ -282,8 +305,13 @@ function local_unifiedgrader_save_assign_overrides($assign, $context, $cm, $user
         \cache::make('mod_assign', 'overrides')->delete($cachekey);
     }
 
-    // Recalculate penalties.
-    if (class_exists('\mod_assign\penalty\helper')) {
+    // Apply penalty helper to keep the penalty field in assign_grades current.
+    // Full grade recalculation (assign_update_grades) is triggered separately
+    // via a confirmation dialog if the teacher chose to recalculate.
+    if (
+        class_exists('\mod_assign\penalty\helper')
+            && \mod_assign\penalty\helper::is_penalty_enabled($cm->instance)
+    ) {
         \mod_assign\penalty\helper::apply_penalty_to_user($cm->instance, $userid);
     }
 }
