@@ -157,6 +157,18 @@ class get_submission_data extends external_api {
                 VALUE_DEFAULT,
                 [],
             ),
+            'portfoliourl' => new external_value(
+                PARAM_URL,
+                'URL to embed portfolio content in an iframe (assignsubmission_byblos); empty if not applicable',
+                VALUE_DEFAULT,
+                '',
+            ),
+            'portfoliofallback' => new external_value(
+                PARAM_RAW,
+                'Fallback HTML for the portfolio submission (rendered if the iframe cannot load)',
+                VALUE_DEFAULT,
+                '',
+            ),
         ]);
     }
 }

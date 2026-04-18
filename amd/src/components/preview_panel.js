@@ -106,6 +106,7 @@ export default class extends BaseComponent {
         pdfWrapper.classList.add('d-none');
         docPreview.classList.add('d-none');
         this._currentFileId = null;
+        this._removePortfolioPopout();
 
         // Reset file selector in the right panel.
         this._renderFileSelector([]);
@@ -125,19 +126,26 @@ export default class extends BaseComponent {
         const hasContent = isForum
             ? (submission.status && submission.status !== 'nosubmission')
             : !!submission.hascontent;
+        const hasPortfolio = !!(submission.portfoliourl);
+
+        // Render the right-column pill selector. Includes "Portfolio" when
+        // present, "Submission" when other content exists, plus each file.
+        this._renderFileSelector(files, hasContent, isForum, hasPortfolio);
+
+        // Byblos portfolio submissions take priority — render the portfolio
+        // iframe as the default view. Other content remains accessible via pills.
+        if (hasPortfolio) {
+            this._showPortfolio(submission.portfoliourl);
+            return;
+        }
 
         if (files.length > 0) {
-            // Always pass hasContent so the file selector includes an "Online text"
-            // button when there is non-file content alongside file attachments.
-            this._renderFileSelector(files, hasContent, isForum);
-
             // Auto-preview the first previewable file.
             const firstPreviewable = files.find(f => this._isPreviewable(f));
             if (firstPreviewable) {
                 this._previewFile(firstPreviewable);
                 return;
             }
-
             // Files exist but none are previewable — fall through to show
             // submission content (online text, audio, etc.) if available.
         }
@@ -157,8 +165,9 @@ export default class extends BaseComponent {
      * @param {Array} files Array of file objects.
      * @param {boolean} hasContent Whether the submission has text content (e.g. forum posts).
      * @param {boolean} isForum Whether the current activity is a forum.
+     * @param {boolean} hasPortfolio Whether the submission has a Byblos portfolio URL.
      */
-    _renderFileSelector(files, hasContent = false, isForum = false) {
+    _renderFileSelector(files, hasContent = false, isForum = false, hasPortfolio = false) {
         if (!this._container) {
             return;
         }
@@ -170,12 +179,50 @@ export default class extends BaseComponent {
 
         list.innerHTML = '';
 
-        if (files.length === 0) {
+        // Show the pill bar whenever a portfolio is present (so it has a pill),
+        // there is other content, or there are files to choose between.
+        if (files.length === 0 && !hasPortfolio) {
             wrapper.classList.add('d-none');
             return;
         }
 
         wrapper.classList.remove('d-none');
+
+        // Portfolio pill — primary view when a Byblos portfolio is submitted.
+        if (hasPortfolio) {
+            const pill = document.createElement('span');
+            pill.className = 'btn-group btn-group-sm';
+            pill.dataset.fileid = 'portfolio';
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm btn-outline-secondary d-flex align-items-center gap-1';
+            const icon = document.createElement('i');
+            icon.className = 'fa fa-book';
+            icon.setAttribute('aria-hidden', 'true');
+            btn.appendChild(icon);
+            const label = document.createElement('span');
+            label.className = 'small';
+            label.textContent = 'Portfolio';
+            getString('portfolio_pill', 'local_unifiedgrader')
+                .then((str) => { label.textContent = str; })
+                .catch(() => {});
+            btn.appendChild(label);
+            btn.addEventListener('click', () => {
+                if (this._pdfViewer) {
+                    this._pdfViewer.saveAnnotationsNow();
+                }
+                const url = this.reactive.state.submission?.portfoliourl;
+                if (url) {
+                    this._showPortfolio(url);
+                    this._currentFileId = null;
+                    this._highlightFileButton('portfolio');
+                }
+            });
+
+            pill.appendChild(btn);
+            list.appendChild(pill);
+        }
 
         // Add a content pill when there is both content and file attachments,
         // so the teacher can switch between viewing content and previewing files.
@@ -269,6 +316,9 @@ export default class extends BaseComponent {
         pdfWrapper.classList.add('d-none');
         docPreview.classList.add('d-none');
 
+        // Remove the portfolio pop-out button when switching to a file preview.
+        this._removePortfolioPopout();
+
         if ((file.mimetype === 'application/pdf' || file.convertible) && this._pdfViewer) {
             // Use PDF.js viewer for PDF files (and files converted to PDF).
             pdfWrapper.classList.remove('d-none');
@@ -310,6 +360,9 @@ export default class extends BaseComponent {
         pdfWrapper.classList.add('d-none');
         docPreview.classList.add('d-none');
 
+        // Remove the portfolio pop-out button if it was added previously.
+        this._removePortfolioPopout();
+
         const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
         const cmid = this.reactive.state.activity?.cmid;
         const userid = this.reactive.state.submission?.userid;
@@ -323,6 +376,85 @@ export default class extends BaseComponent {
             }
             iframe.src = url;
             docPreview.classList.remove('d-none');
+        }
+    }
+
+    /**
+     * Render a Byblos portfolio in the iframe preview, with a pop-out button
+     * that lets the teacher open the portfolio in a new tab.
+     *
+     * @param {string} url The portfolio URL (with embedded=1 for chrome-free render).
+     */
+    _showPortfolio(url) {
+        const pdfWrapper = this.getElement(this.selectors.PDF_VIEWER_WRAPPER);
+        const docPreview = this.getElement(this.selectors.DOCUMENT_PREVIEW);
+        pdfWrapper.classList.add('d-none');
+
+        const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
+        iframe.src = url;
+        docPreview.classList.remove('d-none');
+
+        // Add (or refresh) the pop-out button overlaid on the iframe area.
+        this._addPortfolioPopout(url);
+    }
+
+    /**
+     * Add a pop-out button to open the portfolio in a new tab.
+     * The button is overlaid in the top-right of the preview area.
+     *
+     * @param {string} url The portfolio URL.
+     */
+    _addPortfolioPopout(url) {
+        this._removePortfolioPopout();
+
+        const docPreview = this.getElement(this.selectors.DOCUMENT_PREVIEW);
+        if (!docPreview) {
+            return;
+        }
+
+        const popoutUrl = url.replace(/([?&])embedded=1(&|$)/, (m, p1, p2) => (p2 ? p1 : '')) || url;
+
+        const btn = document.createElement('a');
+        btn.dataset.region = 'portfolio-popout';
+        btn.href = popoutUrl;
+        btn.target = '_blank';
+        btn.rel = 'noopener noreferrer';
+        btn.className = 'btn btn-sm btn-light border shadow-sm position-absolute';
+        btn.style.top = '8px';
+        btn.style.right = '16px';
+        btn.style.zIndex = '10';
+
+        const icon = document.createElement('i');
+        icon.className = 'fa fa-external-link-alt';
+        icon.setAttribute('aria-hidden', 'true');
+        btn.appendChild(icon);
+
+        getString('portfolio_popout', 'local_unifiedgrader').then((s) => {
+            btn.setAttribute('title', s);
+            btn.setAttribute('aria-label', s);
+            return s;
+        }).catch(() => {
+            btn.setAttribute('title', 'Open portfolio in new tab');
+        });
+
+        // Ensure the preview wrapper is positioned so absolute children anchor correctly.
+        if (getComputedStyle(docPreview).position === 'static') {
+            docPreview.style.position = 'relative';
+        }
+        docPreview.appendChild(btn);
+    }
+
+    /**
+     * Remove the portfolio pop-out button if present.
+     */
+    _removePortfolioPopout() {
+        const docPreview = this.getElement(this.selectors.DOCUMENT_PREVIEW);
+        if (!docPreview) {
+            return;
+        }
+        const existing = docPreview.querySelector('[data-region="portfolio-popout"]');
+        if (existing) {
+            existing.remove();
         }
     }
 

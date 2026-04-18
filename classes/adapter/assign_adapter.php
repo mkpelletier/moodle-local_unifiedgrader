@@ -322,6 +322,8 @@ class assign_adapter extends base_adapter {
                 'attemptnumber' => 0,
                 'commentcount' => 0,
                 'locked' => $locked,
+                'portfoliourl' => '',
+                'portfoliofallback' => '',
             ];
         }
 
@@ -354,6 +356,11 @@ class assign_adapter extends base_adapter {
             }
         }
 
+        // Detect Byblos portfolio submission — returns a URL to render inline,
+        // plus a fallback HTML block (the subplugin's view() output) shown if
+        // the URL is unavailable. When the subplugin is absent both are empty.
+        $portfolio = $this->get_portfolio_data($submission);
+
         return [
             'userid' => $userid,
             'status' => $submission->status,
@@ -366,7 +373,47 @@ class assign_adapter extends base_adapter {
             'attemptnumber' => (int) $submission->attemptnumber,
             'commentcount' => $commentcount,
             'locked' => $locked,
+            'portfoliourl' => $portfolio['url'],
+            'portfoliofallback' => $portfolio['fallback'],
         ];
+    }
+
+    /**
+     * Get Byblos portfolio URL and fallback HTML for a submission.
+     *
+     * Uses the subplugin's get_portfolio_url() API if available (preferred),
+     * falling back to the view() HTML otherwise. Both values may be empty
+     * strings when the portfolio submission type is not in use.
+     *
+     * @param \stdClass $submission The submission record.
+     * @return array With keys 'url' (string, may be empty) and 'fallback' (HTML).
+     */
+    private function get_portfolio_data(\stdClass $submission): array {
+        $url = '';
+        $fallback = '';
+
+        foreach ($this->assign->get_submission_plugins() as $plugin) {
+            if ($plugin->get_type() !== 'byblos' || !$plugin->is_enabled() || !$plugin->is_visible()) {
+                continue;
+            }
+            if ($plugin->is_empty($submission)) {
+                break;
+            }
+
+            // Preferred: public API returning a moodle_url for iframe embedding.
+            if (method_exists($plugin, 'get_portfolio_url')) {
+                $purl = $plugin->get_portfolio_url($submission, ['embedded' => 1]);
+                if ($purl instanceof \moodle_url) {
+                    $url = $purl->out(false);
+                }
+            }
+
+            // Always capture the fallback HTML — shown if the iframe can't load.
+            $fallback = (string) $plugin->view($submission);
+            break;
+        }
+
+        return ['url' => $url, 'fallback' => $fallback];
     }
 
     /**
