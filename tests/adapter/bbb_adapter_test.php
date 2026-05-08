@@ -130,10 +130,20 @@ final class bbb_adapter_test extends \advanced_testcase {
         $student = $s->scenario->students[0];
 
         // Two sessions with different metrics — explicit timestamps so order is deterministic.
-        $plugingen->create_bbb_summary_log($s->scenario->activity, $student->id,
-            ['chats' => 2, 'talks' => 5], 600, 1000);
-        $plugingen->create_bbb_summary_log($s->scenario->activity, $student->id,
-            ['chats' => 4, 'talks' => 8], 1200, 2000);
+        $plugingen->create_bbb_summary_log(
+            $s->scenario->activity,
+            $student->id,
+            ['chats' => 2, 'talks' => 5],
+            600,
+            1000,
+        );
+        $plugingen->create_bbb_summary_log(
+            $s->scenario->activity,
+            $student->id,
+            ['chats' => 4, 'talks' => 8],
+            1200,
+            2000,
+        );
 
         $data = $s->adapter->get_submission_data($student->id);
 
@@ -163,12 +173,24 @@ final class bbb_adapter_test extends \advanced_testcase {
         $student = $s->scenario->students[0];
 
         // Three sessions with overlapping engagement.
-        $plugingen->create_bbb_summary_log($s->scenario->activity, $student->id,
-            ['chats' => 2, 'talks' => 5, 'raisehand' => 1, 'pollvotes' => 0, 'emojis' => 3], 1200);
-        $plugingen->create_bbb_summary_log($s->scenario->activity, $student->id,
-            ['chats' => 4, 'talks' => 8, 'raisehand' => 2, 'pollvotes' => 1, 'emojis' => 0], 1800);
-        $plugingen->create_bbb_summary_log($s->scenario->activity, $student->id,
-            ['chats' => 1, 'talks' => 0, 'raisehand' => 0, 'pollvotes' => 2, 'emojis' => 5], 600);
+        $plugingen->create_bbb_summary_log(
+            $s->scenario->activity,
+            $student->id,
+            ['chats' => 2, 'talks' => 5, 'raisehand' => 1, 'pollvotes' => 0, 'emojis' => 3],
+            1200,
+        );
+        $plugingen->create_bbb_summary_log(
+            $s->scenario->activity,
+            $student->id,
+            ['chats' => 4, 'talks' => 8, 'raisehand' => 2, 'pollvotes' => 1, 'emojis' => 0],
+            1800,
+        );
+        $plugingen->create_bbb_summary_log(
+            $s->scenario->activity,
+            $student->id,
+            ['chats' => 1, 'talks' => 0, 'raisehand' => 0, 'pollvotes' => 2, 'emojis' => 5],
+            600,
+        );
 
         $data = $s->adapter->get_submission_data($student->id);
 
@@ -392,9 +414,11 @@ final class bbb_adapter_test extends \advanced_testcase {
         // A second save with different scores must update — not orphan — the
         // existing grading instance. Without instance re-use, every save
         // creates a new grading_instances row and the fillings drift.
-        $instancesbefore = $DB->count_records_select('grading_instances',
+        $instancesbefore = $DB->count_records_select(
+            'grading_instances',
             'definitionid = :did AND raterid > 0 AND itemid = :uid',
-            ['did' => $definition->id, 'uid' => $student->id]);
+            ['did' => $definition->id, 'uid' => $student->id],
+        );
 
         $payload2 = ['criteria' => []];
         foreach ($definition->guide_criteria as $cid => $crit) {
@@ -402,10 +426,16 @@ final class bbb_adapter_test extends \advanced_testcase {
         }
         $s->adapter->save_grade($student->id, null, '', FORMAT_HTML, $payload2);
 
-        $instancesafter = $DB->count_records_select('grading_instances',
+        $instancesafter = $DB->count_records_select(
+            'grading_instances',
             'definitionid = :did AND raterid > 0 AND itemid = :uid',
-            ['did' => $definition->id, 'uid' => $student->id]);
-        $this->assertEquals($instancesbefore, $instancesafter, 'No new grading instance should be created on subsequent save');
+            ['did' => $definition->id, 'uid' => $student->id],
+        );
+        $this->assertEquals(
+            $instancesbefore,
+            $instancesafter,
+            'No new grading instance should be created on subsequent save',
+        );
 
         $fillings2 = $DB->get_records('gradingform_guide_fillings');
         foreach ($fillings2 as $row) {

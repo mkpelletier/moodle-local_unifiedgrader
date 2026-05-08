@@ -37,6 +37,8 @@ use local_unifiedgrader\bbb\engagement_service;
  */
 class refresh_bbb_engagement extends external_api {
     /**
+     * Define the parameters accepted by the refresh action.
+     *
      * @return external_function_parameters
      */
     public static function execute_parameters(): external_function_parameters {
@@ -74,6 +76,8 @@ class refresh_bbb_engagement extends external_api {
     }
 
     /**
+     * Define the structure of the value returned by execute().
+     *
      * @return external_single_structure
      */
     public static function execute_returns(): external_single_structure {

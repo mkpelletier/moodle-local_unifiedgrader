@@ -653,7 +653,7 @@ class bbb_adapter extends base_adapter {
         try {
             $manager = \bbbext_advgrd\local\grader::get_grading_manager((int) $this->bbb->id);
         } catch (\Throwable $e) {
-            // grader::get_grading_manager throws when no method is configured.
+            // The grader::get_grading_manager throws when no method is configured.
             return null;
         }
         $controller = $manager->get_active_controller();
@@ -760,8 +760,8 @@ class bbb_adapter extends base_adapter {
      * into a shape the marking pane can consume directly.
      *
      * @param string $method 'rubric' or 'guide'.
-     * @param array<int, int|float> $suggestions criterionid => raw value.
-     * @return array<int, array{score: float, levelid?: int}>
+     * @param array $suggestions Map of criterionid => raw value (level score or numeric mark).
+     * @return array Map of criterionid => ['score' => float, 'levelid' => int].
      */
     private function resolve_rubric_suggestions(string $method, array $suggestions): array {
         global $DB;
@@ -801,7 +801,7 @@ class bbb_adapter extends base_adapter {
      */
     private function get_rubric_fill(\gradingform_controller $controller, int $userid): ?array {
         try {
-            // bbbext_advgrd creates grading instances with itemid = userid
+            // The bbbext_advgrd plugin creates grading instances with itemid = userid
             // (see grader.php / grade.php: get_or_create_instance($iid, $rater, $userid)).
             $instances = $controller->get_active_instances($userid);
             if (empty($instances)) {
@@ -855,7 +855,7 @@ class bbb_adapter extends base_adapter {
         }
         $gradinginstance = $controller->get_or_create_instance($instanceid, (int) $USER->id, $userid);
 
-        // gradingform_{rubric,guide}_instance::is_empty_form / update / validate
+        // The gradingform_{rubric,guide}_instance::is_empty_form / update / validate
         // all read $elementvalue['criteria'][$id][...] — they expect the full
         // payload with 'criteria' at the top level, not just the inner map.
         // Unwrapping here was making is_empty_form() return true, which silently
@@ -1002,20 +1002,20 @@ class bbb_adapter extends base_adapter {
             return null;
         }
 
-        $byType = [];
+        $bytype = [];
         foreach ($playbacks as $pb) {
             if (!isset($pb['type'], $pb['url'])) {
                 continue;
             }
             $url = $pb['url'];
-            $byType[$pb['type']] = $url instanceof \moodle_url ? $url->out(false) : (string) $url;
+            $bytype[$pb['type']] = $url instanceof \moodle_url ? $url->out(false) : (string) $url;
         }
 
-        if (empty($byType)) {
+        if (empty($bytype)) {
             return null;
         }
 
-        return $byType['presentation'] ?? $byType['video'] ?? reset($byType);
+        return $bytype['presentation'] ?? $bytype['video'] ?? reset($bytype);
     }
 
     /**
@@ -1095,7 +1095,7 @@ class bbb_adapter extends base_adapter {
             $duration = (int) ($meta->data->duration ?? 0);
             $eng = $meta->data->engagement ?? null;
             $sessions[] = [
-                // 'recordid' (singular) is BBB's key inside the SUMMARY meta
+                // Note: 'recordid' (singular) is BBB's key inside the SUMMARY meta
                 // payload — see meeting::process_meeting_events. It matches the
                 // recording entity's 'recordingid' string, so we can join on it.
                 'recordingref' => (string) ($meta->recordid ?? ''),

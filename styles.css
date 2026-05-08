@@ -1039,13 +1039,14 @@
     margin: 1rem 0;
     border: 2px dashed var(--bs-border-color, #adb5bd);
     border-radius: 0.5rem;
-    background: repeating-linear-gradient(
-        45deg,
-        var(--bs-tertiary-bg, #f8f9fa),
-        var(--bs-tertiary-bg, #f8f9fa) 10px,
-        transparent 10px,
-        transparent 20px
-    );
+    background:
+        repeating-linear-gradient(
+            45deg,
+            var(--bs-tertiary-bg, #f8f9fa),
+            var(--bs-tertiary-bg, #f8f9fa) 10px,
+            transparent 10px,
+            transparent 20px
+        );
     color: var(--bs-secondary-color, #6c757d);
     font-style: italic;
     font-size: 0.9rem;

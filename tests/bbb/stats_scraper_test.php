@@ -56,7 +56,7 @@ final class stats_scraper_test extends \basic_testcase {
         $this->assertEquals(0, $admin['chats']);
         $this->assertEquals(0, $admin['emojis']);
         $this->assertEquals(0, $admin['raisehand']);
-        $this->assertNull($admin['activityscore']); // "-" in the cell
+        $this->assertNull($admin['activityscore']); // The "-" cell renders as null.
 
         // Teststudent 015: duration 00:03:03 = 183s, talk 00:00:30 = 30s, chats 2, emojis 2, raisehand 3.
         $student = $byname['Teststudent 015'];

@@ -25,8 +25,6 @@
 
 namespace local_unifiedgrader\bbb;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Pure parser for the BBB statistics playback HTML.
  *
@@ -93,7 +91,7 @@ class stats_scraper {
             return null;
         }
 
-        // libxml emits warnings on imperfect HTML; suppress them and restore on exit.
+        // The libxml extension emits warnings on imperfect HTML; suppress them and restore on exit.
         $previous = libxml_use_internal_errors(true);
         $doc = new \DOMDocument();
         $loaded = $doc->loadHTML('<?xml encoding="UTF-8">' . $html);

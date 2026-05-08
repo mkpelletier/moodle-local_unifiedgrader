@@ -25,8 +25,6 @@
 
 namespace local_unifiedgrader\bbb;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Lazy fallback for missing analytics callbacks.
  *
@@ -129,9 +127,11 @@ class engagement_service {
         $recordings = \mod_bigbluebuttonbn\recording::get_recordings_for_instance($instance);
         $context = \context_module::instance($cmid);
 
-        // Build name→userid index across users enrolled with the join capability,
-        // so we only consider real participants. Names are normalised on both sides.
-        $enrolled = get_enrolled_users($context, 'mod/bigbluebuttonbn:view', 0, 'u.id, u.firstname, u.lastname, u.alternatename, u.middlename, u.firstnamephonetic, u.lastnamephonetic');
+        // Build name→userid index across users enrolled with the join capability.
+        // Only real participants are considered. Names are normalised on both sides.
+        $userfields = 'u.id, u.firstname, u.lastname, u.alternatename, u.middlename, '
+            . 'u.firstnamephonetic, u.lastnamephonetic';
+        $enrolled = get_enrolled_users($context, 'mod/bigbluebuttonbn:view', 0, $userfields);
         $namemap = [];
         foreach ($enrolled as $u) {
             $namemap[self::normalise_name(fullname($u))] = (int) $u->id;
@@ -231,7 +231,7 @@ class engagement_service {
     public static function normalise_name(string $name): string {
         $name = \core_text::strtolower(trim($name));
         // Replace any non-letter/digit char (including hyphens, apostrophes,
-        // commas) with a space, then collapse consecutive spaces. This means
+        // Commas etc.) with a space, then collapse consecutive spaces. This means
         // "María-José" matches "María José".
         $name = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $name);
         $name = preg_replace('/\s+/u', ' ', $name);
