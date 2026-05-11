@@ -39,13 +39,21 @@ class comment_library_manager {
     public static function get_comments(int $userid, string $coursecode = '', int $tagid = 0): array {
         global $DB;
 
+        // Two-bucket query: the teacher's own comments (optionally scoped to a
+        // course) UNION system-default comments (userid = 0, always visible
+        // regardless of course).
         $params = ['userid' => $userid];
-        $where = 'c.userid = :userid';
-
         if ($coursecode !== '') {
-            $where .= ' AND c.coursecode = :coursecode';
+            // Teacher's own: current course's comments PLUS the teacher's
+            // universal comments (empty coursecode = visible everywhere).
+            $personal = '(c.userid = :userid AND (c.coursecode = :coursecode OR c.coursecode = :universal))';
             $params['coursecode'] = $coursecode;
+            $params['universal'] = '';
+        } else {
+            $personal = '(c.userid = :userid)';
         }
+
+        $where = "({$personal} OR c.userid = 0)";
 
         if ($tagid > 0) {
             $where .= ' AND c.id IN (SELECT commentid FROM {local_unifiedgrader_clmap} WHERE tagid = :tagid)';
@@ -55,13 +63,129 @@ class comment_library_manager {
         $sql = "SELECT c.*
                   FROM {local_unifiedgrader_clib} c
                  WHERE {$where}
-                 ORDER BY c.sortorder ASC, c.timecreated DESC";
+                 ORDER BY c.userid ASC, c.sortorder ASC, c.timecreated DESC";
 
         $comments = $DB->get_records_sql($sql, $params);
 
         return array_values(array_map(function ($c) {
             return self::format_comment($c);
         }, $comments));
+    }
+
+    /**
+     * Get only system-default comments (userid = 0). Used by the admin
+     * "Manage system defaults" page so the admin sees the system rows
+     * separately from any personal library entries.
+     *
+     * @return array
+     */
+    public static function get_system_comments(): array {
+        global $DB;
+        $records = $DB->get_records(
+            'local_unifiedgrader_clib',
+            ['userid' => 0],
+            'sortorder ASC, timecreated DESC',
+        );
+        return array_values(array_map(function ($c) {
+            return self::format_comment($c);
+        }, $records));
+    }
+
+    /**
+     * Admin: create or update a system-default comment (userid = 0).
+     *
+     * @param string $content
+     * @param int[] $tagids
+     * @param int $commentid 0 = new.
+     * @return int The comment id.
+     */
+    public static function save_system_comment(string $content, array $tagids = [], int $commentid = 0): int {
+        global $DB;
+        require_capability('local/unifiedgrader:managesystemdefaults', \context_system::instance());
+
+        $now = time();
+        if ($commentid > 0) {
+            $record = $DB->get_record(
+                'local_unifiedgrader_clib',
+                ['id' => $commentid, 'userid' => 0],
+                '*',
+                MUST_EXIST,
+            );
+            $record->content = $content;
+            $record->timemodified = $now;
+            $DB->update_record('local_unifiedgrader_clib', $record);
+        } else {
+            $commentid = $DB->insert_record('local_unifiedgrader_clib', (object) [
+                'userid' => 0,
+                'coursecode' => '',
+                'content' => $content,
+                'shared' => 0,
+                'sortorder' => 0,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ]);
+        }
+        self::sync_comment_tags($commentid, $tagids);
+        return $commentid;
+    }
+
+    /**
+     * Admin: delete a system-default comment.
+     *
+     * @param int $commentid
+     */
+    public static function delete_system_comment(int $commentid): void {
+        global $DB;
+        require_capability('local/unifiedgrader:managesystemdefaults', \context_system::instance());
+        $DB->delete_records('local_unifiedgrader_clib', ['id' => $commentid, 'userid' => 0]);
+        $DB->delete_records('local_unifiedgrader_clmap', ['commentid' => $commentid]);
+    }
+
+    /**
+     * Admin: create or update a system-default tag (userid = 0).
+     *
+     * @param string $name
+     * @param int $sortorder
+     * @param int $tagid 0 = new.
+     * @return int The tag id.
+     */
+    public static function save_system_tag(string $name, int $sortorder = 0, int $tagid = 0): int {
+        global $DB;
+        require_capability('local/unifiedgrader:managesystemdefaults', \context_system::instance());
+
+        $now = time();
+        if ($tagid > 0) {
+            $record = $DB->get_record(
+                'local_unifiedgrader_cltag',
+                ['id' => $tagid, 'userid' => 0],
+                '*',
+                MUST_EXIST,
+            );
+            $record->name = $name;
+            $record->sortorder = $sortorder;
+            $record->timemodified = $now;
+            $DB->update_record('local_unifiedgrader_cltag', $record);
+            return $tagid;
+        }
+        return $DB->insert_record('local_unifiedgrader_cltag', (object) [
+            'userid' => 0,
+            'name' => $name,
+            'sortorder' => $sortorder,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+    }
+
+    /**
+     * Admin: delete a system-default tag and unmap it from all comments.
+     *
+     * @param int $tagid
+     */
+    public static function delete_system_tag(int $tagid): void {
+        global $DB;
+        require_capability('local/unifiedgrader:managesystemdefaults', \context_system::instance());
+        $DB->delete_records('local_unifiedgrader_cltag', ['id' => $tagid, 'userid' => 0]);
+        $DB->delete_records('local_unifiedgrader_clmap', ['tagid' => $tagid]);
     }
 
     /**
@@ -126,20 +250,49 @@ class comment_library_manager {
     }
 
     /**
-     * Get tags visible to a teacher (own tags + system defaults).
+     * Get tags visible to a teacher.
+     *
+     * When $coursecode is provided, returns only system-default tags plus tags
+     * actually attached to comments in that course (or to universal comments,
+     * which have an empty coursecode). When $coursecode is null, returns every
+     * tag the teacher can see — used by the manage-library modal so the tag
+     * filter dropdown can offer all of the teacher's tags regardless of which
+     * course the modal was opened from.
      *
      * @param int $userid The teacher's user ID.
+     * @param string|null $coursecode Restrict to tags relevant to this course (and universal
+     *                                comments). Null = no course restriction.
      * @return array List of tag records.
      */
-    public static function get_tags(int $userid): array {
+    public static function get_tags(int $userid, ?string $coursecode = null): array {
         global $DB;
 
-        $sql = "SELECT *
-                  FROM {local_unifiedgrader_cltag}
-                 WHERE userid = :userid OR userid = 0
-                 ORDER BY sortorder ASC, name ASC";
-
-        $tags = $DB->get_records_sql($sql, ['userid' => $userid]);
+        if ($coursecode === null) {
+            $sql = "SELECT *
+                      FROM {local_unifiedgrader_cltag}
+                     WHERE userid = :userid OR userid = 0
+                     ORDER BY sortorder ASC, name ASC";
+            $tags = $DB->get_records_sql($sql, ['userid' => $userid]);
+        } else {
+            // System tags always visible; user tags only if attached to a
+            // comment scoped to this course OR to a universal comment.
+            $sql = "SELECT t.*
+                      FROM {local_unifiedgrader_cltag} t
+                     WHERE t.userid = 0
+                        OR (t.userid = :userid AND t.id IN (
+                              SELECT m.tagid
+                                FROM {local_unifiedgrader_clmap} m
+                                JOIN {local_unifiedgrader_clib} c ON c.id = m.commentid
+                               WHERE c.userid = :userid2
+                                 AND (c.coursecode = :coursecode OR c.coursecode = '')
+                          ))
+                     ORDER BY t.sortorder ASC, t.name ASC";
+            $tags = $DB->get_records_sql($sql, [
+                'userid' => $userid,
+                'userid2' => $userid,
+                'coursecode' => $coursecode,
+            ]);
+        }
 
         return array_values(array_map(function ($t) {
             return [
@@ -303,7 +456,7 @@ class comment_library_manager {
 
         $tagids = $DB->get_fieldset_select('local_unifiedgrader_clmap', 'tagid', 'commentid = ?', [$record->id]);
 
-        return [
+        $out = [
             'id' => (int) $record->id,
             'userid' => (int) $record->userid,
             'coursecode' => $record->coursecode,
@@ -313,6 +466,266 @@ class comment_library_manager {
             'timecreated' => (int) $record->timecreated,
             'timemodified' => (int) $record->timemodified,
             'tagids' => array_map('intval', $tagids),
+            'proposalstatus' => '',
+            'proposalreason' => '',
         ];
+
+        // Surface the latest proposal status so the UI can show a
+        // "Pending review" / "Rejected" badge on the proposer's own card.
+        // System-default rows (userid = 0) never have proposals.
+        if ((int) $record->userid !== 0) {
+            $latest = $DB->get_records(
+                'local_unifiedgrader_clibprop',
+                ['commentid' => (int) $record->id],
+                'timecreated DESC',
+                'status, decisionreason',
+                0,
+                1,
+            );
+            if (!empty($latest)) {
+                $first = reset($latest);
+                $out['proposalstatus'] = (string) $first->status;
+                $out['proposalreason'] = (string) ($first->decisionreason ?? '');
+            }
+        }
+
+        return $out;
+    }
+
+    // ─────────────────────────── Proposals (Option B) ───────────────────────────
+
+    /**
+     * Submit a teacher's comment for promotion to a system default. Allowed
+     * only on a comment the proposer owns (no proxying), and only if there
+     * isn't already a pending proposal for the same comment.
+     *
+     * Behaviour branches on the `require_systemdefault_approval` admin
+     * setting: when on (default) the proposal sits as `pending` for an
+     * admin to approve; when off, the comment is immediately copied into
+     * the system defaults (only system-tagged) and the proposal row is
+     * recorded with `status = approved` and `decidedby = 0` for audit.
+     *
+     * @param int $commentid The teacher's comment id.
+     * @param int $proposerid The submitting teacher's user id.
+     * @param string $rationale Optional explanation shown to the admin.
+     * @return int The new proposal id.
+     */
+    public static function submit_proposal(int $commentid, int $proposerid, string $rationale = ''): int {
+        global $DB;
+
+        // Ownership check: a teacher can only propose their own comments.
+        $comment = $DB->get_record(
+            'local_unifiedgrader_clib',
+            ['id' => $commentid, 'userid' => $proposerid],
+            '*',
+            MUST_EXIST,
+        );
+
+        // Refuse duplicate pending submissions for the same comment.
+        $existingpending = $DB->record_exists(
+            'local_unifiedgrader_clibprop',
+            ['commentid' => $comment->id, 'status' => 'pending'],
+        );
+        if ($existingpending) {
+            throw new \moodle_exception('error_proposal_already_pending', 'local_unifiedgrader');
+        }
+
+        $requireapproval = !empty(get_config('local_unifiedgrader', 'require_systemdefault_approval'));
+        $now = time();
+
+        if ($requireapproval) {
+            // Approval mode: queue for admin review.
+            return $DB->insert_record('local_unifiedgrader_clibprop', (object) [
+                'commentid' => $comment->id,
+                'proposerid' => $proposerid,
+                'rationale' => $rationale,
+                'status' => 'pending',
+                'decisionreason' => null,
+                'decidedby' => null,
+                'timecreated' => $now,
+                'timedecided' => null,
+            ]);
+        }
+
+        // Trust mode: promote immediately. Copy only system tags — the
+        // user's directive was "comments may only be added to existing
+        // system categories". A comment with no system tags still gets
+        // promoted (untagged); the admin can categorise it later if
+        // needed.
+        $proposedtagids = $DB->get_fieldset_select(
+            'local_unifiedgrader_clmap',
+            'tagid',
+            'commentid = ?',
+            [$comment->id],
+        );
+        $systemtagids = [];
+        if (!empty($proposedtagids)) {
+            [$insql, $inparams] = $DB->get_in_or_equal($proposedtagids, SQL_PARAMS_NAMED, 'tag');
+            $systemtagids = $DB->get_fieldset_select(
+                'local_unifiedgrader_cltag',
+                'id',
+                "userid = 0 AND id {$insql}",
+                $inparams,
+            );
+        }
+
+        // Direct insert with userid = 0 — bypasses save_system_comment's
+        // managesystemdefaults capability check because the trust-mode
+        // workflow is what we're explicitly authorising here. The
+        // proposer's library:grade capability got them this far.
+        $newcommentid = $DB->insert_record('local_unifiedgrader_clib', (object) [
+            'userid' => 0,
+            'coursecode' => '',
+            'content' => (string) $comment->content,
+            'shared' => 0,
+            'sortorder' => 0,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        self::sync_comment_tags($newcommentid, array_map('intval', $systemtagids));
+
+        // Record the proposal as auto-approved for audit. decidedby = 0
+        // signals "no admin decided"; the decisionreason carries the mode.
+        return $DB->insert_record('local_unifiedgrader_clibprop', (object) [
+            'commentid' => $comment->id,
+            'proposerid' => $proposerid,
+            'rationale' => $rationale,
+            'status' => 'approved',
+            'decisionreason' => 'Auto-approved (trust mode)',
+            'decidedby' => 0,
+            'timecreated' => $now,
+            'timedecided' => $now,
+        ]);
+    }
+
+    /**
+     * Admin: list all pending proposals for the review queue. Each entry
+     * carries the comment text, the proposer's name, any rationale, and
+     * the tags the original was attached to (so the admin can preview the
+     * eventual system-default's tag set before approving).
+     *
+     * @return array
+     */
+    public static function get_pending_proposals(): array {
+        global $DB;
+        require_capability('local/unifiedgrader:managesystemdefaults', \context_system::instance());
+
+        $sql = "SELECT p.id, p.commentid, p.proposerid, p.rationale, p.timecreated,
+                       c.content, c.coursecode,
+                       u.firstname, u.lastname
+                  FROM {local_unifiedgrader_clibprop} p
+                  JOIN {local_unifiedgrader_clib} c ON c.id = p.commentid
+                  JOIN {user} u ON u.id = p.proposerid
+                 WHERE p.status = :status
+              ORDER BY p.timecreated ASC";
+        $records = $DB->get_records_sql($sql, ['status' => 'pending']);
+
+        $out = [];
+        foreach ($records as $r) {
+            $tagids = $DB->get_fieldset_select(
+                'local_unifiedgrader_clmap',
+                'tagid',
+                'commentid = ?',
+                [$r->commentid],
+            );
+            $out[] = [
+                'id' => (int) $r->id,
+                'commentid' => (int) $r->commentid,
+                'proposerid' => (int) $r->proposerid,
+                'proposername' => fullname($r),
+                'rationale' => (string) ($r->rationale ?? ''),
+                'content' => (string) $r->content,
+                'coursecode' => (string) $r->coursecode,
+                'tagids' => array_map('intval', $tagids),
+                'timecreated' => (int) $r->timecreated,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Admin: approve a pending proposal. Creates a NEW system-default
+     * comment that mirrors the proposed comment's content and tag set;
+     * the proposer's original row is untouched.
+     *
+     * @param int $proposalid
+     * @param int $adminid The deciding admin's user id (for audit).
+     * @param string $note Optional approval note (rare but allowed).
+     * @return int The new system-default comment id.
+     */
+    public static function approve_proposal(int $proposalid, int $adminid, string $note = ''): int {
+        global $DB;
+        require_capability('local/unifiedgrader:managesystemdefaults', \context_system::instance());
+
+        $proposal = $DB->get_record(
+            'local_unifiedgrader_clibprop',
+            ['id' => $proposalid, 'status' => 'pending'],
+            '*',
+            MUST_EXIST,
+        );
+        $comment = $DB->get_record(
+            'local_unifiedgrader_clib',
+            ['id' => $proposal->commentid],
+            '*',
+            MUST_EXIST,
+        );
+
+        // Copy the proposer's tag selection, filtered to system tags only —
+        // a system-default comment with a personal tag would never render
+        // for the teacher who didn't own that tag.
+        $proposedtagids = $DB->get_fieldset_select(
+            'local_unifiedgrader_clmap',
+            'tagid',
+            'commentid = ?',
+            [$comment->id],
+        );
+        $systemtagids = [];
+        if (!empty($proposedtagids)) {
+            [$insql, $inparams] = $DB->get_in_or_equal($proposedtagids, SQL_PARAMS_NAMED, 'tag');
+            $systemtagids = $DB->get_fieldset_select(
+                'local_unifiedgrader_cltag',
+                'id',
+                "userid = 0 AND id {$insql}",
+                $inparams,
+            );
+        }
+
+        $newid = self::save_system_comment(
+            (string) $comment->content,
+            array_map('intval', $systemtagids),
+            0,
+        );
+
+        $proposal->status = 'approved';
+        $proposal->decisionreason = $note;
+        $proposal->decidedby = $adminid;
+        $proposal->timedecided = time();
+        $DB->update_record('local_unifiedgrader_clibprop', $proposal);
+
+        return $newid;
+    }
+
+    /**
+     * Admin: reject a pending proposal with an optional written reason.
+     *
+     * @param int $proposalid
+     * @param int $adminid
+     * @param string $reason
+     */
+    public static function reject_proposal(int $proposalid, int $adminid, string $reason = ''): void {
+        global $DB;
+        require_capability('local/unifiedgrader:managesystemdefaults', \context_system::instance());
+
+        $proposal = $DB->get_record(
+            'local_unifiedgrader_clibprop',
+            ['id' => $proposalid, 'status' => 'pending'],
+            '*',
+            MUST_EXIST,
+        );
+        $proposal->status = 'rejected';
+        $proposal->decisionreason = $reason;
+        $proposal->decidedby = $adminid;
+        $proposal->timedecided = time();
+        $DB->update_record('local_unifiedgrader_clibprop', $proposal);
     }
 }

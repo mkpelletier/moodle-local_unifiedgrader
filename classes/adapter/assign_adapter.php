@@ -564,6 +564,34 @@ class assign_adapter extends base_adapter {
         }
         $attemptnumber = $submission ? (int) $submission->attemptnumber : 0;
 
+        // When the gradebook entry for this user is locked or overridden,
+        // mod_assign's apply_grade_to_user() silently skips the entire
+        // advanced-grading save block (see mod/assign/locallib.php:8690 —
+        // the submit_and_get_grade call is wrapped in `if (!$gradingdisabled)`).
+        // That looks like a successful save to the client (HTTP 200, feedback
+        // files persist) but rubric / marking-guide fillings are never
+        // touched. The teacher's symptom is "I typed values, refresh, marks
+        // are gone." Handle the recoverable case (overridden, not locked,
+        // no marking-workflow block) automatically by clearing the override
+        // — that mirrors what a teacher would do in the gradebook UI before
+        // re-grading. Hard-block (locked / workflow) still surfaces a clear
+        // error so the teacher knows to deal with it explicitly.
+        if (!empty($advancedgradingdata) && $this->assign->grading_disabled($userid)) {
+            $cleared = $this->clear_recoverable_gradebook_block($userid);
+            // Re-checking via $this->assign->grading_disabled() would call
+            // grade_get_grades() again, which reads from grade_item::fetch_all()
+            // with request-scoped caching — the freshly cleared overridden
+            // flag may not be visible yet, causing a false-positive
+            // "still locked" error. Trust the clear function's return
+            // value instead: it inspects the DB row it just modified.
+            if (!$cleared) {
+                throw new \moodle_exception(
+                    'error_grade_locked_in_gradebook',
+                    'local_unifiedgrader',
+                );
+            }
+        }
+
         // Check if advanced grading (rubric/marking guide) is active.
         // Skip when grading is disabled (grade type "None").
         $controller = null;
@@ -683,6 +711,50 @@ class assign_adapter extends base_adapter {
      * @param int $draftitemid Draft area item ID for feedback file uploads.
      * @param int $feedbackfilesdraftid Draft area item ID for feedback files (assignfeedback_file).
      */
+    /**
+     * Clear gradebook flags that would silently block a marking-guide / rubric
+     * save through mod_assign — but only the *recoverable* ones (the
+     * `overridden` flag). Leaves `locked` alone (that's an explicit lockout
+     * by an admin) and does nothing for the marking-workflow path. Mirrors
+     * what a teacher would do in the gradebook UI before re-grading.
+     *
+     * @param int $userid Student user id.
+     */
+    private function clear_recoverable_gradebook_block(int $userid): bool {
+        $gradeitem = \grade_item::fetch([
+            'itemtype' => 'mod',
+            'itemmodule' => 'assign',
+            'iteminstance' => $this->cm->instance,
+            'itemnumber' => 0,
+            'courseid' => $this->course->id,
+        ]);
+        if (!$gradeitem) {
+            return false;
+        }
+        $gradegrade = \grade_grade::fetch([
+            'itemid' => $gradeitem->id,
+            'userid' => $userid,
+        ]);
+        if (!$gradegrade) {
+            return false;
+        }
+        // Locked grades stay locked — admin must address.
+        if (!empty($gradegrade->locked) || !empty($gradeitem->locked)) {
+            return false;
+        }
+        if (empty($gradegrade->overridden)) {
+            return false;
+        }
+        // Use the proper API rather than setting overridden=0 + update()
+        // directly. set_overridden(false, true) also calls
+        // grade_item->refresh_grades($userid), which keeps the gradebook
+        // cell consistent with the activity's reported grade after the
+        // override is lifted. Without that refresh, finalgrade can stay
+        // pinned to the override value even though the flag is cleared.
+        $gradegrade->set_overridden(false, true);
+        return true;
+    }
+
     private function save_grade_directly(
         int $userid,
         ?float $grade,

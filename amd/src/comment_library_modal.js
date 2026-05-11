@@ -78,6 +78,9 @@ let _activeTag = 0;
 /** @type {number} Active tag filter for shared library (0 = all). */
 let _activeSharedTag = 0;
 
+/** @type {string} Active search query (case-insensitive substring match on content). */
+let _searchQuery = '';
+
 /** @type {number|null} Comment ID being edited (null = not editing). */
 let _editingId = null;
 
@@ -224,6 +227,15 @@ const _wireEvents = () => {
             _renderComments();
         });
 
+    // Search box. Re-renders the comment list as the teacher types so
+    // results narrow live; debouncing isn't worth it given the data is
+    // already in memory.
+    _root.querySelector('[data-input="clib-search"]')
+        ?.addEventListener('input', (e) => {
+            _searchQuery = (e.target.value || '').toLowerCase();
+            _renderComments();
+        });
+
     // Shared tag filter.
     _root.querySelector('[data-action="clib-shared-tag-filter"]')
         ?.addEventListener('change', (e) => {
@@ -353,11 +365,21 @@ const _renderCourseList = () => {
     }
     container.innerHTML = '';
 
-    // Build course → count map.
+    // Three buckets:
+    //   __system__    = admin-curated system defaults (userid = 0)
+    //   __universal__ = the teacher's own universal comments (empty coursecode)
+    //   <code>        = the teacher's course-scoped comments
     const counts = {};
     _comments.forEach((c) => {
-        const code = c.coursecode || '—';
-        counts[code] = (counts[code] || 0) + 1;
+        let bucket;
+        if (!c.userid) {
+            bucket = '__system__';
+        } else if (!c.coursecode) {
+            bucket = '__universal__';
+        } else {
+            bucket = c.coursecode;
+        }
+        counts[bucket] = (counts[bucket] || 0) + 1;
     });
 
     // "All" entry.
@@ -367,6 +389,28 @@ const _renderCourseList = () => {
         return s;
     }).catch(() => {});
     container.appendChild(allItem);
+
+    // "System defaults" bucket (admin-curated, read-only for teachers).
+    if (counts.__system__) {
+        const sysItem = _courseItem('System defaults', '__system__', counts.__system__);
+        getString('clib_system_defaults', 'local_unifiedgrader').then((s) => {
+            sysItem.querySelector('.clib-course-label').textContent = s;
+            return s;
+        }).catch(() => {});
+        container.appendChild(sysItem);
+        delete counts.__system__;
+    }
+
+    // "Universal" entry — the teacher's own universal comments.
+    if (counts.__universal__) {
+        const universalItem = _courseItem('Universal', '__universal__', counts.__universal__);
+        getString('clib_universal', 'local_unifiedgrader').then((s) => {
+            universalItem.querySelector('.clib-course-label').textContent = s;
+            return s;
+        }).catch(() => {});
+        container.appendChild(universalItem);
+        delete counts.__universal__;
+    }
 
     // Individual course codes.
     const codes = Object.keys(counts).sort();
@@ -451,10 +495,23 @@ const _renderComments = () => {
 
     let filtered = _comments;
     if (_activeCourse) {
-        filtered = filtered.filter((c) => (c.coursecode || '—') === _activeCourse);
+        // Sidebar uses sentinels for non-coursecode buckets:
+        //   __system__    = admin system defaults
+        //   __universal__ = teacher's own universal comments
+        // every other value is a literal coursecode.
+        if (_activeCourse === '__system__') {
+            filtered = filtered.filter((c) => !c.userid);
+        } else if (_activeCourse === '__universal__') {
+            filtered = filtered.filter((c) => c.userid && !c.coursecode);
+        } else {
+            filtered = filtered.filter((c) => c.userid && c.coursecode === _activeCourse);
+        }
     }
     if (_activeTag) {
         filtered = filtered.filter((c) => c.tagids && c.tagids.includes(_activeTag));
+    }
+    if (_searchQuery) {
+        filtered = filtered.filter((c) => (c.content || '').toLowerCase().includes(_searchQuery));
     }
 
     if (filtered.length === 0) {
@@ -481,11 +538,17 @@ const _renderComments = () => {
  * @return {HTMLElement} The card element.
  */
 const _commentCard = (comment) => {
-    const card = document.createElement('div');
-    card.className = 'border rounded p-2 mb-2';
+    // System-default comments (admin-curated, userid=0) are read-only from
+    // the teacher's perspective: shown for use, not editable or deletable
+    // here. Admins manage them via /local/unifiedgrader/manage_system_defaults.php.
+    const isSystem = !comment.userid;
 
-    // If editing this comment, show the edit form.
-    if (_editingId === comment.id) {
+    const card = document.createElement('div');
+    card.className = 'border rounded p-2 mb-2' + (isSystem ? ' bg-light' : '');
+
+    // If editing this comment, show the edit form (system comments can't be
+    // edited here — guard against any accidental _editingId pointing at one).
+    if (_editingId === comment.id && !isSystem) {
         return _editForm(comment);
     }
 
@@ -496,17 +559,41 @@ const _commentCard = (comment) => {
     content.textContent = comment.content;
     card.appendChild(content);
 
-    // Tag pills + course code badge.
+    // Tag pills + course code / universal / system badge.
     const metaRow = document.createElement('div');
     metaRow.className = 'd-flex flex-wrap gap-1 align-items-center mb-1';
 
-    if (comment.coursecode) {
+    if (isSystem) {
+        const sysBadge = document.createElement('span');
+        sysBadge.className = 'badge bg-warning text-dark';
+        sysBadge.style.fontSize = '0.65rem';
+        sysBadge.title = 'System default';
+        sysBadge.innerHTML = '<i class="fa fa-star me-1"></i>System default';
+        getString('clib_system_default', 'local_unifiedgrader').then((s) => {
+            sysBadge.innerHTML = '<i class="fa fa-star me-1"></i>' + s;
+            sysBadge.title = s;
+            return s;
+        }).catch(() => {});
+        metaRow.appendChild(sysBadge);
+    } else if (comment.coursecode) {
         const codeBadge = document.createElement('span');
         codeBadge.className = 'badge';
         codeBadge.style.fontSize = '0.65rem';
         codeBadge.textContent = comment.coursecode;
         _applyColor(codeBadge, _colorFor(comment.coursecode, COURSE_COLORS));
         metaRow.appendChild(codeBadge);
+    } else {
+        const universalBadge = document.createElement('span');
+        universalBadge.className = 'badge bg-info';
+        universalBadge.style.fontSize = '0.65rem';
+        universalBadge.title = 'Universal';
+        universalBadge.innerHTML = '<i class="fa fa-globe me-1"></i>Universal';
+        getString('clib_universal', 'local_unifiedgrader').then((s) => {
+            universalBadge.innerHTML = '<i class="fa fa-globe me-1"></i>' + s;
+            universalBadge.title = s;
+            return s;
+        }).catch(() => {});
+        metaRow.appendChild(universalBadge);
     }
 
     if (comment.tagids) {
@@ -535,7 +622,47 @@ const _commentCard = (comment) => {
         metaRow.appendChild(sharedBadge);
     }
 
+    // Proposal status badge — visible only on the proposer's own card.
+    // 'approved' is intentionally not shown: once approved, the system
+    // copy exists as its own card under the System defaults bucket.
+    if (comment.proposalstatus === 'pending') {
+        const pendingBadge = document.createElement('span');
+        pendingBadge.className = 'badge bg-secondary';
+        pendingBadge.style.fontSize = '0.65rem';
+        pendingBadge.innerHTML = '<i class="fa fa-hourglass-half me-1"></i>Pending review';
+        getString('clib_proposal_pending', 'local_unifiedgrader').then((s) => {
+            pendingBadge.innerHTML = '<i class="fa fa-hourglass-half me-1"></i>' + s;
+            return s;
+        }).catch(() => {});
+        metaRow.appendChild(pendingBadge);
+    } else if (comment.proposalstatus === 'rejected') {
+        const rejectedBadge = document.createElement('span');
+        rejectedBadge.className = 'badge bg-danger';
+        rejectedBadge.style.fontSize = '0.65rem';
+        // Tooltip carries the reason if present, so the badge stays small.
+        const reason = comment.proposalreason || '';
+        rejectedBadge.title = reason
+            ? 'Rejected: ' + reason
+            : 'Rejected';
+        rejectedBadge.innerHTML = '<i class="fa fa-times-circle me-1"></i>Rejected';
+        getString('clib_proposal_rejected', 'local_unifiedgrader').then((s) => {
+            rejectedBadge.innerHTML = '<i class="fa fa-times-circle me-1"></i>' + s;
+            if (reason) {
+                rejectedBadge.title = s + ': ' + reason;
+            } else {
+                rejectedBadge.title = s;
+            }
+            return s;
+        }).catch(() => {});
+        metaRow.appendChild(rejectedBadge);
+    }
+
     card.appendChild(metaRow);
+
+    // System defaults: no action buttons. They're managed in the admin tool.
+    if (isSystem) {
+        return card;
+    }
 
     // Action buttons.
     const actions = document.createElement('div');
@@ -574,8 +701,29 @@ const _commentCard = (comment) => {
     }).catch(() => {});
     deleteBtn.addEventListener('click', () => _handleDelete(comment.id));
 
+    // Suggest-as-system-default button. Hidden once a proposal is already
+    // pending OR has been approved (no point letting a teacher re-submit).
+    // Rejected proposals can be re-submitted — the teacher may have addressed
+    // the rejection reason in an edit.
+    let suggestBtn = null;
+    if (comment.proposalstatus !== 'pending' && comment.proposalstatus !== 'approved') {
+        suggestBtn = document.createElement('button');
+        suggestBtn.type = 'button';
+        suggestBtn.className = 'btn btn-sm btn-outline-warning py-0 px-1';
+        suggestBtn.innerHTML = '<i class="fa fa-star-o"></i>';
+        suggestBtn.title = 'Suggest as system default';
+        getString('clib_suggest_as_system', 'local_unifiedgrader').then((s) => {
+            suggestBtn.title = s;
+            return s;
+        }).catch(() => {});
+        suggestBtn.addEventListener('click', () => _handleSuggest(comment));
+    }
+
     actions.appendChild(editBtn);
     actions.appendChild(shareBtn);
+    if (suggestBtn) {
+        actions.appendChild(suggestBtn);
+    }
     actions.appendChild(deleteBtn);
     card.appendChild(actions);
 
@@ -633,6 +781,44 @@ const _editForm = (comment) => {
         return s;
     }).catch(() => {});
     courseInput.value = comment.coursecode || '';
+
+    // Universal checkbox — when ticked, save with empty coursecode and
+    // disable the course input. Two-way coupling: clearing the course
+    // input ticks Universal, typing a code unticks it.
+    const universalCheck = document.createElement('label');
+    universalCheck.className = 'form-check form-check-inline small mb-0';
+    const universalInput = document.createElement('input');
+    universalInput.type = 'checkbox';
+    universalInput.className = 'form-check-input';
+    universalInput.checked = !comment.coursecode;
+    universalCheck.appendChild(universalInput);
+    const universalTextNode = document.createTextNode(' Universal');
+    universalCheck.appendChild(universalTextNode);
+    getString('clib_universal', 'local_unifiedgrader').then((s) => {
+        universalTextNode.textContent = ' ' + s;
+        return s;
+    }).catch(() => {});
+    getString('clib_universal_help', 'local_unifiedgrader').then((s) => {
+        universalCheck.title = s;
+        return s;
+    }).catch(() => {});
+    if (universalInput.checked) {
+        courseInput.disabled = true;
+    }
+    universalInput.addEventListener('change', () => {
+        if (universalInput.checked) {
+            courseInput.disabled = true;
+            courseInput.value = '';
+        } else {
+            courseInput.disabled = false;
+            courseInput.focus();
+        }
+    });
+    courseInput.addEventListener('input', () => {
+        if (courseInput.value.trim() !== '') {
+            universalInput.checked = false;
+        }
+    });
 
     const sharedCheck = document.createElement('label');
     sharedCheck.className = 'form-check form-check-inline small mb-0';
@@ -694,6 +880,7 @@ const _editForm = (comment) => {
     btnGroup.appendChild(cancelBtn);
 
     controls.appendChild(courseInput);
+    controls.appendChild(universalCheck);
     controls.appendChild(sharedCheck);
     controls.appendChild(btnGroup);
     form.appendChild(controls);
@@ -721,6 +908,12 @@ const _showNewForm = () => {
         const shared = form.querySelector('[data-input="clib-new-shared"]');
         if (shared) {
             shared.checked = false;
+        }
+        const universal = form.querySelector('[data-input="clib-new-universal"]');
+        if (universal) {
+            // Default the Universal checkbox to true when the user opened
+            // the form from the sidebar's Universal bucket — saves a click.
+            universal.checked = (_activeCourse === '__universal__');
         }
         _newFormSelectedTags = [];
         _renderNewFormTagChips();
@@ -781,9 +974,17 @@ const _handleSaveNew = async() => {
         return;
     }
     const shared = form.querySelector('[data-input="clib-new-shared"]')?.checked ? 1 : 0;
+    const universal = form.querySelector('[data-input="clib-new-universal"]')?.checked;
+    // Universal comments deliberately have an empty coursecode — that's
+    // what get_comments treats as "visible in all my courses". If the
+    // sidebar has the Universal bucket selected, also treat that as a
+    // universal save regardless of the checkbox.
+    const coursecode = (universal || _activeCourse === '__universal__')
+        ? ''
+        : (_activeCourse || _coursecode);
     try {
         await ajax('local_unifiedgrader_save_library_comment', {
-            coursecode: _activeCourse || _coursecode,
+            coursecode,
             content,
             tagids: _newFormSelectedTags,
             shared,
@@ -829,6 +1030,34 @@ const _toggleShare = async(comment) => {
             tagids: comment.tagids || [],
             shared: comment.shared ? 0 : 1,
             commentid: comment.id,
+        });
+        await _loadAll();
+    } catch (err) {
+        _handleError(err);
+    }
+};
+
+/**
+ * Submit the teacher's comment to the admin review queue. Prompts for an
+ * optional rationale via window.prompt — keeping the UI footprint minimal.
+ * The proposal will surface to admins on the Manage System Defaults page;
+ * the teacher's card gains a "Pending review" badge until a decision is made.
+ *
+ * @param {object} comment Comment data.
+ */
+const _handleSuggest = async(comment) => {
+    const promptMsg = await getString('clib_suggest_rationale_prompt', 'local_unifiedgrader');
+    // window.prompt returns null on cancel, '' on empty submit. Treat null as
+    // "user changed their mind" — don't submit. Empty string is a valid
+    // no-rationale submission.
+    const rationale = window.prompt(promptMsg, '');
+    if (rationale === null) {
+        return;
+    }
+    try {
+        await ajax('local_unifiedgrader_submit_library_proposal', {
+            commentid: comment.id,
+            rationale: rationale.trim(),
         });
         await _loadAll();
     } catch (err) {

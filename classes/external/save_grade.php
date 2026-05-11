@@ -117,6 +117,25 @@ class save_grade extends external_api {
             $activityinfo = $adapter->get_activity_info();
             $acttype = $activityinfo['type'] ?? '';
 
+            // Cap manual grade entry at the activity's maximum. The client
+            // surfaces this as an inline error so honest typos never reach
+            // here; this is the authoritative belt-and-braces check.
+            // Scale-based grading (usescale) uses a dropdown that can't
+            // exceed its options, so no validation needed there. Quiz
+            // grades are similarly clamped by the question engine —
+            // applying our check would interfere with mid-attempt grading.
+            if (empty($activityinfo['usescale']) && $acttype !== 'quiz') {
+                $maxgrade = (float) ($activityinfo['maxgrade'] ?? 0);
+                if ($maxgrade > 0 && $gradevalue > $maxgrade) {
+                    throw new \moodle_exception(
+                        'error_grade_exceeds_max',
+                        'local_unifiedgrader',
+                        '',
+                        $maxgrade,
+                    );
+                }
+            }
+
             // Sync late penalty for forums before saving (ensures penalty record is current).
             if ($acttype === 'forum') {
                 $lateinfo = $adapter->calculate_late_penalty($params['userid']);

@@ -127,6 +127,27 @@
         <INDEX NAME="ix_tagid" UNIQUE="false" FIELDS="tagid"/>
       </INDEXES>
     </TABLE>
+    <TABLE NAME="local_unifiedgrader_clibprop" COMMENT="Teacher proposals to promote a personal comment to a system default.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="commentid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="FK to clib.id (the teacher's comment being proposed)"/>
+        <FIELD NAME="proposerid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="FK to user.id of the proposing teacher"/>
+        <FIELD NAME="rationale" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Optional reason given by the proposer"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="pending" SEQUENCE="false" COMMENT="pending, approved, or rejected"/>
+        <FIELD NAME="decisionreason" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Optional reason given by the admin on approve/reject"/>
+        <FIELD NAME="decidedby" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="FK to user.id of the admin who decided"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timedecided" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="ix_commentid" UNIQUE="false" FIELDS="commentid"/>
+        <INDEX NAME="ix_status" UNIQUE="false" FIELDS="status"/>
+        <INDEX NAME="ix_proposerid" UNIQUE="false" FIELDS="proposerid"/>
+      </INDEXES>
+    </TABLE>
     <TABLE NAME="local_unifiedgrader_penalty" COMMENT="Grade penalties per student per activity.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>

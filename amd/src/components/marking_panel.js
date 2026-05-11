@@ -41,6 +41,10 @@ export default class extends BaseComponent {
         this.selectors = {
             GRADE_SECTION: '[data-region="grade-section"]',
             GRADE_INPUT: '[data-action="grade-input"]',
+            GRADE_ERROR: '[data-region="grade-error"]',
+            GRADE_OVERRIDE_INDICATOR: '[data-region="grade-override-indicator"]',
+            GRADE_RUBRIC_VALUE: '[data-region="grade-rubric-value"]',
+            GRADE_RESET_RUBRIC_BTN: '[data-action="grade-reset-rubric"]',
             MAX_GRADE: '[data-region="max-grade"]',
             SIMPLE_GRADE: '[data-region="simple-grade"]',
             SCALE_GRADE: '[data-region="scale-grade"]',
@@ -89,20 +93,24 @@ export default class extends BaseComponent {
         this._rubricSelections = {};
         this._guideScores = {};
         this._guideRemarks = {};
-        // Snapshot of editable values as we sent them to the most recent save.
-        // Used by _renderGrade / _renderGuide / _renderRubric / _updateFeedbackContent
-        // to distinguish "field still matches what we saved" (safe to apply
-        // server data) from "user has edited since the save fired" (preserve
-        // their input). This guards every editable surface in the marking
-        // panel — the top-level grade input, scale dropdown, advanced-grading
-        // criteria, and the TinyMCE feedback editor — from being clobbered
-        // by the post-save state refresh.
-        this._lastSentScores = null;
-        this._lastSentRemarks = null;
-        this._lastSentRubricSelections = null;
-        this._lastSentGrade = null;
-        this._lastSentScale = null;
-        this._lastSentFeedback = null;
+        // The teacher owns the editable form. The server is authoritative for
+        // *derived* display (penalty badges, percentage, late indicators) but
+        // it must never reach into editable inputs after a save success — that
+        // is the race the user kept hitting. Form-input overwrites are gated
+        // on `_lastRenderedUserid`: we apply server values only on the
+        // navigation boundaries (initial render, student switch). Every other
+        // re-render keeps the DOM as the teacher last edited it.
+        this._lastRenderedUserid = undefined;
+        // Set to true the moment the teacher types into the top-level grade
+        // input. While this is true, _updateGuideTotal will not overwrite
+        // gradeInput.value with the rubric-computed total — manual overrides
+        // survive subsequent rubric edits. Cleared on student switch (fresh
+        // render) so the next student starts in auto-sync mode.
+        this._gradeManuallyOverridden = false;
+        // Cache of the most recent rubric-implied grade so _updateOverrideIndicator
+        // can be called after the displayed value has been restored (returning
+        // teacher) without re-deriving from _guideScores.
+        this._lastRubricGrade = null;
         this._guideBaseTotal = 0;
         this._quizBaseGrade = undefined;
         this._lastFocusedField = null;
@@ -153,11 +161,59 @@ export default class extends BaseComponent {
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput) {
             gradeInput.addEventListener('input', () => {
+                // Canonicalise comma → period so a teacher in a comma-decimal
+                // locale can enter "3,5" and it round-trips correctly.
+                if (gradeInput.value && gradeInput.value.indexOf(',') !== -1) {
+                    gradeInput.value = gradeInput.value.replace(',', '.');
+                }
+                // Lock the grade input against future rubric-driven rewrites.
+                // The flag stays set until the student changes (fresh render).
+                this._gradeManuallyOverridden = true;
+                this._validateGrade();
                 this._updatePercentage();
                 this._updateFinalGradeDisplay();
+                // Refresh the override badge on every keystroke. _updateGuideTotal
+                // is the simplest way to do this: it recomputes the rubric grade
+                // and drives the indicator. The gradeInput write inside is a
+                // no-op while the override flag is set.
+                this._updateGuideTotal();
                 if (DirtyTracker.hasChanged('grade', gradeInput.value)) {
                     DirtyTracker.markDirty('grade');
                     this._cacheGradeValue();
+                }
+            });
+
+            // Autosave when the teacher tabs/clicks away from the grade
+            // input. The rubric body uses a debounced (1.5s) save because
+            // the teacher might be moving between rubric inputs and we
+            // don't want to save mid-edit. The grade input is a single
+            // value though — once the teacher leaves it they're done with
+            // the grade — so we fire the save immediately. The debounce
+            // would otherwise let a fast refresh / F5 cancel the save
+            // before it actually goes out, which is exactly what users
+            // were hitting when overriding the rubric-computed total.
+            gradeInput.addEventListener('focusout', () => {
+                if (DirtyTracker.isDirty('grade') && this._validateGrade()) {
+                    this._handleSaveGrade();
+                }
+            });
+        }
+
+        // Reset-to-rubric button: clears the manual override flag and
+        // re-syncs the grade input with the rubric / guide computed total.
+        const resetBtn = this.getElement(this.selectors.GRADE_RESET_RUBRIC_BTN);
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                this._gradeManuallyOverridden = false;
+                this._updateGuideTotal();
+                // _updateGuideTotal wrote the rubric value back into the
+                // grade input; mark dirty so the autosave persists the
+                // reset, then trigger validation + autosave.
+                if (gradeInput) {
+                    DirtyTracker.markDirty('grade');
+                    this._cacheGradeValue();
+                    this._validateGrade();
+                    this._debouncedAutoSave();
                 }
             });
         }
@@ -244,14 +300,14 @@ export default class extends BaseComponent {
         const rubricBody = this.getElement(this.selectors.RUBRIC_BODY);
         if (rubricBody) {
             rubricBody.addEventListener('focusin', (e) => {
-                if (e.target.matches('textarea, input[type="number"]')) {
+                if (e.target.matches('textarea, input[type="text"][data-criterionid], input[type="number"]')) {
                     this._lastFocusedField = e.target;
                 }
             });
 
             // Mark grade dirty when rubric/guide fields are edited.
             rubricBody.addEventListener('input', (e) => {
-                if (e.target.matches('textarea, input[type="number"]')) {
+                if (e.target.matches('textarea, input[type="text"][data-criterionid], input[type="number"]')) {
                     DirtyTracker.markDirty('grade');
                     this._cacheGradeValue();
                 }
@@ -401,21 +457,30 @@ export default class extends BaseComponent {
     /**
      * Set the feedback content in TinyMCE or the textarea fallback.
      *
+     * Callers from the navigation path (initial render / student switch) and
+     * explicit user actions (toggle-to-edit, delete-feedback) pass force=true
+     * so the editor body is replaced. The auto-save / state-refresh path
+     * never calls this without force, by design: the teacher owns the editor
+     * after the first paint.
+     *
      * @param {string} html The HTML content to set.
+     * @param {boolean} force Apply the content even if the editor currently has focus.
      */
     _updateFeedbackContent(html, force = false) {
         const textarea = this.getElement(this.selectors.FEEDBACK_INPUT);
         if (!textarea) {
             return;
         }
-        // Without `force`, refuse to clobber the editor when the teacher is
-        // typing or has unsent edits. setContent() rewrites the entire body,
-        // blowing away cursor position and any in-progress text — exactly the
-        // race the auto-save lifecycle was losing keystrokes to. Explicit user
-        // actions (toggle-to-edit, delete-feedback) still pass force=true.
-        if (!force && !this._safeToOverwriteFeedback()) {
-            DirtyTracker.markDirty('feedback');
-            return;
+        if (!force) {
+            // Belt-and-braces: refuse to overwrite when the editor has focus,
+            // even if a future code path forgets to gate on isFreshRender.
+            const editorForCheck = getInstanceForElementId(textarea.id);
+            const editorFocused = editorForCheck
+                && typeof editorForCheck.hasFocus === 'function'
+                && editorForCheck.hasFocus();
+            if (editorFocused || textarea === document.activeElement) {
+                return;
+            }
         }
         const editor = getInstanceForElementId(textarea.id);
         if (editor) {
@@ -423,66 +488,6 @@ export default class extends BaseComponent {
         } else {
             textarea.value = html || '';
         }
-    }
-
-    /**
-     * Decide whether a simple text/number/scale input is safe to overwrite
-     * with the server-authoritative value. Refuses when the field has focus
-     * (the teacher is typing) or when the in-memory value differs from what
-     * we last sent — i.e. there are in-flight edits that haven't reached the
-     * server yet.
-     *
-     * @param {HTMLElement} field The input element.
-     * @param {string|null} lastSentValue Snapshot from _handleSaveGrade, or null.
-     * @return {boolean}
-     */
-    _safeToOverwriteSimpleField(field, lastSentValue) {
-        if (!field) {
-            return true;
-        }
-        if (field === document.activeElement) {
-            return false;
-        }
-        if (lastSentValue === null) {
-            // No save has dispatched yet (or it has fully completed and the
-            // snapshot was cleared in _updateUI). No in-flight conflict.
-            return true;
-        }
-        return String(field.value ?? '') === String(lastSentValue);
-    }
-
-    /**
-     * Decide whether the feedback editor (TinyMCE or plain textarea) is safe
-     * to overwrite. Same shape as _safeToOverwriteSimpleField but reads
-     * content via the appropriate API.
-     *
-     * @return {boolean}
-     */
-    _safeToOverwriteFeedback() {
-        const textarea = this.getElement(this.selectors.FEEDBACK_INPUT);
-        if (!textarea) {
-            return true;
-        }
-        const editor = getInstanceForElementId(textarea.id);
-        if (editor) {
-            // TinyMCE: hasFocus is the closest signal to "user is editing".
-            // Some TinyMCE builds also expose isDirty(); prefer focus since it
-            // covers the case where typing has briefly stopped between events.
-            if (typeof editor.hasFocus === 'function' && editor.hasFocus()) {
-                return false;
-            }
-            if (this._lastSentFeedback === null) {
-                return true;
-            }
-            return editor.getContent() === this._lastSentFeedback;
-        }
-        if (textarea === document.activeElement) {
-            return false;
-        }
-        if (this._lastSentFeedback === null) {
-            return true;
-        }
-        return (textarea.value ?? '') === this._lastSentFeedback;
     }
 
     /**
@@ -524,6 +529,22 @@ export default class extends BaseComponent {
      * @param {object} args.state Current state.
      */
     _renderGrade({state}) {
+        // Navigation-boundary gate: form-input values may only be overwritten
+        // from server state on the initial render or when the active student
+        // changes. Every other invocation of this watcher (after a save, after
+        // a penalty/extension mutation, etc.) skips the form-input writes and
+        // lets the DOM reflect what the teacher is actually typing. Derived
+        // displays (penalty badges, percentage, late indicator) update freely.
+        const renderedUserid = this._lastRenderedUserid;
+        const currentUserid = state.currentUser?.id;
+        const isFreshRender = renderedUserid === undefined || renderedUserid !== currentUserid;
+        this._lastRenderedUserid = currentUserid;
+        // New student → grade input is no longer "manually overridden";
+        // rubric edits should resume auto-syncing the displayed total.
+        if (isFreshRender) {
+            this._gradeManuallyOverridden = false;
+        }
+
         // When grading is disabled (forum grade type "None"), hide the entire
         // grade section and the rubric/marking guide — they are a non-sequitur.
         // Overall feedback is still shown and functional.
@@ -549,7 +570,7 @@ export default class extends BaseComponent {
                 }
             }
             // Still render feedback content and expand the section.
-            this._renderFeedbackAndSnapshot(state, true);
+            this._renderFeedbackAndSnapshot(state, true, isFreshRender);
             return;
         }
         // Hide the toggle when grading is enabled.
@@ -564,7 +585,7 @@ export default class extends BaseComponent {
         // _updateRubricTotal/_updateGuideTotal which sync a computed total
         // into the grade input. We then overwrite with the server-authoritative
         // grade value so manual overrides are not lost.
-        this._renderAdvancedGrading(state);
+        this._renderAdvancedGrading(state, isFreshRender);
 
         const usescale = state.activity?.usescale || false;
         // Hide penalty UI for scale-based grading only.
@@ -589,21 +610,15 @@ export default class extends BaseComponent {
         }
 
         if (usescale) {
-            // Scale: set the dropdown value.
+            // Scale: set the dropdown value only on a fresh render (student
+            // switch / initial load). Post-save refreshes leave the teacher's
+            // selection alone.
             const scaleInput = this.getElement(this.selectors.SCALE_INPUT);
-            if (scaleInput && state.grade) {
-                const newScale = state.grade.grade !== null ? String(Math.round(state.grade.grade)) : '';
-                if (this._safeToOverwriteSimpleField(scaleInput, this._lastSentScale)) {
-                    scaleInput.value = newScale;
-                } else {
-                    // User has changed the scale since the save fired — keep
-                    // their selection and re-mark dirty so the next focus
-                    // change flushes a follow-up save.
-                    DirtyTracker.markDirty('grade');
-                }
+            if (scaleInput && state.grade && isFreshRender) {
+                scaleInput.value = state.grade.grade !== null ? String(Math.round(state.grade.grade)) : '';
             }
         } else {
-            // Points: set the numeric input value.
+            // Points: set the numeric input value on a fresh render only.
             // Forums store the raw (teacher-given) grade — display as-is.
             // Other activities store the post-penalty grade — reverse-calculate for display.
             const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
@@ -617,14 +632,19 @@ export default class extends BaseComponent {
                         displayGrade = Math.round(displayGrade * 100) / 100;
                     }
                 }
-                const newValue = displayGrade !== null ? String(displayGrade) : '';
-                if (this._safeToOverwriteSimpleField(gradeInput, this._lastSentGrade)) {
-                    gradeInput.value = newValue;
-                } else {
-                    // User has typed in the grade input since the save fired —
-                    // keep their value and re-mark dirty so the next focusout
-                    // saves it.
-                    DirtyTracker.markDirty('grade');
+                if (isFreshRender) {
+                    gradeInput.value = displayGrade !== null ? String(displayGrade) : '';
+
+                    // If the saved grade differs from what the rubric/guide
+                    // would compute, this is a returning teacher's prior
+                    // override — restore the locked state and surface the
+                    // indicator badge so the discrepancy is visible.
+                    if (this._gradingDefinition && this._lastRubricGrade !== null
+                            && displayGrade !== null
+                            && Math.abs(parseFloat(displayGrade) - this._lastRubricGrade) > 0.005) {
+                        this._gradeManuallyOverridden = true;
+                    }
+                    this._updateOverrideIndicator(this._lastRubricGrade);
                 }
 
                 // Store the full quiz grade as the base for quizmanual delta calculations.
@@ -649,7 +669,7 @@ export default class extends BaseComponent {
         // Render feedback, expand/collapse, late penalty badge, and dirty-tracking snapshot.
         // When there is no rubric/marking guide, always expand feedback by default.
         const hasAdvancedGradingSection = this._gradingDefinition !== null;
-        this._renderFeedbackAndSnapshot(state, !hasAdvancedGradingSection);
+        this._renderFeedbackAndSnapshot(state, !hasAdvancedGradingSection, isFreshRender);
     }
 
     /**
@@ -661,18 +681,28 @@ export default class extends BaseComponent {
      *
      * @param {object} state Current state.
      * @param {boolean} forceExpand Always expand the feedback section (e.g. when no rubric/guide).
+     * @param {boolean} isFreshRender Whether this is a navigation-boundary render — only then is
+     *                                it safe to overwrite the TinyMCE editor body. Post-save and
+     *                                penalty/extension refreshes leave the editor alone.
      */
-    _renderFeedbackAndSnapshot(state, forceExpand = false) {
+    _renderFeedbackAndSnapshot(state, forceExpand = false, isFreshRender = false) {
         // Use draft-ready content (with rewritten file URLs) when available.
-        if (state.grade && state.grade.feedbackdraft !== undefined) {
-            this._updateFeedbackContent(state.grade.feedbackdraft);
-        } else if (state.grade) {
-            this._updateFeedbackContent(state.grade.feedback || '');
+        // Only push content into the editor on a fresh render — otherwise an
+        // in-progress edit would be replaced with whatever the server last
+        // saw, which is the bug class teachers were repeatedly hitting.
+        if (isFreshRender) {
+            if (state.grade && state.grade.feedbackdraft !== undefined) {
+                this._updateFeedbackContent(state.grade.feedbackdraft, true);
+            } else if (state.grade) {
+                this._updateFeedbackContent(state.grade.feedback || '', true);
+            }
         }
 
         // Toggle feedback display/edit mode.
         // Reset editing flag — _renderGrade fires on student switch and after save.
-        this._editingFeedback = false;
+        if (isFreshRender) {
+            this._editingFeedback = false;
+        }
         this._toggleFeedbackMode(state);
 
         // Auto-expand the overall feedback section:
@@ -882,18 +912,6 @@ export default class extends BaseComponent {
                 // Save cycle complete — allow future saves.
                 this._saveInFlight = false;
 
-                // Clear in-flight snapshots so subsequent renders (e.g. a
-                // student switch, a penalty save, an extension grant) freely
-                // apply the new state. The snapshots only protect the window
-                // between save dispatch and state refresh; once that window
-                // closes, holding on to them would prevent legitimate updates.
-                this._lastSentScores = null;
-                this._lastSentRemarks = null;
-                this._lastSentRubricSelections = null;
-                this._lastSentGrade = null;
-                this._lastSentScale = null;
-                this._lastSentFeedback = null;
-
                 // When saving transitions to false, the save completed — mark clean.
                 const gradeInputEl = this.getElement(this.selectors.GRADE_INPUT);
                 const scaleInputEl = this.getElement(this.selectors.SCALE_INPUT);
@@ -996,6 +1014,68 @@ export default class extends BaseComponent {
         // Show the raw grade percentage (before penalties).
         const pct = Math.round((rawGrade / maxgrade) * 100);
         percentEl.textContent = '(' + pct + '%)';
+    }
+
+    /**
+     * Validate the manual grade input against the activity's maxgrade. Shows
+     * an inline error and marks the input invalid when the entered value
+     * exceeds the cap; clears the error state otherwise. Skipped for
+     * scale-based grading (the dropdown can't produce an out-of-range value)
+     * and when there is no numeric maxgrade.
+     *
+     * Returns true when the current value is acceptable, false when it
+     * exceeds the cap. Callers use the return value to refuse save attempts.
+     *
+     * @return {boolean} Whether the grade is within the allowed range.
+     */
+    _validateGrade() {
+        const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
+        const errorEl = this.getElement(this.selectors.GRADE_ERROR);
+        if (!gradeInput) {
+            return true;
+        }
+        // Scale-based grading uses the dropdown — nothing to validate here.
+        if (this.reactive.state.activity?.usescale) {
+            return true;
+        }
+        const maxgrade = parseFloat(gradeInput.max);
+        if (!maxgrade || isNaN(maxgrade)) {
+            return true;
+        }
+        const raw = parseFloat(gradeInput.value);
+        // Empty input is fine — it means "no grade entered yet".
+        if (isNaN(raw)) {
+            gradeInput.classList.remove('is-invalid');
+            if (errorEl) {
+                errorEl.classList.add('d-none');
+                errorEl.textContent = '';
+            }
+            return true;
+        }
+        if (raw > maxgrade) {
+            gradeInput.classList.add('is-invalid');
+            if (errorEl) {
+                errorEl.classList.remove('d-none');
+                // Re-fetch the localised string each call so a future change
+                // to maxgrade picks up the new number — the string includes
+                // {$a} for the cap.
+                getString('error_grade_exceeds_max', 'local_unifiedgrader', maxgrade)
+                    .then((s) => {
+                        errorEl.textContent = s;
+                        return s;
+                    })
+                    .catch(() => {
+                        errorEl.textContent = 'Cannot exceed ' + maxgrade;
+                    });
+            }
+            return false;
+        }
+        gradeInput.classList.remove('is-invalid');
+        if (errorEl) {
+            errorEl.classList.add('d-none');
+            errorEl.textContent = '';
+        }
+        return true;
     }
 
     /**
@@ -1276,8 +1356,12 @@ export default class extends BaseComponent {
      * Render the rubric or marking guide section.
      *
      * @param {object} state Current state.
+     * @param {boolean} isFreshRender Whether the active student just changed (or this is the
+     *                                initial render). Only then do we apply server-side fill
+     *                                values to existing inputs; otherwise the rubric/guide DOM
+     *                                is left untouched so in-progress edits survive saves.
      */
-    _renderAdvancedGrading(state) {
+    _renderAdvancedGrading(state, isFreshRender = false) {
         const section = this.getElement(this.selectors.RUBRIC_SECTION);
         if (!section) {
             return;
@@ -1329,9 +1413,9 @@ export default class extends BaseComponent {
 
         // Render based on method.
         if (definition.method === 'rubric') {
-            this._renderRubric(definition, fillData);
+            this._renderRubric(definition, fillData, isFreshRender);
         } else if (definition.method === 'guide' || definition.method === 'quizmanual') {
-            this._renderGuide(definition, fillData);
+            this._renderGuide(definition, fillData, isFreshRender);
         }
 
         section.classList.remove('d-none');
@@ -1343,8 +1427,11 @@ export default class extends BaseComponent {
      *
      * @param {object} definition Grading definition.
      * @param {object} fillData Current fill data.
+     * @param {boolean} isFreshRender Initial render or student switch — only then are server-side
+     *                                selections applied to the DOM. Other render triggers leave
+     *                                already-rendered selection buttons alone.
      */
-    _renderRubric(definition, fillData) {
+    _renderRubric(definition, fillData, isFreshRender = false) {
         const body = this.getElement(this.selectors.RUBRIC_BODY);
         if (!body) {
             return;
@@ -1360,13 +1447,9 @@ export default class extends BaseComponent {
             }
         }
 
-        // Incremental update path — same set of criteria already rendered.
-        // See _updateGuideValues for the equivalent reasoning: a destructive
-        // body.innerHTML='' rebuild during the in-flight window between save
-        // dispatch and state refresh would silently revert any rubric click
-        // the teacher made in that window. We instead reconcile selections
-        // in place, preserving any selection that has changed since the
-        // most recent save fired.
+        // If the criterion set already matches the DOM, do nothing on non-fresh
+        // renders. The teacher's selection lives in _rubricSelections and in
+        // the DOM; the server view will catch up on the next autosave.
         const existingButtons = body.querySelectorAll('button[data-criterionid][data-levelid]');
         if (existingButtons.length > 0) {
             const existingCriterionIds = new Set(
@@ -1376,7 +1459,9 @@ export default class extends BaseComponent {
             const sameStructure = existingCriterionIds.size === newCriterionIds.size
                 && [...existingCriterionIds].every((id) => newCriterionIds.has(id));
             if (sameStructure) {
-                this._updateRubricSelections(body, definition, currentFill);
+                if (isFreshRender) {
+                    this._updateRubricSelections(body, definition, currentFill);
+                }
                 return;
             }
         }
@@ -1493,65 +1578,35 @@ export default class extends BaseComponent {
      * @param {object} currentFill Map of criterionid → server-selected levelid.
      */
     _updateRubricSelections(body, definition, currentFill) {
-        const sent = this._lastSentRubricSelections;
-        let dirtyAfterReconcile = false;
-
+        // Only called on a fresh render (student switch / initial load), so
+        // it's safe to overwrite the DOM with the server-side selections.
         definition.criteria.forEach((criterion) => {
             const id = criterion.id;
             const idstr = String(id);
             const serverLevelId = currentFill[id] ?? null;
-            const inMemory = this._rubricSelections[id] || null;
-            const sentForCrit = sent ? sent[id] : undefined;
-
-            // Decide which selection should win: the server value (if no
-            // in-flight conflict) or the user's most recent click.
-            let winningSelection = inMemory;
-            if (sentForCrit !== undefined) {
-                const inMemoryLevel = inMemory ? inMemory.levelid : null;
-                const sentLevel = sentForCrit ? sentForCrit.levelid : null;
-                if (inMemoryLevel === sentLevel) {
-                    // No new click since save dispatched — adopt the server's
-                    // canonical value (and if the server cleared a level, clear too).
-                    if (serverLevelId === null) {
-                        winningSelection = null;
-                    } else {
-                        const lvl = criterion.levels.find((l) => l.id === serverLevelId);
-                        winningSelection = lvl ? {levelid: lvl.id, score: lvl.score} : null;
-                    }
-                } else {
-                    // User clicked since save fired — preserve and re-mark dirty
-                    // so the next focusout / debounce flush catches up.
-                    dirtyAfterReconcile = true;
-                }
-            } else if (serverLevelId !== null) {
+            let selection = null;
+            if (serverLevelId !== null) {
                 const lvl = criterion.levels.find((l) => l.id === serverLevelId);
                 if (lvl) {
-                    winningSelection = {levelid: lvl.id, score: lvl.score};
+                    selection = {levelid: lvl.id, score: lvl.score};
                 }
             }
-
-            if (winningSelection) {
-                this._rubricSelections[id] = winningSelection;
+            if (selection) {
+                this._rubricSelections[id] = selection;
             } else {
                 delete this._rubricSelections[id];
             }
-
-            // Reflect the winning selection in the level-button DOM.
             const buttons = body.querySelectorAll(
                 'button[data-criterionid="' + idstr + '"][data-levelid]',
             );
             buttons.forEach((btn) => {
-                const isSelected = winningSelection
-                    && parseInt(btn.dataset.levelid, 10) === winningSelection.levelid;
+                const isSelected = selection
+                    && parseInt(btn.dataset.levelid, 10) === selection.levelid;
                 btn.className = 'btn btn-sm text-start p-2 border '
                     + (isSelected ? 'btn-primary' : 'btn-outline-secondary');
             });
         });
-
         this._updateRubricTotal();
-        if (dirtyAfterReconcile) {
-            DirtyTracker.markDirty('grade');
-        }
     }
 
     /**
@@ -1591,8 +1646,12 @@ export default class extends BaseComponent {
      *
      * @param {object} definition Grading definition.
      * @param {object} fillData Current fill data.
+     * @param {boolean} isFreshRender Initial render or student switch — only then are server-side
+     *                                fill values applied to the DOM. Other render triggers
+     *                                (post-save, penalty save, extension grant) leave the
+     *                                already-rendered inputs alone so in-progress edits survive.
      */
-    _renderGuide(definition, fillData) {
+    _renderGuide(definition, fillData, isFreshRender = false) {
         const body = this.getElement(this.selectors.RUBRIC_BODY);
         if (!body) {
             return;
@@ -1609,14 +1668,13 @@ export default class extends BaseComponent {
             }
         }
 
-        // If the DOM already represents the same set of criteria, apply an
-        // incremental update instead of nuking and rebuilding. This preserves
-        // (a) the input element the user is currently focused on, and
-        // (b) any input the user has edited since the most recent save fired
-        //     (compared against _lastSentScores/_lastSentRemarks).
-        // Without this, fast typers lose keystrokes that arrived between the
-        // save dispatch and the post-save state refresh.
-        const existingInputs = body.querySelectorAll('input[type="number"][data-criterionid]');
+        // If the criterion set already matches the DOM, do nothing on non-fresh
+        // renders. The teacher's in-flight edits live in the DOM (and in
+        // _guideScores/_guideRemarks); the server view will catch up on the
+        // next autosave. On a fresh render we apply the server-side fill.
+        // Score inputs are type="text" (with inputmode="decimal") so we can
+        // accept locale-mismatched decimal separators — see _renderGuide.
+        const existingInputs = body.querySelectorAll('input[data-criterionid]:not([data-levelid])');
         if (existingInputs.length > 0) {
             const existingIds = new Set(
                 Array.from(existingInputs).map((el) => String(el.dataset.criterionid)),
@@ -1625,7 +1683,9 @@ export default class extends BaseComponent {
             const sameStructure = existingIds.size === newIds.size
                 && [...existingIds].every((id) => newIds.has(id));
             if (sameStructure) {
-                this._updateGuideValues(body, definition, currentFill);
+                if (isFreshRender) {
+                    this._updateGuideValues(body, definition, currentFill);
+                }
                 return;
             }
         }
@@ -1692,13 +1752,24 @@ export default class extends BaseComponent {
             const controls = document.createElement('div');
             controls.className = 'd-flex gap-2 align-items-start';
 
+            // Use type="text" + inputmode="decimal" rather than type="number"
+            // because the latter rejects locale-mismatched decimal separators:
+            // a teacher in a comma-locale (de/fr/es/…) typing "3.5" sees the
+            // characters appear but `input.value` returns "" because the browser
+            // refuses to accept a period as the decimal mark. That empty string
+            // then gets persisted to the gradingform_guide_fillings.score column
+            // as 0 (the column is NOT NULL number). The user-visible symptom is
+            // "I typed 3.5, refresh, mark is 0." Capturing the raw text instead
+            // and normalising comma → period on the way to the server avoids
+            // the whole locale dance.
             const scoreInput = document.createElement('input');
-            scoreInput.type = 'number';
-            scoreInput.className = 'form-control form-control-sm';
+            scoreInput.type = 'text';
+            scoreInput.inputMode = 'decimal';
+            scoreInput.autocomplete = 'off';
+            scoreInput.className = 'form-control form-control-sm text-end';
             scoreInput.style.width = '80px';
-            scoreInput.min = '0';
-            scoreInput.max = String(criterion.maxscore);
-            scoreInput.step = 'any';
+            scoreInput.dataset.min = '0';
+            scoreInput.dataset.max = String(criterion.maxscore);
             scoreInput.placeholder = 'Score';
             getString('score', 'local_unifiedgrader').then((s) => {
                 scoreInput.placeholder = s;
@@ -1720,7 +1791,10 @@ export default class extends BaseComponent {
             this._guideScores[criterion.id] = scoreInput.value;
 
             scoreInput.addEventListener('input', () => {
-                this._guideScores[criterion.id] = scoreInput.value;
+                // Canonicalise the decimal separator: accept either "3.5" or
+                // "3,5" regardless of browser locale, store the period form.
+                const canonical = (scoreInput.value || '').replace(',', '.');
+                this._guideScores[criterion.id] = canonical;
                 this._updateGuideTotal();
             });
 
@@ -1790,22 +1864,19 @@ export default class extends BaseComponent {
 
     /**
      * Apply server-side fill values to existing marking-guide inputs without
-     * rebuilding the DOM. Skips fields the user is currently focused on or has
-     * edited since the most recent save was dispatched, so a slow round-trip
-     * never clobbers in-progress keystrokes.
+     * rebuilding the DOM. Only ever called on a fresh render (student switch
+     * or initial load); other render triggers skip the update entirely so
+     * in-progress edits survive.
      *
      * @param {HTMLElement} body The rubric body container.
      * @param {object} definition Grading definition (criteria list).
      * @param {object} currentFill Fill map keyed by criterion id.
      */
     _updateGuideValues(body, definition, currentFill) {
-        const sentScores = this._lastSentScores;
-        const sentRemarks = this._lastSentRemarks;
-
         definition.criteria.forEach((criterion) => {
             const id = String(criterion.id);
             const scoreInput = body.querySelector(
-                'input[type="number"][data-criterionid="' + id + '"]',
+                'input[data-criterionid="' + id + '"]:not([data-levelid])',
             );
             const remarkInput = body.querySelector(
                 'textarea[data-criterionid="' + id + '"]',
@@ -1813,57 +1884,16 @@ export default class extends BaseComponent {
             const newScore = String(currentFill[id]?.score ?? '');
             const newRemark = String(currentFill[id]?.remark ?? '');
 
-            if (scoreInput && this._safeToOverwrite(scoreInput, this._guideScores[id], sentScores?.[id])) {
+            if (scoreInput) {
                 scoreInput.value = newScore;
                 this._guideScores[id] = newScore;
             }
-            if (remarkInput && this._safeToOverwrite(remarkInput, this._guideRemarks[id], sentRemarks?.[id])) {
+            if (remarkInput) {
                 remarkInput.value = newRemark;
                 this._guideRemarks[id] = newRemark;
             }
         });
-
         this._updateGuideTotal();
-
-        // If the user has typed values that the most recent save did not
-        // include, re-mark the form dirty so the next focusout (or follow-up
-        // tick of the autosave loop) catches up. Without this the unsaved
-        // edits would silently never reach the server.
-        const hasUnsentEdits = this._gradingDefinition?.criteria?.some((c) => {
-            const id = String(c.id);
-            const sentS = sentScores?.[id];
-            const sentR = sentRemarks?.[id];
-            return (sentS !== undefined && String(this._guideScores[id] ?? '') !== String(sentS))
-                || (sentR !== undefined && String(this._guideRemarks[id] ?? '') !== String(sentR));
-        }) || false;
-        if (hasUnsentEdits) {
-            DirtyTracker.markDirty('grade');
-        }
-    }
-
-    /**
-     * Decide whether a marking-guide input is safe to overwrite with the
-     * server-authoritative value.
-     *
-     * Refuses when the field is the active element (the teacher is typing in
-     * it right now) or when the in-memory value differs from what we last
-     * sent — i.e. the teacher has edited since the save dispatched and the
-     * server response is now stale relative to the form.
-     *
-     * @param {HTMLElement} field The input or textarea element.
-     * @param {string} currentValue Current in-memory value (this._guideScores/Remarks[id]).
-     * @param {string|undefined} lastSentValue Value we sent in the most recent save.
-     * @return {boolean}
-     */
-    _safeToOverwrite(field, currentValue, lastSentValue) {
-        if (field === document.activeElement) {
-            return false;
-        }
-        if (lastSentValue === undefined) {
-            // No save has happened yet — nothing in-flight could be racing.
-            return true;
-        }
-        return String(currentValue ?? '') === String(lastSentValue);
     }
 
     /**
@@ -1888,30 +1918,89 @@ export default class extends BaseComponent {
             totalEl.textContent = total + ' / ' + maxTotal;
         }
 
-        // Sync total into the simple grade input and update percentage.
+        // Sync total into the simple grade input and update percentage —
+        // unless the teacher has manually edited the grade input. Once
+        // they have, the rubric becomes a reference total only; their
+        // override survives further rubric tweaks. Cleared on student switch.
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput) {
-            if (this._gradingDefinition?.method === 'quizmanual' && this._quizBaseGrade !== undefined) {
-                // For quiz manual grading, the guide only shows manually-graded
-                // questions. Compute the delta from the initial manual total and
-                // apply it to the full quiz grade so auto-graded marks are preserved.
-                const delta = total - (this._guideBaseTotal ?? 0);
-                const newGrade = Math.max(0, Math.round((this._quizBaseGrade + delta) * 100) / 100);
-                gradeInput.value = newGrade;
-            } else {
-                // Normalize the guide total to the assignment's grade scale.
-                // A marking guide may have a different max total than the activity
-                // max grade (e.g. guide criteria sum to 13 but assignment is out of 10).
-                // Moodle normalizes on save; we must match that in the UI.
-                const activityMax = parseFloat(gradeInput.max) || 0;
-                if (maxTotal > 0 && activityMax > 0 && maxTotal !== activityMax) {
-                    gradeInput.value = Math.round((total / maxTotal) * activityMax * 100) / 100;
-                } else {
-                    gradeInput.value = total;
-                }
+            const rubricGrade = this._computeRubricGrade(total, maxTotal, gradeInput);
+            this._lastRubricGrade = rubricGrade;
+            if (!this._gradeManuallyOverridden) {
+                gradeInput.value = String(rubricGrade);
             }
+            this._updateOverrideIndicator(rubricGrade);
         }
         this._updatePercentage();
+    }
+
+    /**
+     * Compute what the grade input should display from the rubric / marking
+     * guide totals — i.e. the value that auto-sync would push. Pulled out
+     * of _updateGuideTotal so the override indicator can compare without
+     * re-deriving the math.
+     *
+     * @param {number} total Sum of criterion scores from _guideScores.
+     * @param {number} maxTotal Sum of criterion maxscores.
+     * @param {HTMLInputElement} gradeInput The grade input element (for its max attr).
+     * @return {number} The rubric-implied grade on the activity's scale.
+     */
+    _computeRubricGrade(total, maxTotal, gradeInput) {
+        if (this._gradingDefinition?.method === 'quizmanual' && this._quizBaseGrade !== undefined) {
+            // For quiz manual grading, the guide only shows manually-graded
+            // questions. The displayed grade is the full quiz grade adjusted
+            // by the delta between current manual scores and the initial manual total.
+            const delta = total - (this._guideBaseTotal ?? 0);
+            return Math.max(0, Math.round((this._quizBaseGrade + delta) * 100) / 100);
+        }
+        // Normalize the guide total to the assignment's grade scale.
+        // A marking guide may have a different max total than the activity
+        // max grade (e.g. guide criteria sum to 13 but assignment is out of 10).
+        const activityMax = parseFloat(gradeInput.max) || 0;
+        if (maxTotal > 0 && activityMax > 0 && maxTotal !== activityMax) {
+            return Math.round((total / maxTotal) * activityMax * 100) / 100;
+        }
+        return total;
+    }
+
+    /**
+     * Show or hide the "Override" badge depending on whether the displayed
+     * grade matches what the rubric / marking guide would compute. Also
+     * exposes the rubric value to the indicator so a returning teacher
+     * can see at a glance both what they assigned and what the rubric says.
+     *
+     * Tolerates floating-point noise: a 0.005 difference counts as equal.
+     *
+     * @param {number} rubricGrade The auto-computed rubric grade.
+     */
+    _updateOverrideIndicator(rubricGrade) {
+        const indicator = this.getElement(this.selectors.GRADE_OVERRIDE_INDICATOR);
+        const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
+        if (!indicator || !gradeInput) {
+            return;
+        }
+        // No rubric / guide active → no override concept; always hidden.
+        if (!this._gradingDefinition) {
+            indicator.classList.add('d-none');
+            return;
+        }
+        const current = parseFloat(gradeInput.value);
+        if (isNaN(current) || gradeInput.value === '') {
+            indicator.classList.add('d-none');
+            return;
+        }
+        const isOverridden = Math.abs(current - rubricGrade) > 0.005;
+        if (isOverridden) {
+            indicator.classList.remove('d-none');
+            indicator.classList.add('d-flex');
+            const rubricEl = this.getElement(this.selectors.GRADE_RUBRIC_VALUE);
+            if (rubricEl) {
+                rubricEl.textContent = String(rubricGrade);
+            }
+        } else {
+            indicator.classList.add('d-none');
+            indicator.classList.remove('d-flex');
+        }
     }
 
     /**
@@ -2138,27 +2227,20 @@ export default class extends BaseComponent {
             this._autoSaveTimer = null;
         }
 
+        // Refuse to save when the manual grade exceeds the activity max.
+        // We don't support extra-credit yet; the inline error on the input
+        // tells the teacher what's wrong, so silently skipping the save
+        // is the right thing — they'll see the red border + message.
+        if (!this._validateGrade()) {
+            return;
+        }
+
         // Prevent overlapping saves — if a save is already in flight,
         // skip this one entirely to avoid stale data overwriting fresh data.
         if (this._saveInFlight) {
             return;
         }
         this._saveInFlight = true;
-
-        // Snapshot every editable surface we are about to send so the post-save
-        // state refresh can reconcile per-field instead of clobbering. Without
-        // these snapshots, fast typers lose keystrokes — and fast clickers
-        // lose rubric selections — that arrive between save dispatch and the
-        // state refresh that follows. See `_safeToOverwrite*` helpers.
-        this._lastSentScores = {...this._guideScores};
-        this._lastSentRemarks = {...this._guideRemarks};
-        this._lastSentRubricSelections = JSON.parse(JSON.stringify(this._rubricSelections));
-
-        const gradeInputEl = this.getElement(this.selectors.GRADE_INPUT);
-        const scaleInputEl = this.getElement(this.selectors.SCALE_INPUT);
-        this._lastSentGrade = gradeInputEl ? gradeInputEl.value : null;
-        this._lastSentScale = scaleInputEl ? scaleInputEl.value : null;
-        this._lastSentFeedback = this._getEditorContent();
 
         const state = this.reactive.state;
 

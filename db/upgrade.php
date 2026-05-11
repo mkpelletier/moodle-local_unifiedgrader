@@ -274,5 +274,28 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026050700, 'local', 'unifiedgrader');
     }
 
+    if ($oldversion < 2026051203) {
+        // Submissions queue for teacher-proposed system-default comments.
+        $table = new xmldb_table('local_unifiedgrader_clibprop');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('commentid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('proposerid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('rationale', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $table->add_field('status', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, 'pending');
+            $table->add_field('decisionreason', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $table->add_field('decidedby', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+            $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('timedecided', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_index('ix_commentid', XMLDB_INDEX_NOTUNIQUE, ['commentid']);
+            $table->add_index('ix_status', XMLDB_INDEX_NOTUNIQUE, ['status']);
+            $table->add_index('ix_proposerid', XMLDB_INDEX_NOTUNIQUE, ['proposerid']);
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026051203, 'local', 'unifiedgrader');
+    }
+
     return true;
 }

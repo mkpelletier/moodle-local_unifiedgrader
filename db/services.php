@@ -109,6 +109,12 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_submit_library_proposal' => [
+        'classname' => 'local_unifiedgrader\external\submit_library_proposal',
+        'description' => 'Submit a personal comment to the system-default review queue.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
     'local_unifiedgrader_get_shared_library' => [
         'classname' => 'local_unifiedgrader\external\get_shared_library',
         'description' => 'Get instance-wide shared comments from other teachers.',

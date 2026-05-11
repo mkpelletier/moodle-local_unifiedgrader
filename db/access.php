@@ -81,4 +81,12 @@ $capabilities = [
             'manager' => CAP_ALLOW,
         ],
     ],
+    'local/unifiedgrader:managesystemdefaults' => [
+        'riskbitmask' => RISK_XSS,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_SYSTEM,
+        'archetypes' => [
+            'manager' => CAP_ALLOW,
+        ],
+    ],
 ];

@@ -85,6 +85,16 @@ class get_library_comments extends external_api {
                 'tagids' => new external_multiple_structure(
                     new external_value(PARAM_INT, 'Tag ID'),
                 ),
+                'proposalstatus' => new external_value(
+                    PARAM_ALPHA,
+                    'Latest proposal status: pending, approved, rejected, or empty',
+                    VALUE_OPTIONAL,
+                ),
+                'proposalreason' => new external_value(
+                    PARAM_TEXT,
+                    "Admin's decision reason if rejected",
+                    VALUE_OPTIONAL,
+                ),
             ]),
         );
     }

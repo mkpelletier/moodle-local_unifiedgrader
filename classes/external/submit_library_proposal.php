@@ -15,7 +15,8 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * External function: get library tags.
+ * External function: submit a comment-library entry as a candidate
+ * for system-default inclusion.
  *
  * @package    local_unifiedgrader
  * @copyright  2026 South African Theological Seminary (mathieu@sats.ac.za)
@@ -26,24 +27,24 @@ namespace local_unifiedgrader\external;
 
 use core_external\external_api;
 use core_external\external_function_parameters;
-use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
 use local_unifiedgrader\comment_library_manager;
 
 /**
- * Returns tags visible to the current teacher.
+ * Submit one of the current teacher's comments to the admin review queue.
  */
-class get_library_tags extends external_api {
+class submit_library_proposal extends external_api {
     /**
      * Parameter definition.
      * @return external_function_parameters
      */
     public static function execute_parameters(): external_function_parameters {
         return new external_function_parameters([
-            'coursecode' => new external_value(
+            'commentid' => new external_value(PARAM_INT, 'Comment ID being proposed'),
+            'rationale' => new external_value(
                 PARAM_TEXT,
-                'Restrict tags to those used in this course (and universal comments). Empty string = no restriction.',
+                'Optional reason shown to the admin reviewer',
                 VALUE_DEFAULT,
                 '',
             ),
@@ -53,14 +54,16 @@ class get_library_tags extends external_api {
     /**
      * Execute the function.
      *
-     * @param string $coursecode
+     * @param int $commentid
+     * @param string $rationale
      * @return array
      */
-    public static function execute(string $coursecode = ''): array {
+    public static function execute(int $commentid, string $rationale = ''): array {
         global $USER;
 
         $params = self::validate_parameters(self::execute_parameters(), [
-            'coursecode' => $coursecode,
+            'commentid' => $commentid,
+            'rationale' => $rationale,
         ]);
 
         $context = \context_system::instance();
@@ -68,26 +71,25 @@ class get_library_tags extends external_api {
         if (isguestuser()) {
             throw new \moodle_exception('noguest');
         }
+        // No new capability: any user with a personal library entry can
+        // suggest it. Manager-level vetting still gates promotion.
 
-        // Empty coursecode = no restriction (used by manage-library modal).
-        // Non-empty coursecode = restrict to that course's tags (+ system + universal).
-        $filter = $params['coursecode'] === '' ? null : $params['coursecode'];
-        return comment_library_manager::get_tags($USER->id, $filter);
+        $proposalid = comment_library_manager::submit_proposal(
+            $params['commentid'],
+            $USER->id,
+            $params['rationale'],
+        );
+
+        return ['proposalid' => $proposalid];
     }
 
     /**
      * Return definition.
-     * @return external_multiple_structure
+     * @return external_single_structure
      */
-    public static function execute_returns(): external_multiple_structure {
-        return new external_multiple_structure(
-            new external_single_structure([
-                'id' => new external_value(PARAM_INT, 'Tag ID'),
-                'userid' => new external_value(PARAM_INT, 'Owner (0 = system)'),
-                'name' => new external_value(PARAM_TEXT, 'Tag name'),
-                'sortorder' => new external_value(PARAM_INT, 'Sort order'),
-                'issystem' => new external_value(PARAM_BOOL, 'Whether this is a system default tag'),
-            ]),
-        );
+    public static function execute_returns(): external_single_structure {
+        return new external_single_structure([
+            'proposalid' => new external_value(PARAM_INT, 'The new proposal ID'),
+        ]);
     }
 }

@@ -88,6 +88,16 @@ class get_shared_library extends external_api {
                     new external_value(PARAM_INT, 'Tag ID'),
                 ),
                 'ownername' => new external_value(PARAM_TEXT, 'Owner display name'),
+                'proposalstatus' => new external_value(
+                    PARAM_ALPHA,
+                    'Always empty for shared rows; carried for schema parity with my-library',
+                    VALUE_OPTIONAL,
+                ),
+                'proposalreason' => new external_value(
+                    PARAM_TEXT,
+                    'Always empty for shared rows; carried for schema parity with my-library',
+                    VALUE_OPTIONAL,
+                ),
             ]),
         );
     }

@@ -70,17 +70,29 @@
                 {{! Main panel — comments }}
                 <div class="flex-grow-1 d-flex flex-column" style="min-width: 0;">
 
-                    {{! Toolbar: new comment + tag filter }}
+                    {{! Toolbar: new comment + search + tag filter }}
                     <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
                         <button type="button" class="btn btn-sm btn-primary"
                                 data-action="clib-new-comment">
                             <i class="fa fa-plus me-1"></i>
                             {{#str}} clib_new_comment, local_unifiedgrader {{/str}}
                         </button>
-                        <select class="form-select form-select-sm" style="width: auto;"
-                                data-action="clib-tag-filter">
-                            <option value="0">{{#str}} clib_all, local_unifiedgrader {{/str}}</option>
-                        </select>
+                        <div class="d-flex gap-2 align-items-center" style="flex: 1; max-width: 360px;">
+                            <div class="position-relative flex-grow-1">
+                                <i class="fa fa-search position-absolute text-muted"
+                                   style="left: 8px; top: 50%; transform: translateY(-50%); pointer-events: none;"></i>
+                                <input type="search"
+                                       class="form-control form-control-sm"
+                                       style="padding-left: 26px;"
+                                       data-input="clib-search"
+                                       placeholder="{{#str}} clib_search_placeholder, local_unifiedgrader {{/str}}"
+                                       aria-label="{{#str}} clib_search_placeholder, local_unifiedgrader {{/str}}">
+                            </div>
+                            <select class="form-select form-select-sm" style="width: auto;"
+                                    data-action="clib-tag-filter">
+                                <option value="0">{{#str}} clib_all, local_unifiedgrader {{/str}}</option>
+                            </select>
+                        </div>
                     </div>
 
                     {{! Inline new comment form (hidden by default) }}
@@ -90,7 +102,12 @@
                                   placeholder="{{#str}} clib_new_comment, local_unifiedgrader {{/str}}"></textarea>
                         <div class="d-flex justify-content-between align-items-center gap-2">
                             <div class="d-flex gap-1 flex-wrap" data-region="clib-new-tag-chips"></div>
-                            <div class="d-flex gap-1">
+                            <div class="d-flex gap-1 align-items-center">
+                                <label class="form-check form-check-inline small mb-0"
+                                       title="{{#str}} clib_universal_help, local_unifiedgrader {{/str}}">
+                                    <input type="checkbox" class="form-check-input" data-input="clib-new-universal">
+                                    {{#str}} clib_universal, local_unifiedgrader {{/str}}
+                                </label>
                                 <label class="form-check form-check-inline small mb-0">
                                     <input type="checkbox" class="form-check-input" data-input="clib-new-shared">
                                     {{#str}} clib_share, local_unifiedgrader {{/str}}

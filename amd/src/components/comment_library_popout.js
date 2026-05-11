@@ -285,7 +285,9 @@ export default class CommentLibraryPopout {
                     coursecode: this._coursecode,
                     tagid: 0,
                 }),
-                this._ajaxCall('local_unifiedgrader_get_library_tags', {}),
+                this._ajaxCall('local_unifiedgrader_get_library_tags', {
+                    coursecode: this._coursecode,
+                }),
             ]);
             this._comments = commentsResult;
             this._tags = tagsResult.sort((a, b) => a.name.localeCompare(b.name));
@@ -329,7 +331,9 @@ export default class CommentLibraryPopout {
             const allEntry = await OfflineCache.load(0, 0, 'clib_all');
             if (allEntry) {
                 commentsEntry = {
-                    data: allEntry.data.filter(c => !this._coursecode || c.coursecode === this._coursecode),
+                    data: allEntry.data.filter(
+                        c => !this._coursecode || c.coursecode === this._coursecode || !c.coursecode,
+                    ),
                 };
             }
         }
@@ -356,8 +360,16 @@ export default class CommentLibraryPopout {
 
     /**
      * Render tag filter chips.
+     *
+     * Bails out when the popout DOM hasn't been built yet — `getComments()`
+     * preloads data without ever calling `show()` (it's used by the
+     * remark-textarea autocomplete to read the comment list directly),
+     * which would otherwise blow up with "Cannot set properties of undefined".
      */
     _renderTags() {
+        if (!this._tagContainer) {
+            return;
+        }
         this._tagContainer.innerHTML = '';
 
         // "All" chip.
@@ -396,8 +408,14 @@ export default class CommentLibraryPopout {
 
     /**
      * Render the filtered comment list.
+     *
+     * Bails out when the popout DOM hasn't been built — same reason as
+     * `_renderTags` above.
      */
     _renderComments() {
+        if (!this._listContainer) {
+            return;
+        }
         this._listContainer.innerHTML = '';
 
         // Show offline indicator when serving cached data.

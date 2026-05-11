@@ -78,15 +78,38 @@
                     {{! Simple grading: number input with percentage }}
                     <div data-region="simple-grade">
                         <div class="input-group">
-                            <input type="number"
+                            {{! type="text" + inputmode="decimal" rather than type="number" — see marking_panel.js. }}
+                            <input type="text"
+                                   inputmode="decimal"
+                                   autocomplete="off"
                                    data-action="grade-input"
                                    class="form-control"
-                                   step="any"
-                                   min="0"
                                    placeholder="{{#str}} grade, local_unifiedgrader {{/str}}"
                                    aria-label="{{#str}} grade, local_unifiedgrader {{/str}}">
                             <span class="input-group-text" data-region="max-grade">/ --</span>
                             <span class="input-group-text text-muted" data-region="grade-percentage"></span>
+                        </div>
+                        <div data-region="grade-error"
+                             class="invalid-feedback d-none small mt-1"
+                             role="alert"></div>
+                        {{! Override indicator + reset action — visible only
+                            when the displayed grade differs from the rubric /
+                            marking-guide computed total. }}
+                        <div data-region="grade-override-indicator"
+                             class="d-none d-flex align-items-center gap-2 mt-1 small">
+                            <span class="badge bg-warning text-dark"
+                                  title="{{#str}} grade_override_help, local_unifiedgrader {{/str}}">
+                                <i class="fa fa-pencil-square me-1"></i>{{#str}} grade_overridden, local_unifiedgrader {{/str}}
+                            </span>
+                            <span class="text-muted">
+                                {{#str}} grade_rubric_says, local_unifiedgrader {{/str}}
+                                <span data-region="grade-rubric-value" class="fw-semibold">—</span>
+                            </span>
+                            <button type="button"
+                                    class="btn btn-link btn-sm p-0 ms-auto"
+                                    data-action="grade-reset-rubric">
+                                <i class="fa fa-undo me-1"></i>{{#str}} grade_reset_rubric, local_unifiedgrader {{/str}}
+                            </button>
                         </div>
                     </div>
 

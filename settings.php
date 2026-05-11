@@ -25,9 +25,17 @@
 defined('MOODLE_INTERNAL') || die();
 
 if ($hassiteconfig) {
+    // Container category — gives the plugin its own folder under "Local
+    // plugins" so the settings page and the "Manage system defaults" tool
+    // sit together as siblings instead of being scattered.
+    $ADMIN->add('localplugins', new admin_category(
+        'local_unifiedgrader_cat',
+        get_string('pluginname', 'local_unifiedgrader'),
+    ));
+
     $settings = new admin_settingpage(
         'local_unifiedgrader',
-        get_string('pluginname', 'local_unifiedgrader')
+        get_string('settings'),
     );
 
     $settings->add(new admin_setting_configcheckbox(
@@ -86,6 +94,16 @@ if ($hassiteconfig) {
         1
     ));
 
+    // Approval mode for teacher-proposed system defaults. Default ON
+    // (admins must approve). Toggling OFF promotes proposals immediately
+    // and skips the queue — useful for small trusted teams.
+    $settings->add(new admin_setting_configcheckbox(
+        'local_unifiedgrader/require_systemdefault_approval',
+        get_string('setting_require_systemdefault_approval', 'local_unifiedgrader'),
+        get_string('setting_require_systemdefault_approval_desc', 'local_unifiedgrader'),
+        1
+    ));
+
     $settings->add(new admin_setting_configtext(
         'local_unifiedgrader/coursecode_regex',
         get_string('setting_coursecode_regex', 'local_unifiedgrader'),
@@ -112,5 +130,15 @@ if ($hassiteconfig) {
         60
     ));
 
-    $ADMIN->add('localplugins', $settings);
+    $ADMIN->add('local_unifiedgrader_cat', $settings);
+
+    // External page: manage system-default tags and comments. Sibling of
+    // the settings page under the Unified Grader category — where admins
+    // expect plugin-specific tools to live.
+    $ADMIN->add('local_unifiedgrader_cat', new admin_externalpage(
+        'local_unifiedgrader_systemdefaults',
+        get_string('manage_system_defaults', 'local_unifiedgrader'),
+        new moodle_url('/local/unifiedgrader/manage_system_defaults.php'),
+        'local/unifiedgrader:managesystemdefaults',
+    ));
 }
