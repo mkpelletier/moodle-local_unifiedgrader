@@ -2258,16 +2258,27 @@ export default class extends BaseComponent {
         } else {
             const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
             grade = gradeInput ? gradeInput.value : '';
-            // Treat a bare "-" — and any other non-numeric placeholder a
-            // teacher might type — as a reset to "no grade", matching the
-            // way Moodle's gradebook accepts "-" to clear a cell. Without
-            // this normalisation a lone "-" hits the WS PARAM_FLOAT check
-            // and surfaces as an unhandled exception. An empty string is
-            // already converted to -1 (= no grade) in the saveGrade mutation.
-            if (gradeInput && grade !== '' && !isFinite(parseFloat(grade))) {
+            // Two reset escape hatches, matching the Moodle gradebook's
+            // convention of accepting "-" to clear a cell:
+            //   "--" → deliberate reset. Clears the grade AND removes any
+            //          orphan submission row (status != 'submitted') created
+            //          by accidental teacher interaction. Real submissions
+            //          stay intact; only the grade goes.
+            //   "-"  → light reset. Clears the grade only, leaving the
+            //          submission row exactly as it was.
+            // Any other non-numeric value is normalised to the light reset
+            // so a stray character doesn't surface as a PARAM_FLOAT error.
+            if (gradeInput && grade === '--') {
+                this._fullResetRequested = true;
                 grade = '';
                 gradeInput.value = '';
-                // Drop the override lock too — there is no grade to override.
+                this._gradeManuallyOverridden = false;
+                this._updatePercentage();
+                this._updateFinalGradeDisplay();
+                this._updateOverrideIndicator(this._lastRubricGrade);
+            } else if (gradeInput && grade !== '' && !isFinite(parseFloat(grade))) {
+                grade = '';
+                gradeInput.value = '';
                 this._gradeManuallyOverridden = false;
                 this._updatePercentage();
                 this._updateFinalGradeDisplay();
@@ -2276,6 +2287,11 @@ export default class extends BaseComponent {
         }
         const feedback = this._getEditorContent();
         const advancedGradingData = this._collectAdvancedGradingData();
+
+        // _fullResetRequested is one-shot — consumed by this dispatch and
+        // cleared so the next save reverts to normal behaviour.
+        const reset = !!this._fullResetRequested;
+        this._fullResetRequested = false;
 
         this.reactive.dispatch(
             'saveGrade',
@@ -2286,6 +2302,7 @@ export default class extends BaseComponent {
             state.ui.draftitemid,
             advancedGradingData,
             state.ui.feedbackfilesdraftid,
+            reset,
         );
     }
 

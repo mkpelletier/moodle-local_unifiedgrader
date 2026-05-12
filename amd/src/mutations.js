@@ -214,9 +214,11 @@ export default class {
      * @param {number} draftitemid Draft area item ID for feedback files.
      * @param {string} advancedgradingdata JSON string of advanced grading data.
      * @param {number} feedbackfilesdraftid Draft area item ID for feedback files (assignfeedback_file).
+     * @param {boolean} reset When true, treat the call as a deliberate reset: clear the grade and
+     *                        remove any orphan submission row created by accidental teacher interaction.
      */
     async saveGrade(stateManager, cmid, userid, grade, feedback, draftitemid,
-        advancedgradingdata, feedbackfilesdraftid) {
+        advancedgradingdata, feedbackfilesdraftid, reset = false) {
         // Track the userid we are saving for — if the teacher navigates away
         // before the save completes, we must skip the post-save state refresh
         // to avoid overwriting the newly loaded student's data.
@@ -249,6 +251,7 @@ export default class {
                     advancedgradingdata: advancedgradingdata || '',
                     feedbackfilesdraftid: feedbackfilesdraftid || 0,
                     attemptnumber: stateManager.state.submission.attemptnumber ?? -1,
+                    reset: !!reset,
                 },
             }])[0];
 
@@ -362,6 +365,7 @@ export default class {
                         advancedgradingdata: advancedgradingdata || '',
                         feedbackfilesdraftid: feedbackfilesdraftid || 0,
                         attemptnumber: stateManager.state.submission.attemptnumber ?? -1,
+                    reset: !!reset,
                     },
                 }])[0], () => {
                     // Cleanup after successful retry.

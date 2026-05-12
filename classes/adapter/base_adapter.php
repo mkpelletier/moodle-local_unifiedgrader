@@ -136,6 +136,22 @@ abstract class base_adapter {
     abstract public function is_grade_released(int $userid): bool;
 
     /**
+     * Deliberate reset: clear the saved grade for this user and remove any
+     * orphan submission row that was created without the student actually
+     * submitting anything (e.g. by accidental teacher interaction with the
+     * marking panel for a non-submitter).
+     *
+     * Concrete adapters that don't support this concept can leave the
+     * default no-op behaviour in place — the WS just returns success.
+     *
+     * @param int $userid The student user ID.
+     * @return bool True on success.
+     */
+    public function reset_grade_and_submission(int $userid): bool {
+        return true;
+    }
+
+    /**
      * Get the list of submission attempts for a user.
      *
      * Returns an empty array for activity types that don't support attempts.

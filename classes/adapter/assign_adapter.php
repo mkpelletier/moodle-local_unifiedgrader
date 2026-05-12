@@ -698,6 +698,48 @@ class assign_adapter extends base_adapter {
     }
 
     /**
+     * Deliberate reset: clear the grade and remove an orphan submission row.
+     *
+     * Designed for the case where a teacher's accidental interaction with the
+     * marking panel left a non-submitting student with an assign_grades row
+     * and (sometimes) an empty assign_submission row with status='new'. After
+     * this call:
+     *
+     *   - assign_grades.grade is set to -1 and pushed to the gradebook.
+     *   - The submission row is reverted to its pre-submission state (status
+     *     'new' or 'reopened', plugin data wiped) IF it isn't a real student
+     *     submission — i.e. its status is not 'submitted'. A genuine
+     *     'submitted' row is left alone.
+     *
+     * @param int $userid
+     * @return bool
+     */
+    public function reset_grade_and_submission(int $userid): bool {
+        global $DB, $USER, $CFG;
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
+
+        // Clear the grade and push -1 through to the gradebook.
+        $gradeobj = $this->assign->get_user_grade($userid, false);
+        if ($gradeobj) {
+            $gradeobj->grade = -1;
+            $gradeobj->grader = $USER->id;
+            $gradeobj->timemodified = time();
+            $DB->update_record('assign_grades', $gradeobj);
+            $this->assign->update_grade($gradeobj);
+        }
+
+        // Wipe the submission only when it isn't a real student submission.
+        // remove_submission() resets status to 'new'/'reopened' and tells each
+        // submission plugin to drop its data — it does not delete the row.
+        $submission = $this->get_submission($userid);
+        if ($submission && $submission->status !== ASSIGN_SUBMISSION_STATUS_SUBMITTED) {
+            $this->assign->remove_submission($userid);
+        }
+
+        return true;
+    }
+
+    /**
      * Clear gradebook flags that would silently block a marking-guide / rubric
      * save through mod_assign — but only the *recoverable* ones (the
      * `overridden` flag). Leaves `locked` alone (that's an explicit lockout

@@ -60,6 +60,12 @@ class save_grade extends external_api {
                 VALUE_DEFAULT,
                 -1,
             ),
+            'reset' => new external_value(
+                PARAM_BOOL,
+                'When true, treat the call as a deliberate reset: clear the grade, push -1 to the gradebook, and remove any submission row that has not actually been submitted by the student (orphan rows created by accidental teacher interaction). A real submitted row is left alone.',
+                VALUE_DEFAULT,
+                false,
+            ),
         ]);
     }
 
@@ -75,6 +81,8 @@ class save_grade extends external_api {
      * @param int $draftitemid Draft area item ID for feedback file uploads.
      * @param int $feedbackfilesdraftid Draft area item ID for feedback files plugin.
      * @param int $attemptnumber Attempt number (0-based), or -1 for latest.
+     * @param bool $reset When true, treat as a deliberate reset: clear the grade,
+     *                    remove orphan submission rows that were not student-submitted.
      * @return array
      */
     public static function execute(
@@ -87,6 +95,7 @@ class save_grade extends external_api {
         int $draftitemid = 0,
         int $feedbackfilesdraftid = 0,
         int $attemptnumber = -1,
+        bool $reset = false,
     ): array {
         $params = self::validate_parameters(self::execute_parameters(), [
             'cmid' => $cmid,
@@ -98,6 +107,7 @@ class save_grade extends external_api {
             'draftitemid' => $draftitemid,
             'feedbackfilesdraftid' => $feedbackfilesdraftid,
             'attemptnumber' => $attemptnumber,
+            'reset' => $reset,
         ]);
 
         $context = \context_module::instance($params['cmid']);
@@ -105,6 +115,14 @@ class save_grade extends external_api {
         require_capability('local/unifiedgrader:grade', $context);
 
         $adapter = adapter_factory::create($params['cmid']);
+
+        // Deliberate reset short-circuits the normal save flow: clear the
+        // grade, remove any orphan submission row that was never genuinely
+        // submitted by the student. Leaves real submissions untouched.
+        if (!empty($params['reset'])) {
+            $success = $adapter->reset_grade_and_submission($params['userid']);
+            return ['success' => $success];
+        }
 
         $gradevalue = $params['grade'] >= 0 ? $params['grade'] : null;
 
