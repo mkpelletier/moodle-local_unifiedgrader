@@ -698,20 +698,6 @@ class assign_adapter extends base_adapter {
     }
 
     /**
-     * Save grade and feedback directly, bypassing the grading form.
-     *
-     * Used when advanced grading is active but no criteria data is provided
-     * (e.g., quick numeric grade override from the unified grader).
-     *
-     * @param int $userid
-     * @param float|null $grade
-     * @param string $feedback
-     * @param int $feedbackformat
-     * @param int $attemptnumber
-     * @param int $draftitemid Draft area item ID for feedback file uploads.
-     * @param int $feedbackfilesdraftid Draft area item ID for feedback files (assignfeedback_file).
-     */
-    /**
      * Clear gradebook flags that would silently block a marking-guide / rubric
      * save through mod_assign — but only the *recoverable* ones (the
      * `overridden` flag). Leaves `locked` alone (that's an explicit lockout
@@ -755,6 +741,20 @@ class assign_adapter extends base_adapter {
         return true;
     }
 
+    /**
+     * Save grade and feedback directly, bypassing the grading form.
+     *
+     * Used when advanced grading is active but no criteria data is provided
+     * (e.g., quick numeric grade override from the unified grader).
+     *
+     * @param int $userid
+     * @param float|null $grade
+     * @param string $feedback
+     * @param int $feedbackformat
+     * @param int $attemptnumber
+     * @param int $draftitemid Draft area item ID for feedback file uploads.
+     * @param int $feedbackfilesdraftid Draft area item ID for feedback files (assignfeedback_file).
+     */
     private function save_grade_directly(
         int $userid,
         ?float $grade,

@@ -42,7 +42,7 @@ $PAGE->set_url($baseurl);
 $PAGE->set_title(get_string('manage_system_defaults', 'local_unifiedgrader'));
 $PAGE->set_heading(get_string('manage_system_defaults', 'local_unifiedgrader'));
 
-// ── Delete actions: no form, single-step with sesskey ───────────────────────
+// Delete actions: no form, single-step with sesskey.
 if ($action === 'deletetag' && $id > 0) {
     require_sesskey();
     \local_unifiedgrader\comment_library_manager::delete_system_tag($id);
@@ -54,7 +54,7 @@ if ($action === 'deletecomment' && $id > 0) {
     redirect($baseurl, get_string('clib_comment_deleted', 'local_unifiedgrader'));
 }
 
-// ── Proposal queue actions ─────────────────────────────────────────────────
+// Proposal queue actions.
 if ($action === 'approveproposal' && $id > 0) {
     require_sesskey();
     \local_unifiedgrader\comment_library_manager::approve_proposal($id, $USER->id);
@@ -67,7 +67,7 @@ if ($action === 'rejectproposal' && $id > 0) {
     redirect($baseurl, get_string('clib_proposal_rejected_msg', 'local_unifiedgrader'));
 }
 
-// ── Edit / create tag ──────────────────────────────────────────────────────
+// Edit / create tag.
 if ($action === 'edittag' || $action === 'newtag') {
     $form = new \local_unifiedgrader\form\system_tag_form($baseurl->out(false) . '?action=' . $action);
     if ($action === 'edittag' && $id > 0) {
@@ -100,7 +100,7 @@ if ($action === 'edittag' || $action === 'newtag') {
     exit;
 }
 
-// ── Edit / create comment ──────────────────────────────────────────────────
+// Edit / create comment.
 if ($action === 'editcomment' || $action === 'newcomment') {
     $systemtags = array_filter(
         \local_unifiedgrader\comment_library_manager::get_tags($USER->id),
@@ -147,7 +147,7 @@ if ($action === 'editcomment' || $action === 'newcomment') {
     exit;
 }
 
-// ── Default: list view ─────────────────────────────────────────────────────
+// Render the default list view.
 $alltags = \local_unifiedgrader\comment_library_manager::get_tags($USER->id);
 $systemtags = array_values(array_filter($alltags, fn($t) => !empty($t['issystem'])));
 $comments = \local_unifiedgrader\comment_library_manager::get_system_comments();
@@ -166,7 +166,7 @@ echo html_writer::tag(
     ['class' => 'text-muted'],
 );
 
-// ── Pending submissions queue ───────────────────────────────────────────────
+// Pending submissions queue.
 $pending = \local_unifiedgrader\comment_library_manager::get_pending_proposals();
 echo $OUTPUT->heading(get_string('clib_pending_submissions_heading', 'local_unifiedgrader'), 3);
 if (empty($pending)) {

@@ -25,6 +25,7 @@
 import {BaseComponent} from 'core/reactive';
 import {get_strings as getStrings} from 'core/str';
 import {get_string as getString} from 'core/str';
+import Ajax from 'core/ajax';
 import * as DirtyTracker from 'local_unifiedgrader/dirty_tracker';
 
 export default class extends BaseComponent {
@@ -1336,6 +1337,19 @@ export default class extends BaseComponent {
     _applyFilters(filterUpdates) {
         const state = this.reactive.state;
         this.reactive.dispatch('updateFilters', state.activity.cmid, filterUpdates);
+        // Persist the group selection per-activity so it survives page
+        // refreshes. Fire-and-forget — a failed save just means the next
+        // page load falls back to the default; not worth blocking the UI.
+        if (Object.prototype.hasOwnProperty.call(filterUpdates, 'group')
+                && state.activity?.cmid) {
+            Ajax.call([{
+                methodname: 'local_unifiedgrader_save_preference',
+                args: {
+                    key: 'groupfilter.' + state.activity.cmid,
+                    value: String(filterUpdates.group),
+                },
+            }])[0].catch(() => {});
+        }
     }
 
     /**

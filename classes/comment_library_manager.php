@@ -492,7 +492,7 @@ class comment_library_manager {
         return $out;
     }
 
-    // ─────────────────────────── Proposals (Option B) ───────────────────────────
+    // Proposals.
 
     /**
      * Submit a teacher's comment for promotion to a system default. Allowed

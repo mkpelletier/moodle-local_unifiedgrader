@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.4.1 (2026-05-12)
+- Default group filter to the teacher's own group(s) instead of "All groups" — previously this only happened for users without the `moodle/site:accessallgroups` capability, so course managers and admins saw every group by default
+- Persist the group filter selection per-activity, keyed by cmid, so it survives page refreshes. Backed by a new `local_unifiedgrader_save_preference` web service and a small `preferences_manager` helper around the existing `local_unifiedgrader_prefs` table (previously only the privacy provider knew the table existed)
+
 ## v2.4.0 (2026-05-12)
 ### Comment library
 - **Quick-access pill scoping**: pills now show only system defaults plus tags actually attached to comments in the current course (or to universal comments). Previously every tag the teacher had ever created showed up regardless of which course they were grading in

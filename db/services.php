@@ -115,6 +115,12 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_save_preference' => [
+        'classname' => 'local_unifiedgrader\external\save_preference',
+        'description' => 'Persist a per-user UI preference key/value.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
     'local_unifiedgrader_get_shared_library' => [
         'classname' => 'local_unifiedgrader\external\get_shared_library',
         'description' => 'Get instance-wide shared comments from other teachers.',

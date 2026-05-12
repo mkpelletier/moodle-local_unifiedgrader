@@ -70,11 +70,29 @@ if ($groupmode != NOGROUPS) {
     global $USER;
     $usergroups = groups_get_all_groups($course->id, $USER->id, $cm->groupingid, 'g.id, g.name');
     $usergroupids = array_map('intval', array_keys($usergroups));
-    // If the user cannot access all groups, restrict to their own groups.
     if (!$aag) {
+        // Capability-restricted users only see their own groups.
         $availablegroups = $usergroups;
-        // Default to "all my groups" when the teacher has multiple groups.
-        $currentgroup = count($usergroupids) > 1 ? '-1' : (string) (reset($usergroupids) ?: 0);
+    }
+
+    /*
+     * Default group selection precedence:
+     * 1. The teacher's saved preference for this activity (sticky across refreshes).
+     * 2. The teacher's own group(s) when they are a member of any —
+     *    "-1" (all my groups) for multiple, the specific group id for one.
+     * 3. "0" (all groups) as a final fallback, only when the teacher is
+     *    not a member of any group in this course.
+     */
+    $savedgroup = \local_unifiedgrader\preferences_manager::get(
+        $USER->id,
+        'groupfilter.' . $cm->id,
+    );
+    if ($savedgroup !== null && $savedgroup !== '') {
+        $currentgroup = (string) $savedgroup;
+    } else if (!empty($usergroupids)) {
+        $currentgroup = count($usergroupids) > 1
+            ? '-1'
+            : (string) reset($usergroupids);
     }
 }
 
