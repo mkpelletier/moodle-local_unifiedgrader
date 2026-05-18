@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.4.3 (2026-05-18)
+### Grade reset escape hatches
+- Typing `-` in the overall grade input now resets the grade to "no grade" — mirroring how Moodle's gradebook accepts `-` to clear a cell. Previously a lone `-` reached the `save_grade` WS as `NaN` and surfaced an unhandled PARAM_FLOAT exception. The grade input clears immediately, the manual-override lock drops, and the save sends `-1` (no grade) to the server. Any other non-numeric placeholder is normalised the same way as belt-and-braces against future regressions
+- Typing `--` is a **deliberate reset**: same grade-clearing behaviour as `-` plus
+   - removes any orphan submission row whose status is not `submitted` (i.e. one created by accidental teacher interaction with the marking panel, not a real student submission). Real submitted rows are left intact
+   - clears any `grade_grades.overridden` flag on the gradebook entry, so the gradebook column reverts to ungraded rather than staying pinned to a previously-applied override (typical when `gradepenalty_duedate` or a manual gradebook edit had set it)
+- The `-` / `--` semantics apply to **forums too**: forum_adapter previously routed null grades through the advanced-grading pipeline which would rewrite a freshly-computed grade back in, and never overrode the deliberate-reset method. Both paths now correctly null the `forum_grades` row (light reset) or delete it entirely (deliberate reset, plus gradebook override lift). The student's posts are never touched
+- New `reset` boolean param on `local_unifiedgrader_save_grade` (default false, so existing callers are unaffected); the WS short-circuits to a new `reset_grade_and_submission()` adapter method when set. `clear_recoverable_gradebook_block()` was hoisted from `assign_adapter` to `base_adapter` so all adapters share it
+
+### Retry document conversion
+- New **Retry conversion** button on the previewer's conversion-failed overlay. When the document converter (Google Docs, unoconv, FlaskOffice, etc.) is offline, Moodle's `mdl_file_conversion` table caches the failure and subsequent preview requests hit the stale failed row rather than re-trying. The button drops the cached row server-side and re-fires the preview load, which triggers a fresh conversion attempt. Backed by a new `local_unifiedgrader_retry_file_conversion` web service that handles both regular file conversions and online-text PDFs (which cache in our own `local_unifiedgrader/onlinetextpdf` filearea instead)
+- The button is laid out on its own line below the error message with `gap-3` breathing room from the error text — earlier draft had them inline which crowded the borders
+
 ## v2.4.1 (2026-05-12)
 - Default group filter to the teacher's own group(s) instead of "All groups" — previously this only happened for users without the `moodle/site:accessallgroups` capability, so course managers and admins saw every group by default
 - Persist the group filter selection per-activity, keyed by cmid, so it survives page refreshes. Backed by a new `local_unifiedgrader_save_preference` web service and a small `preferences_manager` helper around the existing `local_unifiedgrader_prefs` table (previously only the privacy provider knew the table existed)

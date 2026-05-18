@@ -2156,10 +2156,18 @@ export default class PdfViewer extends BaseComponent {
         el.textContent = '';
         el.classList.remove('d-none');
 
+        // The outer overlay is a centred horizontal flex container, so the
+        // message and the button would otherwise land side-by-side and the
+        // button would butt right up against the text. Wrap them in a
+        // vertical stack with a gap so the button gets its own line and
+        // breathing room from the error text above.
+        const wrapper = document.createElement('div');
+        wrapper.className = 'd-flex flex-column align-items-center gap-3';
+        el.appendChild(wrapper);
+
         const msg = document.createElement('div');
-        msg.className = 'mb-2';
         msg.textContent = text;
-        el.appendChild(msg);
+        wrapper.appendChild(msg);
 
         // Pull the args the WS needs straight out of the failed URL.
         let fileid = 0;
@@ -2184,7 +2192,7 @@ export default class PdfViewer extends BaseComponent {
             return s;
         }).catch(() => {});
         btn.addEventListener('click', () => this._retryConversion(fileid, cmid, url, btn));
-        el.appendChild(btn);
+        wrapper.appendChild(btn);
     }
 
     /**
