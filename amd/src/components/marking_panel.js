@@ -1909,6 +1909,11 @@ export default class extends BaseComponent {
                 total += num;
             }
         }
+        // Snap to 2dp to avoid the classic JS floating-point summing
+        // artifact (e.g. 4 + 3.8 + 4.1 + 2 → 13.899999999999999) in the
+        // marking-guide total badge and any grade-input value derived
+        // from it via _computeRubricGrade.
+        total = Math.round(total * 100) / 100;
 
         const maxTotal = this._gradingDefinition?.criteria?.reduce(
             (sum, c) => sum + (c.maxscore || 0), 0

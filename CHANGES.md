@@ -1,5 +1,8 @@
 # Changelog
 
+## v2.4.4 (2026-05-18)
+- Fix the marking-guide total badge displaying floating-point summing artifacts when the teacher entered decimal scores — `4 + 3.8 + 4.1 + 2` was being shown as `13.899999999999999 / 25` instead of `13.9 / 25`. The total is now snapped to 2 decimal places at the source so any value derived from it (the badge, the grade input via `_computeRubricGrade`, the percentage display) stays clean
+
 ## v2.4.3 (2026-05-18)
 ### Grade reset escape hatches
 - Typing `-` in the overall grade input now resets the grade to "no grade" — mirroring how Moodle's gradebook accepts `-` to clear a cell. Previously a lone `-` reached the `save_grade` WS as `NaN` and surfaced an unhandled PARAM_FLOAT exception. The grade input clears immediately, the manual-override lock drops, and the save sends `-1` (no grade) to the server. Any other non-numeric placeholder is normalised the same way as belt-and-braces against future regressions
