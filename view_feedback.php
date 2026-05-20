@@ -71,6 +71,13 @@ if (!$adapter->is_grade_released($userid)) {
     exit;
 }
 
+// Log the feedback-viewed event so analytics can measure student engagement
+// with the feedback their teachers wrote in Unified Grader.
+\local_unifiedgrader\event\feedback_viewed::create([
+    'context' => $context,
+    'courseid' => $course->id,
+])->trigger();
+
 // Forum feedback view.
 if ($cm->modname === 'forum') {
     $gradedata = $adapter->get_grade_data($userid);
