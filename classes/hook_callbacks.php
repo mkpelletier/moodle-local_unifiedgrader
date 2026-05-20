@@ -121,17 +121,14 @@ class hook_callbacks {
             return;
         }
 
-        // Inject submission comments widget (pre- and post-grading).
-        if (get_config('local_unifiedgrader', 'enable_submission_comments')) {
-            // News / announcements forums are not graded and never form
-            // part of the teacher-student feedback loop, so the chat
-            // bubble has no place there. Skip the widget injection.
-            if (
-                $modname === 'forum'
-                && \local_unifiedgrader\forum_helper::is_news_forum($cm)
-            ) {
-                // Intentionally skipped.
-            } else if ($modname === 'assign') {
+        // Inject submission comments widget (pre- and post-grading). News /
+        // announcements forums are not graded and never form part of the
+        // teacher-student feedback loop, so the chat bubble has no place
+        // there — skip the widget injection in that case.
+        $isnewsforum = $modname === 'forum'
+            && \local_unifiedgrader\forum_helper::is_news_forum($cm);
+        if (get_config('local_unifiedgrader', 'enable_submission_comments') && !$isnewsforum) {
+            if ($modname === 'assign') {
                 // Assignment: replace core comments with inline widget.
                 $PAGE->requires->js_call_amd(
                     'local_unifiedgrader/assignment_comments',
