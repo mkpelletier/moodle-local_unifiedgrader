@@ -77,6 +77,13 @@ class add_submission_comment extends external_api {
         if (!$hasgrade && (int) $params['userid'] !== (int) $USER->id) {
             throw new \moodle_exception('nopermission', 'local_unifiedgrader');
         }
+        // News / announcements forums are not graded; submission comments
+        // do not apply. Refuse defensively in case the JS widget slipped
+        // through the hook-callback guard (stale cache, etc).
+        $cm = get_coursemodule_from_id(null, $params['cmid'], 0, false, MUST_EXIST);
+        if (\local_unifiedgrader\forum_helper::is_news_forum($cm)) {
+            throw new \moodle_exception('nopermission', 'local_unifiedgrader');
+        }
 
         $record = submission_comment_manager::add_comment(
             $params['cmid'],

@@ -165,6 +165,7 @@ $string['plagiarism_error'] = 'Plagiarism scan failed';
 $string['assessment_criteria'] = 'Assessment criteria';
 $string['teacher_remark'] = 'Teacher feedback';
 $string['view_feedback'] = 'View feedback';
+$string['event_feedback_viewed'] = 'Feedback viewed';
 $string['view_annotated_feedback'] = 'View Annotated Feedback';
 $string['feedback_not_available'] = 'Your feedback is not yet available. Please check back after your submission has been graded and released.';
 $string['feedback_banner_default'] = 'Your teacher has provided feedback on your submission.';

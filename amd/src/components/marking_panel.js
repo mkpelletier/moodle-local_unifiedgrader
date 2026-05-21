@@ -2533,11 +2533,12 @@ export default class extends BaseComponent {
             return;
         }
 
-        // Forums show per-post plagiarism shields inline in the preview panel,
-        // so the marking panel card is redundant.
-        const links = state.activity.type === 'forum'
-            ? []
-            : (state.submission.plagiarismlinks || []);
+        // Post-body plagiarism shields for forums are rendered inline in
+        // the preview panel, but per-attachment shields aren't — so the
+        // forum adapter returns attachment-only links here (post bodies
+        // are excluded server-side). Render them the same way assignment
+        // file shields are rendered.
+        const links = state.submission.plagiarismlinks || [];
 
         if (links.length === 0) {
             section.classList.add('d-none');

@@ -744,23 +744,12 @@ class forum_adapter extends base_adapter {
         $results = [];
         $fs = get_file_storage();
 
+        // Post-body plagiarism is already surfaced inline in the preview
+        // panel via per-post plagiarism shields rendered alongside the
+        // post text, so we deliberately skip it here to avoid a duplicate
+        // listing in the marking panel. Attachments don't have an
+        // equivalent inline affordance, so they get listed here.
         foreach ($posts as $post) {
-            // Post text plagiarism.
-            $linkhtml = plagiarism_get_links([
-                'userid' => $userid,
-                'content' => $post->message,
-                'cmid' => $this->cm->id,
-                'course' => $this->course->id,
-                'forum' => $forumid,
-            ]);
-            if (!empty(trim($linkhtml))) {
-                $results[] = [
-                    'label' => format_string($post->subject),
-                    'html' => $linkhtml,
-                ];
-            }
-
-            // Per-attachment plagiarism.
             $files = $fs->get_area_files(
                 $this->context->id,
                 'mod_forum',
