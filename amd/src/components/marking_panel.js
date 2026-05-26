@@ -1813,11 +1813,21 @@ export default class extends BaseComponent {
 
             this._guideScores[criterion.id] = scoreInput.value;
 
+            // Per-criterion validation message element. Hidden until the
+            // teacher enters a score that's out of range (negative or above
+            // the criterion's allocated maximum). Placed below the controls
+            // row so it doesn't disturb the score+remark layout.
+            const scoreError = document.createElement('div');
+            scoreError.className = 'small text-danger mt-1 d-none';
+            scoreError.dataset.scoreError = String(criterion.id);
+            scoreError.setAttribute('role', 'alert');
+
             scoreInput.addEventListener('input', () => {
                 // Canonicalise the decimal separator: accept either "3.5" or
                 // "3,5" regardless of browser locale, store the period form.
                 const canonical = (scoreInput.value || '').replace(',', '.');
                 this._guideScores[criterion.id] = canonical;
+                this._validateGuideScore(criterion, scoreInput, scoreError);
                 this._updateGuideTotal();
             });
 
@@ -1861,6 +1871,11 @@ export default class extends BaseComponent {
             controls.appendChild(remarkInput);
             controls.appendChild(clibBtn);
             row.appendChild(controls);
+            row.appendChild(scoreError);
+
+            // Validate any pre-filled value loaded from the server — flags
+            // anomalies introduced by older grading paths that didn't cap.
+            this._validateGuideScore(criterion, scoreInput, scoreError);
 
             // Attach autocomplete from comment library to the remark textarea.
             this._attachAutocomplete(remarkInput);
@@ -1910,6 +1925,8 @@ export default class extends BaseComponent {
             if (scoreInput) {
                 scoreInput.value = newScore;
                 this._guideScores[id] = newScore;
+                const errorEl = body.querySelector('[data-score-error="' + id + '"]');
+                this._validateGuideScore(criterion, scoreInput, errorEl);
             }
             if (remarkInput) {
                 remarkInput.value = newRemark;
@@ -1962,6 +1979,103 @@ export default class extends BaseComponent {
             this._updateOverrideIndicator(rubricGrade);
         }
         this._updatePercentage();
+    }
+
+    /**
+     * Validate a single marking-guide criterion score against its allocated
+     * maximum and flag the input + error message inline. Used by both the
+     * per-keystroke listener and the initial render to surface anomalies on
+     * server-supplied fills.
+     *
+     * Returns true when the score is acceptable (empty, or a number in the
+     * inclusive range [0, criterion.maxscore]); false otherwise.
+     *
+     * @param {object} criterion The criterion descriptor (id, maxscore, shortname).
+     * @param {HTMLInputElement} scoreInput The score input element.
+     * @param {HTMLElement} errorEl The hidden error message container for this row.
+     * @return {boolean} Whether the score is within range.
+     */
+    _validateGuideScore(criterion, scoreInput, errorEl) {
+        const maxscore = parseFloat(criterion.maxscore);
+        // Information-only items (maxscore 0) are non-editable; nothing to validate.
+        if (!isFinite(maxscore) || maxscore <= 0) {
+            scoreInput.classList.remove('is-invalid');
+            if (errorEl) {
+                errorEl.classList.add('d-none');
+                errorEl.textContent = '';
+            }
+            return true;
+        }
+        const raw = (scoreInput.value || '').replace(',', '.').trim();
+        if (raw === '') {
+            scoreInput.classList.remove('is-invalid');
+            if (errorEl) {
+                errorEl.classList.add('d-none');
+                errorEl.textContent = '';
+            }
+            return true;
+        }
+        const num = parseFloat(raw);
+        if (isNaN(num) || num < 0 || num > maxscore) {
+            scoreInput.classList.add('is-invalid');
+            if (errorEl) {
+                errorEl.classList.remove('d-none');
+                const params = {
+                    max: maxscore,
+                    criterion: criterion.shortname || '',
+                };
+                getString('error_guide_score_out_of_range', 'local_unifiedgrader', params)
+                    .then((s) => {
+                        errorEl.textContent = s;
+                        return s;
+                    })
+                    .catch(() => {
+                        errorEl.textContent = 'Score must be between 0 and ' + maxscore + '.';
+                    });
+            }
+            return false;
+        }
+        scoreInput.classList.remove('is-invalid');
+        if (errorEl) {
+            errorEl.classList.add('d-none');
+            errorEl.textContent = '';
+        }
+        return true;
+    }
+
+    /**
+     * Validate every marking-guide criterion score currently rendered.
+     * Returns false if any score is out of range so the save path can
+     * short-circuit. Visible errors are left in place for the teacher to fix.
+     *
+     * @return {boolean} Whether all guide scores are within range.
+     */
+    _validateAllGuideScores() {
+        if (!this._gradingDefinition || !Array.isArray(this._gradingDefinition.criteria)) {
+            return true;
+        }
+        const method = this._gradingDefinition.method;
+        if (method !== 'guide' && method !== 'quizmanual') {
+            return true;
+        }
+        const body = this.getElement(this.selectors.RUBRIC_BODY);
+        if (!body) {
+            return true;
+        }
+        let allOk = true;
+        for (const criterion of this._gradingDefinition.criteria) {
+            const scoreInput = body.querySelector(
+                'input[data-criterionid="' + criterion.id + '"]:not([data-levelid])',
+            );
+            const errorEl = body.querySelector('[data-score-error="' + criterion.id + '"]');
+            if (!scoreInput) {
+                continue;
+            }
+            if (!this._validateGuideScore(criterion, scoreInput, errorEl)) {
+                allOk = false;
+            }
+        }
+        return allOk;
     }
 
     /**
@@ -2279,6 +2393,13 @@ export default class extends BaseComponent {
         // tells the teacher what's wrong, so silently skipping the save
         // is the right thing — they'll see the red border + message.
         if (!this._validateGrade()) {
+            return;
+        }
+        // Same guard for marking-guide criterion scores: a score above the
+        // criterion's allocated max would silently round-trip to the server
+        // and break the gradebook total. Block the save and leave the
+        // per-criterion red flag in place so the teacher can fix it.
+        if (!this._validateAllGuideScores()) {
             return;
         }
 

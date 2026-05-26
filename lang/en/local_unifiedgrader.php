@@ -400,6 +400,7 @@ $string['manage_system_defaults'] = 'Manage comment library';
 $string['manage_system_defaults_intro'] = 'Curate the tags and default comments that every teacher sees in the comment library. These are visible across all courses and cannot be edited by individual teachers.';
 $string['unifiedgrader:managesystemdefaults'] = 'Manage system default comment-library tags and comments';
 $string['error_grade_exceeds_max'] = 'Grade cannot exceed the activity maximum ({$a}). Extra credit is not currently supported.';
+$string['error_guide_score_out_of_range'] = 'Score for "{$a->criterion}" must be between 0 and {$a->max}.';
 $string['grade_overridden'] = 'Overridden';
 $string['grade_override_help'] = 'The displayed grade differs from the rubric/marking-guide computed total. This is an intentional manual override; the rubric scores themselves are unchanged.';
 $string['grade_rubric_says'] = 'Rubric total:';
