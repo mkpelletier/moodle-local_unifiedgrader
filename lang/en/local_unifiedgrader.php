@@ -341,6 +341,7 @@ $string['forum_extension_must_be_after_duedate'] = 'The extension date must be a
 $string['profile_view_full'] = 'View full profile';
 $string['profile_login_as'] = 'Login as';
 $string['profile_no_email'] = 'No email available';
+$string['profile_send_mail'] = 'Send mail';
 
 // Settings: course code regex.
 $string['setting_coursecode_regex'] = 'Course code regex';

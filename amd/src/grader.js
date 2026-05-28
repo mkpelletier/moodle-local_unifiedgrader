@@ -75,6 +75,7 @@ export const init = (containerId) => {
     const gradesPosted = container.dataset.gradesposted === '1';
     const gradesHidden = parseInt(container.dataset.gradeshidden, 10) || 0;
     const canloginas = container.dataset.canloginas === '1';
+    const hassatsmail = container.dataset.hassatsmail === '1';
     const enableReportForm = container.dataset.enablereportform === '1';
     const reportFormUrl = container.dataset.reportformurl || '';
     const graderFullname = container.dataset.graderfullname || '';
@@ -183,6 +184,7 @@ export const init = (containerId) => {
             canviewnotes: canviewnotes,
             canmanagenotes: canmanagenotes,
             canloginas: canloginas,
+            hassatsmail: hassatsmail,
             enableReportForm: enableReportForm,
             reportFormUrl: reportFormUrl,
             graderFullname: graderFullname,

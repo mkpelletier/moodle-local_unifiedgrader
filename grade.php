@@ -118,6 +118,11 @@ $canviewnotes = has_capability('local/unifiedgrader:viewnotes', $context);
 $canmanagenotes = has_capability('local/unifiedgrader:managenotes', $context);
 $coursecontext = context_course::instance($course->id);
 $canloginas = has_capability('moodle/user:loginas', $coursecontext);
+// Profile popout offers a one-click "Send mail" via local_satsmail when that
+// plugin is installed alongside Unified Grader. We detect it by the
+// presence of its top-level entry point so a class autoload doesn't
+// silently fail in environments where satsmail isn't deployed.
+$hassatsmail = file_exists($CFG->dirroot . '/local/satsmail/create.php');
 
 // Grade posting status.
 $gradesposted = $adapter->are_grades_posted();
@@ -147,6 +152,7 @@ $templatedata = [
     'canviewnotes' => $canviewnotes,
     'canmanagenotes' => $canmanagenotes,
     'canloginas' => $canloginas,
+    'hassatsmail' => $hassatsmail,
     'issimplegrading' => $activityinfo['gradingmethod'] === 'simple',
     'courseshortname' => format_string($course->shortname),
     'courseurl' => (new moodle_url('/course/view.php', ['id' => $course->id]))->out(false),
