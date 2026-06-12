@@ -246,5 +246,27 @@
         <INDEX NAME="ix_cmid_userid" UNIQUE="false" FIELDS="cmid, userid"/>
       </INDEXES>
     </TABLE>
+    <TABLE NAME="local_unifiedgrader_referral" COMMENT="Academic-integrity referrals: a graded item escalated for review, used to pause the grading-turnaround clock.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="FK to course_modules.id (the graded activity)"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student whose work was referred"/>
+        <FIELD NAME="authorid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Teacher who raised the referral"/>
+        <FIELD NAME="reason" TYPE="char" LENGTH="30" NOTNULL="true" DEFAULT="integrity" SEQUENCE="false" COMMENT="Referral reason category (integrity, similarity, aiindex, other)"/>
+        <FIELD NAME="note" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Optional free-text note from the referring teacher"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="15" NOTNULL="true" DEFAULT="open" SEQUENCE="false" COMMENT="open or resolved"/>
+        <FIELD NAME="outcome" TYPE="char" LENGTH="15" NOTNULL="false" SEQUENCE="false" COMMENT="cleared, upheld, etc; set on resolution"/>
+        <FIELD NAME="timereferred" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="When the case was escalated; this is the turnaround clock-stop"/>
+        <FIELD NAME="timeresolved" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="When the case was closed (0 while open)"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="ix_cmid_userid" UNIQUE="false" FIELDS="cmid, userid"/>
+        <INDEX NAME="ix_authorid" UNIQUE="false" FIELDS="authorid"/>
+      </INDEXES>
+    </TABLE>
   </TABLES>
 </XMLDB>

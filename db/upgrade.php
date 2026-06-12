@@ -352,5 +352,35 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026052900, 'local', 'unifiedgrader');
     }
 
+    if ($oldversion < 2026061200) {
+        // Academic-integrity referral table: records when a graded item is
+        // escalated for review, so the grading-turnaround metric can pause the
+        // clock at the moment of escalation instead of penalising the lecturer
+        // for the review delay.
+        $table = new xmldb_table('local_unifiedgrader_referral');
+
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('authorid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('reason', XMLDB_TYPE_CHAR, '30', null, XMLDB_NOTNULL, null, 'integrity');
+        $table->add_field('note', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('status', XMLDB_TYPE_CHAR, '15', null, XMLDB_NOTNULL, null, 'open');
+        $table->add_field('outcome', XMLDB_TYPE_CHAR, '15', null, null, null, null);
+        $table->add_field('timereferred', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timeresolved', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_index('ix_cmid_userid', XMLDB_INDEX_NOTUNIQUE, ['cmid', 'userid']);
+        $table->add_index('ix_authorid', XMLDB_INDEX_NOTUNIQUE, ['authorid']);
+
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026061200, 'local', 'unifiedgrader');
+    }
+
     return true;
 }

@@ -78,6 +78,14 @@ export default class extends BaseComponent {
             FEEDBACK_COLLAPSE: '[data-region="feedback-collapse"]',
             TOGGLE_PENALTIES: '[data-action="toggle-penalties"]',
             PENALTY_BADGES: '[data-region="penalty-badges"]',
+            REFERRAL_SECTION: '[data-region="referral-section"]',
+            REFERRAL_FORM: '[data-region="referral-form"]',
+            REFERRAL_STATUS: '[data-region="referral-status"]',
+            REFER_BTN: '[data-action="refer-integrity"]',
+            REFERRAL_NOTE: '[data-action="referral-note"]',
+            REFERRAL_CONFIRM: '[data-action="referral-confirm"]',
+            REFERRAL_CANCEL: '[data-action="referral-cancel"]',
+            REFERRAL_RESOLVE: '[data-action="referral-resolve"]',
             FINAL_GRADE_DISPLAY: '[data-region="final-grade-display"]',
             FINAL_GRADE_VALUE: '[data-region="final-grade-value"]',
             FINAL_GRADE_MAX: '[data-region="final-grade-max"]',
@@ -148,6 +156,7 @@ export default class extends BaseComponent {
             {watch: 'grade:updated', handler: this._renderGrade},
             {watch: 'state.notes:updated', handler: this._renderNotes},
             {watch: 'state.penalties:updated', handler: this._renderPenalties},
+            {watch: 'state.referrals:updated', handler: this._renderReferral},
             {watch: 'ui:updated', handler: this._updateUI},
         ];
     }
@@ -306,6 +315,10 @@ export default class extends BaseComponent {
                 this._penaltyPopout.toggle(penaltyBtn, penalties);
             });
         }
+
+        // Wire the academic-integrity referral controls (present only when the
+        // teacher has the refer capability — the section is omitted otherwise).
+        this._initReferralControls();
 
         // Track the last-focused remark textarea or score input inside the rubric/guide.
         const rubricBody = this.getElement(this.selectors.RUBRIC_BODY);
@@ -1262,6 +1275,149 @@ export default class extends BaseComponent {
                 penaltyBtn.classList.add('btn-outline-secondary');
             }
         }
+    }
+
+    /**
+     * Wire up the academic-integrity referral controls.
+     *
+     * The whole section is server-gated on the refer capability, so all
+     * elements are optional — bail quietly when the section is absent.
+     */
+    _initReferralControls() {
+        const section = this.getElement(this.selectors.REFERRAL_SECTION);
+        if (!section) {
+            return;
+        }
+
+        const referBtn = this.getElement(this.selectors.REFER_BTN);
+        const form = this.getElement(this.selectors.REFERRAL_FORM);
+        const noteInput = this.getElement(this.selectors.REFERRAL_NOTE);
+        const confirmBtn = this.getElement(this.selectors.REFERRAL_CONFIRM);
+        const cancelBtn = this.getElement(this.selectors.REFERRAL_CANCEL);
+        const resolveBtn = this.getElement(this.selectors.REFERRAL_RESOLVE);
+
+        if (referBtn && form) {
+            referBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                form.classList.remove('d-none');
+                referBtn.classList.add('d-none');
+                if (noteInput) {
+                    noteInput.value = '';
+                    noteInput.focus();
+                }
+            });
+        }
+
+        if (cancelBtn && form && referBtn) {
+            cancelBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                form.classList.add('d-none');
+                referBtn.classList.remove('d-none');
+            });
+        }
+
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const state = this.reactive.state;
+                const note = noteInput ? noteInput.value.trim() : '';
+                // Set the review flag (pauses the grading-turnaround clock).
+                this.reactive.dispatch('refer', state.activity.cmid, state.currentUser.id, note);
+                // The referral does not replace the academic-impropriety report
+                // form: when that form is enabled, also send the teacher to it with
+                // the case details prefilled. Opened synchronously within the click
+                // gesture (and before the async dispatch resolves) so it is not
+                // treated as a blocked pop-up.
+                if (state.ui.enableReportForm && state.ui.reportFormUrl) {
+                    window.open(this._buildReportUrl(state), '_blank', 'noopener');
+                }
+            });
+        }
+
+        if (resolveBtn) {
+            resolveBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const open = this._getOpenReferral();
+                if (!open) {
+                    return;
+                }
+                const state = this.reactive.state;
+                this.reactive.dispatch(
+                    'resolveReferral',
+                    state.activity.cmid,
+                    state.currentUser.id,
+                    open.id,
+                    'cleared',
+                );
+            });
+        }
+    }
+
+    /**
+     * Render the integrity-referral control based on current referral state.
+     *
+     * Shows the "Mark resolved" status when an open referral exists, otherwise
+     * the "Refer for integrity review" button.
+     */
+    _renderReferral() {
+        const section = this.getElement(this.selectors.REFERRAL_SECTION);
+        if (!section) {
+            return;
+        }
+
+        const referBtn = this.getElement(this.selectors.REFER_BTN);
+        const form = this.getElement(this.selectors.REFERRAL_FORM);
+        const status = this.getElement(this.selectors.REFERRAL_STATUS);
+        const open = this._getOpenReferral();
+
+        // Collapse the inline note form on every state change.
+        if (form) {
+            form.classList.add('d-none');
+        }
+
+        if (open) {
+            if (referBtn) {
+                referBtn.classList.add('d-none');
+            }
+            if (status) {
+                status.classList.remove('d-none');
+            }
+        } else {
+            if (referBtn) {
+                referBtn.classList.remove('d-none');
+            }
+            if (status) {
+                status.classList.add('d-none');
+            }
+        }
+    }
+
+    /**
+     * Get referrals as a plain array from the reactive state (StateMap → Array).
+     *
+     * @return {Array} Array of referral objects.
+     */
+    _getReferralsArray() {
+        const referralsState = this.reactive.state.referrals;
+        if (!referralsState) {
+            return [];
+        }
+        if (typeof referralsState.values === 'function') {
+            return [...referralsState.values()];
+        }
+        if (Array.isArray(referralsState)) {
+            return referralsState;
+        }
+        return [];
+    }
+
+    /**
+     * Get the open referral for the current student, if any.
+     *
+     * @return {object|null}
+     */
+    _getOpenReferral() {
+        return this._getReferralsArray().find((r) => r.status === 'open') || null;
     }
 
     /**

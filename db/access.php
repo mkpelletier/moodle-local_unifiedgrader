@@ -89,4 +89,13 @@ $capabilities = [
             'manager' => CAP_ALLOW,
         ],
     ],
+    'local/unifiedgrader:refer' => [
+        'riskbitmask' => RISK_PERSONAL,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [
+            'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
+        ],
+    ],
 ];

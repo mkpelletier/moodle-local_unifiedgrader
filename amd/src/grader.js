@@ -58,6 +58,7 @@ export const init = (containerId) => {
     const gradingmethod = container.dataset.gradingmethod || 'simple';
     const canviewnotes = container.dataset.canviewnotes === '1';
     const canmanagenotes = container.dataset.canmanagenotes === '1';
+    const canrefer = container.dataset.canrefer === '1';
 
     const hasGroupMode = container.dataset.hasgroupmode === '1';
     const currentGroup = container.dataset.currentgroup || '0';
@@ -152,6 +153,7 @@ export const init = (containerId) => {
         },
         notes: [],
         penalties: [],
+        referrals: [],
         submissionComments: {
             count: 0,
             canpost: false,
@@ -183,6 +185,7 @@ export const init = (containerId) => {
             allowmanualgradeoverride: allowmanualgradeoverride,
             canviewnotes: canviewnotes,
             canmanagenotes: canmanagenotes,
+            canrefer: canrefer,
             canloginas: canloginas,
             hassatsmail: hassatsmail,
             enableReportForm: enableReportForm,

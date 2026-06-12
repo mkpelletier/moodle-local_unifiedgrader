@@ -147,6 +147,48 @@
             {{! Advanced grading placeholder (rubric/marking guide) }}
             <div data-region="advanced-grading" class="d-none mb-3"></div>
 
+            {{! Academic-integrity referral control (rendered/managed by JS) }}
+            {{#canrefer}}
+            <div data-region="referral-section" class="mt-2 pt-2 border-top">
+                {{! Refer button — shown by JS when no open referral exists }}
+                <button type="button"
+                        class="btn btn-outline-danger btn-sm"
+                        data-action="refer-integrity"
+                        title="{{#str}} refer_integrity_help, local_unifiedgrader {{/str}}">
+                    <i class="fa fa-flag me-1" aria-hidden="true"></i>
+                    {{#str}} refer_integrity, local_unifiedgrader {{/str}}
+                </button>
+
+                {{! Inline note input (toggled by JS) }}
+                <div data-region="referral-form" class="d-none mt-2">
+                    <input type="text"
+                           data-action="referral-note"
+                           class="form-control form-control-sm mb-1"
+                           maxlength="255"
+                           placeholder="{{#str}} refer_note_placeholder, local_unifiedgrader {{/str}}">
+                    <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-sm btn-danger" data-action="referral-confirm">
+                            {{#str}} refer_confirm, local_unifiedgrader {{/str}}
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-action="referral-cancel">
+                            {{#str}} refer_cancel, local_unifiedgrader {{/str}}
+                        </button>
+                    </div>
+                </div>
+
+                {{! Open-referral status + resolve affordance (shown by JS) }}
+                <div data-region="referral-status" class="d-none mt-1 d-flex align-items-center gap-2">
+                    <span class="badge bg-danger">
+                        <i class="fa fa-flag me-1" aria-hidden="true"></i>
+                        {{#str}} referral_open, local_unifiedgrader {{/str}}
+                    </span>
+                    <button type="button" class="btn btn-link btn-sm p-0" data-action="referral-resolve">
+                        {{#str}} referral_resolve, local_unifiedgrader {{/str}}
+                    </button>
+                </div>
+            </div>
+            {{/canrefer}}
+
         </div>
     </div>
 

@@ -116,6 +116,7 @@ $initialuserid = $userid ?: ($participants[0]['id'] ?? 0);
 $canviewall = has_capability('local/unifiedgrader:viewall', $context);
 $canviewnotes = has_capability('local/unifiedgrader:viewnotes', $context);
 $canmanagenotes = has_capability('local/unifiedgrader:managenotes', $context);
+$canrefer = has_capability('local/unifiedgrader:refer', $context);
 $coursecontext = context_course::instance($course->id);
 $canloginas = has_capability('moodle/user:loginas', $coursecontext);
 // Profile popout offers a one-click "Send mail" via local_satsmail when that
@@ -151,6 +152,7 @@ $templatedata = [
     'canviewall' => $canviewall,
     'canviewnotes' => $canviewnotes,
     'canmanagenotes' => $canmanagenotes,
+    'canrefer' => $canrefer,
     'canloginas' => $canloginas,
     'hassatsmail' => $hassatsmail,
     'issimplegrading' => $activityinfo['gradingmethod'] === 'simple',

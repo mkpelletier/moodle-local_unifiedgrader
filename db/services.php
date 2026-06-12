@@ -271,4 +271,22 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_get_referrals' => [
+        'classname' => 'local_unifiedgrader\external\get_referrals',
+        'description' => 'Get academic-integrity referrals for a student in an activity.',
+        'type' => 'read',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_refer' => [
+        'classname' => 'local_unifiedgrader\external\refer',
+        'description' => 'Refer a student submission for an academic-integrity review.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_resolve_referral' => [
+        'classname' => 'local_unifiedgrader\external\resolve_referral',
+        'description' => 'Resolve an academic-integrity referral with an outcome.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
 ];

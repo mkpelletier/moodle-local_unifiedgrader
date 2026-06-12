@@ -85,6 +85,12 @@ export default class {
                     methodname: 'local_unifiedgrader_get_penalties',
                     args: {cmid, userid},
                 }])[0].catch(() => []),
+                // Load integrity referrals in the same batch (empty when the
+                // teacher lacks the refer capability — the WS rejects and we swallow).
+                Ajax.call([{
+                    methodname: 'local_unifiedgrader_get_referrals',
+                    args: {cmid, userid},
+                }])[0].catch(() => []),
             ];
 
             // Prepare the feedback draft area in parallel if a draftitemid exists.
@@ -105,8 +111,8 @@ export default class {
             }
 
             const results = await Promise.all(calls);
-            const [submissionData, gradeData, notes, penalties] = results;
-            const feedbackDraft = (draftitemid ? results[4] : null) || {feedbackhtml: ''};
+            const [submissionData, gradeData, notes, penalties, referrals] = results;
+            const feedbackDraft = (draftitemid ? results[5] : null) || {feedbackhtml: ''};
 
             stateManager.setReadOnly(false);
             // Use Object.assign to update properties on the existing proxy.
@@ -119,6 +125,7 @@ export default class {
             // Watcher uses state.notes:updated to catch this.
             stateManager.state.notes = notes;
             stateManager.state.penalties = penalties;
+            stateManager.state.referrals = referrals;
 
             // Update submission comment count and reset loaded flag.
             stateManager.state.submissionComments.count = submissionData.commentcount || 0;
@@ -523,6 +530,53 @@ export default class {
 
             stateManager.setReadOnly(false);
             stateManager.state.penalties = penalties;
+            stateManager.setReadOnly(true);
+        } catch (error) {
+            _handleError(error);
+        }
+    }
+
+    /**
+     * Refer a student's submission for an integrity review and refresh the list.
+     *
+     * @param {object} stateManager The reactive state manager.
+     * @param {number} cmid Course module ID.
+     * @param {number} userid Student user ID.
+     * @param {string} note Optional free-text note.
+     */
+    async refer(stateManager, cmid, userid, note) {
+        try {
+            const result = await Ajax.call([{
+                methodname: 'local_unifiedgrader_refer',
+                args: {cmid, userid, reason: 'integrity', note: note || ''},
+            }])[0];
+
+            stateManager.setReadOnly(false);
+            stateManager.state.referrals = result.referrals;
+            stateManager.setReadOnly(true);
+        } catch (error) {
+            _handleError(error);
+        }
+    }
+
+    /**
+     * Resolve an integrity referral and refresh the list.
+     *
+     * @param {object} stateManager The reactive state manager.
+     * @param {number} cmid Course module ID.
+     * @param {number} userid Student user ID.
+     * @param {number} referralid Referral ID to resolve.
+     * @param {string} outcome Resolution outcome ('cleared' or 'upheld').
+     */
+    async resolveReferral(stateManager, cmid, userid, referralid, outcome) {
+        try {
+            const result = await Ajax.call([{
+                methodname: 'local_unifiedgrader_resolve_referral',
+                args: {cmid, userid, referralid, outcome: outcome || 'cleared'},
+            }])[0];
+
+            stateManager.setReadOnly(false);
+            stateManager.state.referrals = result.referrals;
             stateManager.setReadOnly(true);
         } catch (error) {
             _handleError(error);

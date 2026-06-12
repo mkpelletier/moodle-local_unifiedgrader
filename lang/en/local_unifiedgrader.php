@@ -428,6 +428,7 @@ $string['error_proposal_already_pending'] = 'A proposal for this comment is alre
 $string['setting_require_systemdefault_approval'] = 'Require approval for system-default suggestions';
 $string['setting_require_systemdefault_approval_desc'] = 'When on (default), teacher suggestions for system-default comments enter a pending queue that admins must approve. When off, suggestions are added to system defaults immediately, inheriting only existing system tags. Turn off only for small teams of trusted teachers.';
 $string['unifiedgrader:sharecomments'] = 'Share comments in the library with other teachers';
+$string['unifiedgrader:refer'] = 'Refer submissions for an academic-integrity review';
 
 // Privacy: comment library v2.
 $string['privacy:metadata:clib'] = 'Comment library entries in the Unified Grader.';
@@ -459,6 +460,19 @@ $string['late_min'] = '{$a} min';
 $string['late_lessthanmin'] = '< 1 min';
 $string['finalgradeafterpenalties'] = 'Final grade after penalties:';
 $string['cannotdeleteautopenalty'] = 'Late penalties are automatically calculated and cannot be deleted.';
+
+// Academic-integrity referrals.
+$string['referral'] = 'Integrity referral';
+$string['refer_integrity'] = 'Refer for integrity review';
+$string['refer_integrity_help'] = 'Flag this submission for an academic-integrity / plagiarism review. This pauses the grading-turnaround metric until the referral is resolved.';
+$string['refer_note_placeholder'] = 'Optional note (visible to reviewers)';
+$string['refer_confirm'] = 'Refer';
+$string['refer_cancel'] = 'Cancel';
+$string['referral_open'] = 'Referred for integrity review';
+$string['referral_resolved'] = 'Integrity referral resolved';
+$string['referral_resolve'] = 'Mark resolved';
+$string['referral_outcome_cleared'] = 'Cleared';
+$string['referral_outcome_upheld'] = 'Upheld';
 
 // Feedback summary PDF.
 $string['download_feedback_pdf'] = 'Download feedback PDF';
