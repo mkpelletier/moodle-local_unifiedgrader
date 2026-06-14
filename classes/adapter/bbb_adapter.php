@@ -321,6 +321,26 @@ class bbb_adapter extends base_adapter {
             }
         }
 
+        // Optional: bbbext_advgrd can render an own-player annotation overlay (timeline
+        // + comments + audio/video feedback callout) in place of the BBB iframe. Loose
+        // coupling: we probe the lib.php file directly (procedural functions aren't
+        // covered by the PSR-4 autoloader the way classes are, so function_exists()
+        // alone returns false until lib.php has been required somewhere). When
+        // bbbext_advgrd isn't installed the file doesn't exist and the template falls
+        // back to the iframe path.
+        global $CFG;
+        $overlayhtml = '';
+        $advgrdlib = $CFG->dirroot . '/mod/bigbluebuttonbn/extension/advgrd/lib.php';
+        if ($hasrecordings && file_exists($advgrdlib)) {
+            require_once($advgrdlib);
+            if (function_exists('bbbext_advgrd_render_overlay')) {
+                $overlay = bbbext_advgrd_render_overlay((int) $this->cm->id, $userid);
+                if ($overlay !== null) {
+                    $overlayhtml = $overlay;
+                }
+            }
+        }
+
         $templatedata = [
             'cmid' => (int) $this->cm->id,
             'recordings' => $recordings,
@@ -337,6 +357,8 @@ class bbb_adapter extends base_adapter {
             'statisticslinks' => $statisticsentries,
             'hasstatisticslinks' => !empty($statisticsentries),
             'singlestatisticsurl' => count($statisticsentries) === 1 ? $statisticsentries[0]['url'] : '',
+            'overlayhtml' => $overlayhtml,
+            'hasoverlay' => $overlayhtml !== '',
         ];
 
         $content = $OUTPUT->render_from_template('local_unifiedgrader/preview_bbb', $templatedata);

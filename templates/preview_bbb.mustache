@@ -75,6 +75,10 @@
         </div>
     </div>
 
+    {{#hasoverlay}}
+        {{{overlayhtml}}}
+    {{/hasoverlay}}
+    {{^hasoverlay}}
     <div class="ratio ratio-16x9 border rounded">
         <iframe data-region="bbb-recording-iframe"
                 class="w-100 h-100 border-0"
@@ -84,6 +88,7 @@
                 title="{{#str}} bbb_recording_iframe_title, local_unifiedgrader {{/str}}">
         </iframe>
     </div>
+    {{/hasoverlay}}
 {{/hasrecordings}}
 
 {{#hassummary}}
@@ -388,6 +393,12 @@
         }
         if (!target) {
             target = document.querySelector('[data-region="bbb-recording-iframe"]');
+        }
+        if (!target) {
+            // bbbext_advgrd overlay path - the iframe has been replaced by our own player.
+            // Fullscreen the player wrapper so both the <video> and any open feedback
+            // callout expand together.
+            target = document.querySelector('.advgrd-player-wrapper');
         }
         if (target && target.requestFullscreen) {
             target.requestFullscreen().catch(function() {

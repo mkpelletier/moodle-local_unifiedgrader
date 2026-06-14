@@ -66,7 +66,10 @@ $PAGE->set_url(new moodle_url('/local/unifiedgrader/preview_submission.php', [
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('embedded');
 
-echo $OUTPUT->header();
+// Buffer the body content so adapters / submission plugins can register head requirements
+// (Atto / TinyMCE editor head_setup, AMD modules, CSS) before $OUTPUT->header() is emitted.
+// Without this, bbbext_advgrd's overlay queues editor JS too late for it to land in <head>.
+ob_start();
 
 if ($cm->modname === 'assign') {
     // For assignments, render submission plugins directly in page context.
@@ -150,4 +153,8 @@ if ($cm->modname === 'assign') {
     }
 }
 
+$bodyhtml = ob_get_clean();
+
+echo $OUTPUT->header();
+echo $bodyhtml;
 echo $OUTPUT->footer();
