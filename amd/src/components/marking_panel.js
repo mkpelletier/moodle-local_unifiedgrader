@@ -2014,10 +2014,29 @@ export default class extends BaseComponent {
                 : total + ' pts (incomplete)';
         }
 
-        // Sync total into the simple grade input and update percentage.
+        // The rubric's raw maximum is the sum of each criterion's highest level
+        // score. Moodle scales that raw score onto the gradebook item's max
+        // (a rubric out of 4 on an activity out of 100 → 4/4 maps to 100), so we
+        // must scale here too. Without it a fully-selected rubric wrote its raw
+        // total (e.g. 4) straight into the /100 grade field, reading as 4%
+        // instead of 100%.
+        const maxTotal = (this._gradingDefinition?.criteria || []).reduce((sum, c) => {
+            const scores = (c.levels || []).map(l => parseFloat(l.score) || 0);
+            return sum + (scores.length ? Math.max(...scores) : 0);
+        }, 0);
+
+        // Sync the scaled total into the simple grade input and update the
+        // percentage — unless the teacher has manually overridden the grade, in
+        // which case the rubric becomes a reference total only. Mirrors the
+        // marking-guide path in _updateGuideTotal (including the override badge).
         const gradeInput = this.getElement(this.selectors.GRADE_INPUT);
         if (gradeInput) {
-            gradeInput.value = total;
+            const rubricGrade = this._computeRubricGrade(total, maxTotal, gradeInput);
+            this._lastRubricGrade = rubricGrade;
+            if (!this._gradeManuallyOverridden) {
+                gradeInput.value = String(rubricGrade);
+            }
+            this._updateOverrideIndicator(rubricGrade);
         }
         this._updatePercentage();
     }
