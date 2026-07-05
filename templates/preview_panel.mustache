@@ -14,6 +14,49 @@
 }}
 <div data-region="preview-content" class="h-100 d-flex flex-column">
 
+    {{! Translation controls (assign only; shown by the translation_panel JS
+        component when local_nida reports a translation is available). }}
+    <div data-region="translation-panel" class="d-none border-bottom bg-white px-3 py-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-primary"
+                    data-action="translation-toggle">
+                <i class="fa fa-language me-1" aria-hidden="true"></i>
+                <span data-region="translation-toggle-label"></span>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none"
+                    data-action="translation-parallel">
+                <span data-region="translation-parallel-label"></span>
+            </button>
+            {{! Submission-language designation (assign + local_nida). Populated by
+                the translation_panel JS; click the code to reveal an override
+                selector. Replaces the old marking-panel language-confirm card. }}
+            <span data-region="translation-lang" class="d-none ms-auto d-inline-flex align-items-center gap-1">
+                <button type="button" class="btn btn-sm btn-light border"
+                        data-action="translation-lang-toggle"
+                        title="{{#str}} student_language, local_unifiedgrader {{/str}}">
+                    <i class="fa fa-flag-o me-1" aria-hidden="true"></i>
+                    <span data-region="translation-lang-code" class="fw-semibold text-uppercase"></span>
+                    <i class="fa fa-caret-down ms-1 small" aria-hidden="true"></i>
+                </button>
+                <select data-region="translation-lang-select"
+                        class="form-select form-select-sm d-none"
+                        style="max-width: 150px;"
+                        aria-label="{{#str}} student_language, local_unifiedgrader {{/str}}"></select>
+            </span>
+        </div>
+    </div>
+
+    {{! Translation view (rendered by the translation_panel JS component) }}
+    <div data-region="translation-view" class="d-none flex-grow-1 overflow-auto" style="min-height: 0;">
+    </div>
+
+    {{! Segment-anchored comments (P2) mount point. The seg_comments JS component
+        needs a stable element to attach to, but renders no docked UI: it watches
+        the translation view, highlights commented phrases inline, and opens a
+        floating composer over the page at the grader's text selection (mirroring
+        the pixel annotation composer). It has no visible markup of its own. }}
+    <div data-region="seg-comments" class="d-none"></div>
+
     {{! No submission message }}
     <div data-region="no-submission" class="d-none flex-grow-1 d-flex align-items-center justify-content-center">
         <div class="text-center text-muted">

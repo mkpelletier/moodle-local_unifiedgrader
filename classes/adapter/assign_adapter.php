@@ -774,6 +774,9 @@ class assign_adapter extends base_adapter {
             }
         }
 
+        // Let local_nida (re)translate the just-saved feedback for the student.
+        $this->notify_nida_feedback_saved($userid, $attemptnumber);
+
         return true;
     }
 
@@ -906,6 +909,42 @@ class assign_adapter extends base_adapter {
 
         // Ensure gradebook reflects the actual grade if the latest attempt is ungraded.
         $this->ensure_gradebook_sync($userid, $attemptnumber);
+
+        // Let local_nida (re)translate the just-saved feedback for the student.
+        // This path bypasses core's submission_graded event, so the hook is
+        // required here for release-time feedback translation to fire.
+        $this->notify_nida_feedback_saved($userid, $attemptnumber);
+    }
+
+    /**
+     * Notify local_nida that feedback was saved so it can (re)translate it.
+     *
+     * Guarded by class_exists so Unified Grader works unchanged when local_nida
+     * is absent or too old, and wrapped so a translation-subsystem failure can
+     * never break grading (the grade is already persisted at the call sites).
+     *
+     * @param int $userid The student user ID.
+     * @param int $attemptnumber The graded attempt number (0-based).
+     */
+    private function notify_nida_feedback_saved(int $userid, int $attemptnumber): void {
+        global $USER;
+
+        if (!class_exists('\local_nida\local\assign\feedback_api')) {
+            return;
+        }
+        try {
+            \local_nida\local\assign\feedback_api::notify_feedback_saved(
+                (int) $this->cm->id,
+                $userid,
+                $attemptnumber,
+                (int) $USER->id,
+            );
+        } catch (\Throwable $e) {
+            debugging(
+                'local_nida feedback_api::notify_feedback_saved failed: ' . $e->getMessage(),
+                DEBUG_DEVELOPER,
+            );
+        }
     }
 
     /**
@@ -1152,6 +1191,94 @@ class assign_adapter extends base_adapter {
         }
 
         return true;
+    }
+
+    /**
+     * Whether grades are posted (visible to students).
+     *
+     * Under marking workflow the gradebook hidden flag alone does NOT make a
+     * grade or its feedback visible — core hides both until the per-user
+     * workflow state is 'released'. So for a marking-workflow assignment
+     * "posted" means every graded user has been released; the base grade-item
+     * check would otherwise report posted while students still see nothing.
+     *
+     * @return bool
+     */
+    public function are_grades_posted(): bool {
+        global $DB;
+
+        $instance = $this->assign->get_instance();
+        if (empty($instance->markingworkflow)) {
+            return parent::are_grades_posted();
+        }
+
+        $graded = $DB->count_records_select(
+            'assign_grades',
+            'assignment = ? AND grade IS NOT NULL AND grade >= 0',
+            [$instance->id],
+        );
+        if ($graded === 0) {
+            return false;
+        }
+        // Any graded user not yet released → not fully posted.
+        $notreleased = $DB->count_records_sql(
+            "SELECT COUNT(DISTINCT g.userid)
+               FROM {assign_grades} g
+          LEFT JOIN {assign_user_flags} uf
+                 ON uf.assignment = g.assignment AND uf.userid = g.userid
+              WHERE g.assignment = :aid
+                AND g.grade IS NOT NULL AND g.grade >= 0
+                AND (uf.workflowstate IS NULL OR uf.workflowstate <> :released)",
+            ['aid' => $instance->id, 'released' => ASSIGN_MARKING_WORKFLOW_STATE_RELEASED],
+        );
+        return $notreleased === 0;
+    }
+
+    /**
+     * Post or hide grades for students.
+     *
+     * For a marking-workflow assignment, posting/hiding maps to
+     * releasing/un-releasing the per-user workflow state (which is what actually
+     * gates student visibility of the grade AND feedback), firing
+     * workflow_state_updated for each affected user so downstream observers —
+     * e.g. Nida feedback translation — run. Without marking workflow, defers to
+     * the base grade-item hidden toggle.
+     *
+     * @param int $hidden 0 = post (release/visible); non-zero = hide.
+     */
+    public function set_grades_posted(int $hidden): void {
+        global $DB, $CFG;
+
+        $instance = $this->assign->get_instance();
+        if (empty($instance->markingworkflow)) {
+            parent::set_grades_posted($hidden);
+            return;
+        }
+
+        require_once($CFG->dirroot . '/mod/assign/locallib.php');
+        $newstate = ($hidden === 0)
+            ? ASSIGN_MARKING_WORKFLOW_STATE_RELEASED
+            : ASSIGN_MARKING_WORKFLOW_STATE_READYFORRELEASE;
+
+        $userids = $DB->get_fieldset_sql(
+            "SELECT DISTINCT userid
+               FROM {assign_grades}
+              WHERE assignment = ? AND grade IS NOT NULL AND grade >= 0",
+            [$instance->id],
+        );
+        foreach ($userids as $userid) {
+            $flags = $this->assign->get_user_flags($userid, true);
+            if ($flags->workflowstate === $newstate) {
+                continue;
+            }
+            $flags->workflowstate = $newstate;
+            $this->assign->update_user_flags($flags);
+            $user = \core_user::get_user($userid);
+            \mod_assign\event\workflow_state_updated::create_from_user($this->assign, $user, $newstate)->trigger();
+        }
+
+        // Also apply the gradebook hidden flag so gradebook visibility follows.
+        parent::set_grades_posted($hidden);
     }
 
     /**
@@ -1718,57 +1845,91 @@ class assign_adapter extends base_adapter {
             . format_text($text, FORMAT_HTML, ['context' => $this->context])
             . '</body></html>';
 
-        // Store the HTML as a temporary file for the converter.
-        $htmlfile = $fs->create_file_from_string([
-            'contextid' => $this->context->id,
-            'component' => 'local_unifiedgrader',
-            'filearea' => 'onlinetextpdf',
-            'itemid' => $itemid,
-            'filepath' => '/tmp/',
-            'filename' => 'onlinetext.html',
-        ], $html);
+        // Remove any temp HTML orphaned by a prior run (e.g. the converter is
+        // unavailable and threw before its cleanup) so the create below cannot
+        // collide on the unique (context, component, filearea, item, path, name).
+        $staletmp = $fs->get_file(
+            $this->context->id,
+            'local_unifiedgrader',
+            'onlinetextpdf',
+            $itemid,
+            '/tmp/',
+            'onlinetext.html',
+        );
+        if ($staletmp) {
+            $staletmp->delete();
+        }
 
-        // Attempt conversion via Moodle's converter API.
-        $converter = new \core_files\converter();
-        $conversion = $converter->start_conversion($htmlfile, 'pdf');
+        $htmlfile = null;
+        try {
+            // Store the HTML as a temporary file for the converter. This create
+            // is inside the try so a concurrent grader request that already
+            // created it (the grader SPA can fire get_submission_data twice at
+            // once) surfaces as a caught duplicate → graceful iframe fallback,
+            // not a fatal for the second request.
+            $htmlfile = $fs->create_file_from_string([
+                'contextid' => $this->context->id,
+                'component' => 'local_unifiedgrader',
+                'filearea' => 'onlinetextpdf',
+                'itemid' => $itemid,
+                'filepath' => '/tmp/',
+                'filename' => 'onlinetext.html',
+            ], $html);
 
-        // Poll briefly for synchronous converters.
-        $maxpolls = 5;
-        for ($i = 0; $i < $maxpolls; $i++) {
-            $status = $conversion->get('status');
-            if (
-                $status === \core_files\conversion::STATUS_COMPLETE
-                || $status === \core_files\conversion::STATUS_FAILED
-            ) {
-                break;
+            // Attempt conversion via Moodle's converter API.
+            $converter = new \core_files\converter();
+            $conversion = $converter->start_conversion($htmlfile, 'pdf');
+
+            // Poll briefly for synchronous converters.
+            $maxpolls = 5;
+            for ($i = 0; $i < $maxpolls; $i++) {
+                $status = $conversion->get('status');
+                if (
+                    $status === \core_files\conversion::STATUS_COMPLETE
+                    || $status === \core_files\conversion::STATUS_FAILED
+                ) {
+                    break;
+                }
+                sleep(1);
+                $converter->poll_conversion($conversion);
             }
-            sleep(1);
-            $converter->poll_conversion($conversion);
-        }
 
-        // Clean up the temp HTML file.
-        $htmlfile->delete();
+            if ($conversion->get('status') !== \core_files\conversion::STATUS_COMPLETE) {
+                return null;
+            }
 
-        if ($conversion->get('status') !== \core_files\conversion::STATUS_COMPLETE) {
+            $convertedfile = $conversion->get_destfile();
+            if (!$convertedfile) {
+                return null;
+            }
+
+            // Copy the converted PDF to our file area for caching.
+            $pdffile = $fs->create_file_from_storedfile([
+                'contextid' => $this->context->id,
+                'component' => 'local_unifiedgrader',
+                'filearea' => 'onlinetextpdf',
+                'itemid' => $itemid,
+                'filepath' => '/',
+                'filename' => 'onlinetext.pdf',
+            ], $convertedfile);
+
+            return $this->build_onlinetext_pdf_entry($pdffile);
+        } catch (\Throwable $e) {
+            // No converter configured (common in dev) or a conversion error:
+            // fall back to the iframe preview rather than break the grader.
+            debugging(
+                'local_unifiedgrader: online-text PDF conversion failed: ' . $e->getMessage(),
+                DEBUG_DEVELOPER,
+            );
             return null;
+        } finally {
+            // Always remove the temp HTML, even if conversion threw, so it can
+            // never orphan and collide on the next open. Guard for the case where
+            // the create itself raced and $htmlfile was never assigned.
+            if ($htmlfile) {
+                $htmlfile->delete();
+            }
         }
-
-        $convertedfile = $conversion->get_destfile();
-        if (!$convertedfile) {
-            return null;
-        }
-
-        // Copy the converted PDF to our file area for caching.
-        $pdffile = $fs->create_file_from_storedfile([
-            'contextid' => $this->context->id,
-            'component' => 'local_unifiedgrader',
-            'filearea' => 'onlinetextpdf',
-            'itemid' => $itemid,
-            'filepath' => '/',
-            'filename' => 'onlinetext.pdf',
-        ], $convertedfile);
-
-        return $this->build_onlinetext_pdf_entry($pdffile);
     }
 
     /**

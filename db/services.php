@@ -289,4 +289,34 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_get_submission_translation' => [
+        'classname' => 'local_unifiedgrader\external\get_submission_translation',
+        'description' => 'Get the English translation of a submission for a grader (via local_nida).',
+        'type' => 'read',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_confirm_student_language' => [
+        'classname' => 'local_unifiedgrader\external\confirm_student_language',
+        'description' => 'Confirm the detected language of a student submission (via local_nida).',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_save_segment_comment' => [
+        'classname' => 'local_unifiedgrader\external\save_segment_comment',
+        'description' => 'Save a segment-anchored comment on a submission phrase (via local_nida anchor).',
+        'type' => 'write',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_get_segment_comments' => [
+        'classname' => 'local_unifiedgrader\external\get_segment_comments',
+        'description' => 'Get the segment-anchored comments for a student attempt.',
+        'type' => 'read',
+        'ajax' => true,
+    ],
+    'local_unifiedgrader_delete_segment_comment' => [
+        'classname' => 'local_unifiedgrader\external\delete_segment_comment',
+        'description' => 'Delete a segment-anchored comment (author-scoped).',
+        'type' => 'write',
+        'ajax' => true,
+    ],
 ];

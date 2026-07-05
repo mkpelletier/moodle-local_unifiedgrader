@@ -1078,3 +1078,58 @@
     text-align: left;
 }
 
+/* Submission translation (local_nida grader integration). */
+.local-unifiedgrader-translation-body {
+    line-height: 1.6;
+    word-break: break-word;
+}
+
+.local-unifiedgrader-translation-body [data-nida-seg] {
+    cursor: pointer;
+}
+
+.local-unifiedgrader-seg-active {
+    background-color: rgba(255, 214, 0, 0.4);
+    border-radius: 2px;
+}
+
+/* Segment-anchored comments (P2): mark phrases that carry a grader comment.
+   Rendered inline on the translated text; clickable to re-open the comment. */
+.local-unifiedgrader-seg-commented {
+    background-color: rgba(15, 108, 191, 0.1);
+    border-bottom: 2px solid #0f6cbf;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.local-unifiedgrader-seg-commented:hover,
+.local-unifiedgrader-seg-commented:focus {
+    background-color: rgba(15, 108, 191, 0.2);
+    outline: none;
+}
+
+.local-unifiedgrader-segcomment-body {
+    word-break: break-word;
+}
+
+/* Floating "comment over the page" composer for segment comments. Mirrors the
+   pixel annotation composer (.annotation-comment-picker) but is fixed-positioned
+   so it escapes the scrolling preview's overflow; placed at the grader's text
+   selection and clamped to the viewport by the seg_comments component. */
+.local-unifiedgrader-segcomment-pop {
+    position: fixed;
+    z-index: 1080;
+    width: 320px;
+    max-width: calc(100vw - 16px);
+    background: #fff;
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.2);
+}
+
+.local-unifiedgrader-segcomment-pop textarea {
+    resize: vertical;
+    min-height: 60px;
+    font-size: 0.8125rem;
+}
+

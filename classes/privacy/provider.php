@@ -108,6 +108,14 @@ class provider implements
             'content' => 'privacy:metadata:scomm:content',
         ], 'privacy:metadata:scomm');
 
+        $collection->add_database_table('local_unifiedgrader_segcomment', [
+            'cmid' => 'privacy:metadata:segcomment:cmid',
+            'userid' => 'privacy:metadata:segcomment:userid',
+            'authorid' => 'privacy:metadata:segcomment:authorid',
+            'anchortext' => 'privacy:metadata:segcomment:anchortext',
+            'commenttext' => 'privacy:metadata:segcomment:commenttext',
+        ], 'privacy:metadata:segcomment');
+
         return $collection;
     }
 
@@ -191,6 +199,19 @@ class provider implements
                   JOIN {course_modules} cm ON cm.id = sc.cmid
                   JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :contextlevel
                  WHERE sc.userid = :userid1 OR sc.authorid = :userid2";
+
+        $contextlist->add_from_sql($sql, [
+            'contextlevel' => CONTEXT_MODULE,
+            'userid1' => $userid,
+            'userid2' => $userid,
+        ]);
+
+        // Segment-anchored comments where user is the subject or the author.
+        $sql = "SELECT DISTINCT ctx.id
+                  FROM {local_unifiedgrader_segcomment} sg
+                  JOIN {course_modules} cm ON cm.id = sg.cmid
+                  JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :contextlevel
+                 WHERE sg.userid = :userid1 OR sg.authorid = :userid2";
 
         $contextlist->add_from_sql($sql, [
             'contextlevel' => CONTEXT_MODULE,
@@ -287,6 +308,19 @@ class provider implements
         $sql = "SELECT DISTINCT sc.authorid
                   FROM {local_unifiedgrader_scomm} sc
                   JOIN {course_modules} cm ON cm.id = sc.cmid
+                 WHERE cm.id = :cmid";
+        $userlist->add_from_sql('authorid', $sql, ['cmid' => $context->instanceid]);
+
+        // Segment-anchored comments: subjects and authors.
+        $sql = "SELECT DISTINCT sg.userid
+                  FROM {local_unifiedgrader_segcomment} sg
+                  JOIN {course_modules} cm ON cm.id = sg.cmid
+                 WHERE cm.id = :cmid";
+        $userlist->add_from_sql('userid', $sql, ['cmid' => $context->instanceid]);
+
+        $sql = "SELECT DISTINCT sg.authorid
+                  FROM {local_unifiedgrader_segcomment} sg
+                  JOIN {course_modules} cm ON cm.id = sg.cmid
                  WHERE cm.id = :cmid";
         $userlist->add_from_sql('authorid', $sql, ['cmid' => $context->instanceid]);
     }
@@ -480,6 +514,50 @@ class provider implements
                     (object) ['authored_submission_comments' => array_values($exportdata)],
                 );
             }
+
+            // Export segment-anchored comments about this user.
+            $segcomments = $DB->get_records('local_unifiedgrader_segcomment', [
+                'cmid' => $cm->id,
+                'userid' => $userid,
+            ]);
+
+            if ($segcomments) {
+                $exportdata = array_map(function ($sg) {
+                    return [
+                        'anchortext' => $sg->anchortext,
+                        'commenttext' => $sg->commenttext,
+                        'authorid' => (int) $sg->authorid,
+                        'timecreated' => \core_privacy\local\request\transform::datetime($sg->timecreated),
+                    ];
+                }, $segcomments);
+
+                writer::with_context($context)->export_data(
+                    [get_string('privacy_segment_comments', 'local_unifiedgrader')],
+                    (object) ['segment_comments' => array_values($exportdata)],
+                );
+            }
+
+            // Export segment-anchored comments authored by this user.
+            $authoredseg = $DB->get_records('local_unifiedgrader_segcomment', [
+                'cmid' => $cm->id,
+                'authorid' => $userid,
+            ]);
+
+            if ($authoredseg) {
+                $exportdata = array_map(function ($sg) {
+                    return [
+                        'anchortext' => $sg->anchortext,
+                        'commenttext' => $sg->commenttext,
+                        'userid' => (int) $sg->userid,
+                        'timecreated' => \core_privacy\local\request\transform::datetime($sg->timecreated),
+                    ];
+                }, $authoredseg);
+
+                writer::with_context($context)->export_data(
+                    [get_string('privacy_segment_comments', 'local_unifiedgrader'), 'authored'],
+                    (object) ['authored_segment_comments' => array_values($exportdata)],
+                );
+            }
         }
 
         // Export comment library (user-level, not context-specific).
@@ -560,6 +638,7 @@ class provider implements
         $DB->delete_records('local_unifiedgrader_fext', ['cmid' => $context->instanceid]);
         $DB->delete_records('local_unifiedgrader_qfb', ['cmid' => $context->instanceid]);
         $DB->delete_records('local_unifiedgrader_scomm', ['cmid' => $context->instanceid]);
+        $DB->delete_records('local_unifiedgrader_segcomment', ['cmid' => $context->instanceid]);
     }
 
     /**
@@ -614,6 +693,14 @@ class provider implements
                 'userid' => $userid,
             ]);
             $DB->delete_records('local_unifiedgrader_scomm', [
+                'cmid' => $context->instanceid,
+                'authorid' => $userid,
+            ]);
+            $DB->delete_records('local_unifiedgrader_segcomment', [
+                'cmid' => $context->instanceid,
+                'userid' => $userid,
+            ]);
+            $DB->delete_records('local_unifiedgrader_segcomment', [
                 'cmid' => $context->instanceid,
                 'authorid' => $userid,
             ]);
@@ -696,6 +783,14 @@ class provider implements
             'local_unifiedgrader_scomm',
             "cmid = :cmid6 AND (userid {$insql9} OR authorid {$insql10})",
             array_merge(['cmid6' => $context->instanceid], $inparams9, $inparams10),
+        );
+
+        [$insql11, $inparams11] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid11');
+        [$insql12, $inparams12] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid12');
+        $DB->delete_records_select(
+            'local_unifiedgrader_segcomment',
+            "cmid = :cmid7 AND (userid {$insql11} OR authorid {$insql12})",
+            array_merge(['cmid7' => $context->instanceid], $inparams11, $inparams12),
         );
 
         // Delete user-level data.

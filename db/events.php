@@ -41,4 +41,12 @@ $observers = [
         'eventname' => '\mod_assign\event\submission_updated',
         'callback' => '\local_unifiedgrader\observer::handle_submission_updated',
     ],
+    [
+        'eventname' => '\mod_assign\event\submission_removed',
+        'callback' => '\local_unifiedgrader\observer::handle_submission_removed',
+    ],
+    [
+        'eventname' => '\core\event\course_module_deleted',
+        'callback' => '\local_unifiedgrader\observer::handle_course_module_deleted',
+    ],
 ];

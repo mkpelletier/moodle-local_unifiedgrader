@@ -71,4 +71,46 @@ class observer {
     public static function handle_submission_updated(\mod_assign\event\submission_updated $event): void {
         // Future: invalidate cached submission data for this activity.
     }
+
+    /**
+     * Handle assignment submission removed event.
+     *
+     * Prunes the segment-anchored comments tied to the removed submission so a
+     * retracted submission leaves no orphaned grader comments. A single batched
+     * delete keyed by the submission id (no per-row queries).
+     *
+     * @param \mod_assign\event\submission_removed $event
+     */
+    public static function handle_submission_removed(\mod_assign\event\submission_removed $event): void {
+        global $DB;
+
+        $submissionid = (int) $event->objectid;
+        if ($submissionid <= 0) {
+            return;
+        }
+        $DB->delete_records('local_unifiedgrader_segcomment', ['submissionid' => $submissionid]);
+    }
+
+    /**
+     * Handle course module deleted event.
+     *
+     * When an assignment module is deleted, prune its segment-anchored comments
+     * (keyed by the course-module id) so they cannot linger. A single batched
+     * delete (no per-row queries). Gated to assign modules; segcomment rows only
+     * ever carry assign course-module ids.
+     *
+     * @param \core\event\course_module_deleted $event
+     */
+    public static function handle_course_module_deleted(\core\event\course_module_deleted $event): void {
+        global $DB;
+
+        if (($event->other['modulename'] ?? '') !== 'assign') {
+            return;
+        }
+        $cmid = (int) $event->objectid;
+        if ($cmid <= 0) {
+            return;
+        }
+        $DB->delete_records('local_unifiedgrader_segcomment', ['cmid' => $cmid]);
+    }
 }

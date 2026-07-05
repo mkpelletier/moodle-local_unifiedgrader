@@ -252,4 +252,261 @@ class feedback_data_helper {
             'gradingmethodname' => $gradingmethodname,
         ];
     }
+
+    /**
+     * Build the student-facing translated annotation-comment list.
+     *
+     * Collects grader annotation comment texts (UG Fabric.js annotations and
+     * assignfeedback_editpdf comments), looks up each in the local_nida store in
+     * the viewer's language, and returns a page-keyed list of pre-rendered display
+     * HTML. Store lookups are batched into a single query (no per-comment query).
+     *
+     * Returns an empty structure (hasannotations=false) when local_nida is absent,
+     * the viewer reads English, or there are no annotation comments.
+     *
+     * @param int $cmid Course module ID.
+     * @param int $userid Student user ID.
+     * @param \context $context Module context (for format_text media/pluginfile rewrites).
+     * @param int|null $gradeid The assign grade row ID (for editpdf comments), or null.
+     * @param string $lang The viewer's language code.
+     * @return array {hasannotations: bool, pages: array}
+     */
+    public static function build_annotation_translations(
+        int $cmid,
+        int $userid,
+        \context $context,
+        ?int $gradeid,
+        string $lang,
+    ): array {
+        global $DB;
+
+        $empty = ['hasannotations' => false, 'pages' => []];
+
+        // English viewers see the original; nothing to translate.
+        if ($lang === '' || strpos($lang, 'en') === 0) {
+            return $empty;
+        }
+        // Degrade gracefully when local_nida is not installed.
+        if (!class_exists('\local_nida\local\store') || !class_exists('\local_nida\local\hasher')) {
+            return $empty;
+        }
+
+        // Normalise all annotation comment sources into ['pagenum', 'text'] rows.
+        $rows = [];
+
+        // UG Fabric.js annotations — one DB row per page, many comments per row.
+        $annotrows = $DB->get_records(
+            'local_unifiedgrader_annot',
+            ['cmid' => $cmid, 'userid' => $userid],
+            'pagenum ASC',
+        );
+        foreach ($annotrows as $annot) {
+            $texts = annotation_comment_list_builder::extract_page_texts((string) $annot->annotationdata);
+            foreach ($texts as $text) {
+                $rows[] = ['pagenum' => (int) $annot->pagenum, 'text' => $text];
+            }
+        }
+
+        // Editpdf comments (assignfeedback_editpdf) for this grade (plain rawtext).
+        if ($gradeid && $DB->get_manager()->table_exists('assignfeedback_editpdf_cmnt')) {
+            $cmnts = $DB->get_records(
+                'assignfeedback_editpdf_cmnt',
+                ['gradeid' => $gradeid],
+                'pageno ASC',
+            );
+            foreach ($cmnts as $cmnt) {
+                if (trim((string) $cmnt->rawtext) !== '') {
+                    // Editpdf pages are 0-based; present them 1-based to students.
+                    $rows[] = ['pagenum' => (int) $cmnt->pageno + 1, 'text' => (string) $cmnt->rawtext];
+                }
+            }
+        }
+
+        if (empty($rows)) {
+            return $empty;
+        }
+
+        // Batch: hash every source text once and resolve all translations in a
+        // single store query, then pick the best per hash for this language.
+        $hashes = [];
+        foreach ($rows as $row) {
+            $hashes[] = \local_nida\local\hasher::hash($row['text']);
+        }
+        $map = self::resolve_translation_map(array_values(array_unique($hashes)), $lang);
+
+        $resolver = function (string $text) use ($map): ?string {
+            return $map[\local_nida\local\hasher::hash($text)] ?? null;
+        };
+
+        $list = annotation_comment_list_builder::build($rows, $resolver);
+        if (empty($list)) {
+            return $empty;
+        }
+
+        // Pre-render each comment for safe display: translated text (delivered as
+        // HTML by local_nida) via format_text(FORMAT_HTML); the plain original
+        // fallback via s().
+        $pages = [];
+        foreach ($list as $page) {
+            $comments = [];
+            foreach ($page['comments'] as $comment) {
+                if ($comment['hastranslation']) {
+                    $displayhtml = format_text(
+                        $comment['translated'],
+                        FORMAT_HTML,
+                        ['context' => $context, 'para' => false],
+                    );
+                } else {
+                    $displayhtml = s($comment['original']);
+                }
+                $comments[] = [
+                    'displayhtml' => $displayhtml,
+                    'hastranslation' => $comment['hastranslation'],
+                ];
+            }
+            $pages[] = [
+                'page' => $page['page'],
+                'comments' => $comments,
+            ];
+        }
+
+        return ['hasannotations' => true, 'pages' => $pages];
+    }
+
+    /**
+     * Build the student-facing translated segment-comment list (Phase 2).
+     *
+     * Collects the grader's phrase-anchored comments (local_unifiedgrader_segcomment)
+     * for one graded attempt, resolves each comment's translated text from the
+     * local_nida store in the viewer's language, and returns a flat list pairing the
+     * anchored source phrase (quoted from the student's own original submission text)
+     * with the translated comment (the English original is the fallback). The store
+     * lookup is batched into a single query (no per-comment query).
+     *
+     * Returns an empty structure (hassegmentcomments=false) when local_nida is
+     * absent, the segcomment table does not exist, the viewer reads English, or
+     * there are no segment comments for this attempt.
+     *
+     * @param int $cmid Course module ID.
+     * @param int $userid Student user ID.
+     * @param \context $context Module context (for format_text media/pluginfile rewrites).
+     * @param int $attempt The attempt number being viewed.
+     * @param string $lang The viewer's language code.
+     * @return array {hassegmentcomments: bool, comments: array}
+     */
+    public static function build_segment_comment_translations(
+        int $cmid,
+        int $userid,
+        \context $context,
+        int $attempt,
+        string $lang,
+    ): array {
+        global $DB;
+
+        $empty = ['hassegmentcomments' => false, 'comments' => []];
+
+        // English viewers see the original; nothing to translate.
+        if ($lang === '' || strpos($lang, 'en') === 0) {
+            return $empty;
+        }
+        // Degrade gracefully when local_nida is not installed.
+        if (!class_exists('\local_nida\local\store') || !class_exists('\local_nida\local\hasher')) {
+            return $empty;
+        }
+        // The segcomment table is created by an earlier Phase-2 work package; guard so
+        // the feedback page is unchanged when the table (or its data) is absent.
+        if (!$DB->get_manager()->table_exists('local_unifiedgrader_segcomment')) {
+            return $empty;
+        }
+
+        $rows = $DB->get_records(
+            'local_unifiedgrader_segcomment',
+            ['cmid' => $cmid, 'userid' => $userid, 'attemptnumber' => $attempt],
+            'timecreated ASC, id ASC',
+        );
+        if (empty($rows)) {
+            return $empty;
+        }
+
+        // Batch: hash every comment text once and resolve all translations in a
+        // single store query, then pick the best per hash for this language.
+        $hashes = [];
+        foreach ($rows as $row) {
+            $hashes[] = \local_nida\local\hasher::hash((string) $row->commenttext);
+        }
+        $map = self::resolve_translation_map(array_values(array_unique($hashes)), $lang);
+
+        $comments = [];
+        foreach ($rows as $row) {
+            $commenttext = (string) $row->commenttext;
+            $translated = $map[\local_nida\local\hasher::hash($commenttext)] ?? null;
+            $hastranslation = $translated !== null;
+            if ($hastranslation) {
+                // Translated comment text is delivered as HTML by local_nida.
+                $displayhtml = format_text(
+                    $translated,
+                    FORMAT_HTML,
+                    ['context' => $context, 'para' => false],
+                );
+            } else {
+                // English-original fallback: render the grader's comment in its own format.
+                $displayhtml = format_text(
+                    $commenttext,
+                    (int) $row->commentformat,
+                    ['context' => $context, 'para' => false],
+                );
+            }
+            $comments[] = [
+                // Anchor phrase is plain source text — escape it for safe display.
+                'anchortext' => s((string) $row->anchortext),
+                'displayhtml' => $displayhtml,
+                'hastranslation' => $hastranslation,
+            ];
+        }
+
+        return ['hassegmentcomments' => true, 'comments' => $comments];
+    }
+
+    /**
+     * Resolve a set of source hashes to their best published translation text.
+     *
+     * Uses the store's batched lookup (single query) then filters to the target
+     * language and picks the highest-ranked status per hash — overridden, then
+     * reviewed, then machine, most-recently-modified winning ties. Mirrors the
+     * ordering of store::find_published_translation() without a query per hash.
+     *
+     * @param string[] $hashes Distinct source hashes.
+     * @param string $lang Target language code.
+     * @return array<string, string> Map of sourcehash => translated text.
+     */
+    private static function resolve_translation_map(array $hashes, string $lang): array {
+        if (empty($hashes)) {
+            return [];
+        }
+        $rows = (new \local_nida\local\store())->published_for_hashes($hashes);
+
+        $rank = [
+            \local_nida\local\store::STATUS_OVERRIDDEN => 0,
+            \local_nida\local\store::STATUS_REVIEWED => 1,
+        ];
+        $best = [];
+        $bestrank = [];
+        foreach ($rows as $row) {
+            if ((string) $row->targetlang !== $lang) {
+                continue;
+            }
+            $hash = (string) $row->sourcehash;
+            $currentrank = $rank[$row->status] ?? 2;
+            if (
+                !isset($best[$hash])
+                || $currentrank < $bestrank[$hash]['rank']
+                || ($currentrank === $bestrank[$hash]['rank']
+                    && (int) $row->timemodified > $bestrank[$hash]['time'])
+            ) {
+                $best[$hash] = (string) $row->translatedtext;
+                $bestrank[$hash] = ['rank' => $currentrank, 'time' => (int) $row->timemodified];
+            }
+        }
+        return $best;
+    }
 }

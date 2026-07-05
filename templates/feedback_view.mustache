@@ -246,6 +246,14 @@
         {{! Right: Feedback + submission comments panel }}
         {{#showrightcolumn}}
             <div class="col-lg-3">
+                {{! Translation-pending indicator (local_nida) }}
+                {{#translationpending}}
+                    <div class="alert alert-info py-2 px-3 mb-3 small" role="status"
+                         data-region="translation-pending">
+                        <i class="fa fa-language me-1" aria-hidden="true"></i>{{translationpendingtext}}
+                    </div>
+                {{/translationpending}}
+
                 {{#hasfeedback}}
                     <div class="card">
                         <div class="card-header py-2">
@@ -259,6 +267,61 @@
                         </div>
                     </div>
                 {{/hasfeedback}}
+
+                {{! Translated annotation comments keyed by document page (local_nida) }}
+                {{#hasannotationtranslations}}
+                    <div class="card {{#hasfeedback}}mt-3{{/hasfeedback}}" data-region="annotation-comments">
+                        <div class="card-header py-2">
+                            <h6 class="mb-0">
+                                <i class="fa fa-comments-o me-1" aria-hidden="true"></i>
+                                {{#str}} comments_on_document, local_unifiedgrader {{/str}}
+                            </h6>
+                        </div>
+                        <div class="card-body p-0">
+                            {{#annotationpages}}
+                                <div class="border-bottom p-3">
+                                    <div class="fw-bold small text-muted mb-2">
+                                        {{#str}} document_page, local_unifiedgrader, {{page}} {{/str}}
+                                    </div>
+                                    {{#comments}}
+                                        <div class="mb-2 p-2 rounded small"
+                                             style="background-color: rgba(13, 202, 240, 0.08);
+                                                    border: 1px solid rgba(13, 202, 240, 0.25);">
+                                            <div>{{{displayhtml}}}</div>
+                                        </div>
+                                    {{/comments}}
+                                </div>
+                            {{/annotationpages}}
+                        </div>
+                    </div>
+                {{/hasannotationtranslations}}
+
+                {{! Translated segment-anchored comments on the student's submission (local_nida) }}
+                {{#hassegmentcomments}}
+                    <div class="card {{#hasfeedback}}mt-3{{/hasfeedback}}{{^hasfeedback}}{{#hasannotationtranslations}}mt-3{{/hasannotationtranslations}}{{/hasfeedback}}"
+                         data-region="segment-comments">
+                        <div class="card-header py-2">
+                            <h6 class="mb-0">
+                                <i class="fa fa-comments-o me-1" aria-hidden="true"></i>
+                                {{#str}} comments_on_submission, local_unifiedgrader {{/str}}
+                            </h6>
+                        </div>
+                        <div class="card-body p-0">
+                            {{#segmentcomments}}
+                                <div class="border-bottom p-3">
+                                    <blockquote class="small text-muted fst-italic mb-2 ps-2 border-start border-2">
+                                        &ldquo;{{{anchortext}}}&rdquo;
+                                    </blockquote>
+                                    <div class="mb-0 p-2 rounded small"
+                                         style="background-color: rgba(13, 202, 240, 0.08);
+                                                border: 1px solid rgba(13, 202, 240, 0.25);">
+                                        <div>{{{displayhtml}}}</div>
+                                    </div>
+                                </div>
+                            {{/segmentcomments}}
+                        </div>
+                    </div>
+                {{/hassegmentcomments}}
 
                 {{! Rubric display (read-only) }}
                 {{#hasrubric}}
@@ -283,7 +346,7 @@
                              style="max-height: calc(100vh - 300px); overflow-y: auto;">
                             {{#rubriccriteria}}
                                 <div class="border-bottom p-3">
-                                    <div class="fw-bold small mb-2">{{description}}</div>
+                                    <div class="fw-bold small mb-2">{{{description}}}</div>
                                     <div class="d-flex flex-wrap gap-1">
                                         {{#levels}}
                                             <div class="p-2 border rounded small flex-fill
@@ -293,7 +356,7 @@
                                                 <div class="fw-bold {{#selected}}text-primary{{/selected}}">
                                                     {{score}} pts
                                                 </div>
-                                                <div style="font-size: 0.75rem;">{{definition}}</div>
+                                                <div style="font-size: 0.75rem;">{{{definition}}}</div>
                                             </div>
                                         {{/levels}}
                                     </div>

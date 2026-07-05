@@ -548,7 +548,61 @@ $hascommentsfeature = true;
 $commentcount = \local_unifiedgrader\submission_comment_manager::count_comments($cmid, $userid);
 $canpostcomments = has_capability('local/unifiedgrader:viewfeedback', $context);
 
-$showrightcolumn = !empty($feedback) || $gradinginfo['hasadvancedgrading'];
+// Translated annotation-comment list (local_nida). Overall feedback, rubric and
+// guide remarks flow through format_text above and are swapped by the nida filter
+// automatically; PDF annotation text bypasses format_text, so it is delivered
+// here as a page-keyed translated list. Skipped for English viewers / no nida.
+$viewerlang = current_language();
+$annotationtranslations = feedback_data_helper::build_annotation_translations(
+    $cmid,
+    $userid,
+    $context,
+    $grade ? (int) $grade->id : null,
+    $viewerlang,
+);
+
+// Translated segment-anchored comment list (local_nida, Phase 2). Grader
+// phrase-comments on the student's own submission text, each translated into the
+// viewer's language and resolved from the nida store by hash. Released-gated by
+// the page; skipped for English viewers / no nida / when segcomments are absent.
+$segmentcomments = feedback_data_helper::build_segment_comment_translations(
+    $cmid,
+    $userid,
+    $context,
+    $selectedattempt,
+    $viewerlang,
+);
+
+// Translation-pending indicator: local_nida reports whether every feedback
+// channel for this viewer has finished translating. Guarded so UG is unaffected
+// when local_nida is absent or too old.
+$translationpending = false;
+$translationpendingtext = '';
+if (class_exists('\local_nida\local\assign\feedback_api')) {
+    try {
+        $feedbackstatus = \local_nida\local\assign\feedback_api::get_feedback_status(
+            $cmid,
+            $userid,
+            $selectedattempt,
+            $USER->id,
+        );
+        if ($feedbackstatus === 'pending' || $feedbackstatus === 'partial') {
+            $translationpending = true;
+            $translationpendingtext = get_string_manager()->string_exists('translationpending', 'local_nida')
+                ? get_string('translationpending', 'local_nida')
+                : get_string('translationpending', 'local_unifiedgrader');
+        }
+    } catch (\Throwable $e) {
+        debugging(
+            'local_nida feedback_api::get_feedback_status failed: ' . $e->getMessage(),
+            DEBUG_DEVELOPER,
+        );
+    }
+}
+
+$showrightcolumn = !empty($feedback) || $gradinginfo['hasadvancedgrading']
+    || $annotationtranslations['hasannotations'] || $segmentcomments['hassegmentcomments']
+    || $translationpending;
 
 // Build feedback PDF download URL (include attempt number if set).
 $downloadparams = [
@@ -621,6 +675,12 @@ $templatedata = [
     'penalties' => $penaltyinfo['penalties'],
     'hasmultipleattempts' => $hasmultipleattempts,
     'attempts' => $attemptlist,
+    'hasannotationtranslations' => $annotationtranslations['hasannotations'],
+    'annotationpages' => $annotationtranslations['pages'],
+    'hassegmentcomments' => $segmentcomments['hassegmentcomments'],
+    'segmentcomments' => $segmentcomments['comments'],
+    'translationpending' => $translationpending,
+    'translationpendingtext' => $translationpendingtext,
 ];
 
 // Output.

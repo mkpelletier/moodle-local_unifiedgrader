@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/unifiedgrader/db" VERSION="2026052900" COMMENT="XMLDB file for local_unifiedgrader"
+<XMLDB PATH="local/unifiedgrader/db" VERSION="2026070405" COMMENT="XMLDB file for local_unifiedgrader"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -266,6 +266,34 @@
       <INDEXES>
         <INDEX NAME="ix_cmid_userid" UNIQUE="false" FIELDS="cmid, userid"/>
         <INDEX NAME="ix_authorid" UNIQUE="false" FIELDS="authorid"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_unifiedgrader_segcomment" COMMENT="Segment-anchored grader comments on a translated submission (Phase 2). Anchored to the source field plaintext so they survive re-translation.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The assign course-module id (plain int, no FK to course_modules)"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Student whose submission is commented"/>
+        <FIELD NAME="authorid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Grader who wrote the comment"/>
+        <FIELD NAME="submissionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="FK to assign_submission.id"/>
+        <FIELD NAME="attemptnumber" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Assign attempt number"/>
+        <FIELD NAME="sourcetype" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="onlinetext or file"/>
+        <FIELD NAME="fileid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="files.id for file sources, 0 for onlinetext"/>
+        <FIELD NAME="segmentid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="local_nida_segment.id of the source field (scoping/reference)"/>
+        <FIELD NAME="startoffset" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Char offset (start) of the anchored phrase in the source field plaintext"/>
+        <FIELD NAME="endoffset" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Char offset (end) of the anchored phrase in the source field plaintext"/>
+        <FIELD NAME="anchortext" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="The anchored source phrase plaintext"/>
+        <FIELD NAME="commenttext" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="The grader comment HTML"/>
+        <FIELD NAME="commentformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Text format constant"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="authorid" TYPE="foreign" FIELDS="authorid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="ix_cmid_userid_attempt" UNIQUE="false" FIELDS="cmid, userid, attemptnumber"/>
       </INDEXES>
     </TABLE>
   </TABLES>

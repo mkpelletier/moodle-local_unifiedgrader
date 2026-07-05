@@ -511,8 +511,15 @@ $string['privacy:metadata:scomm:cmid'] = 'The course module the comment belongs 
 $string['privacy:metadata:scomm:userid'] = 'The student the comment thread is about.';
 $string['privacy:metadata:scomm:authorid'] = 'The user who wrote the comment.';
 $string['privacy:metadata:scomm:content'] = 'The comment content.';
+$string['privacy:metadata:segcomment'] = 'Segment-anchored grader comments stored by the Unified Grader.';
+$string['privacy:metadata:segcomment:anchortext'] = 'The anchored source phrase the comment refers to.';
+$string['privacy:metadata:segcomment:authorid'] = 'The grader who wrote the comment.';
+$string['privacy:metadata:segcomment:cmid'] = 'The course module the comment belongs to.';
+$string['privacy:metadata:segcomment:commenttext'] = 'The grader comment content.';
+$string['privacy:metadata:segcomment:userid'] = 'The student whose submission the comment is anchored to.';
 $string['privacy_forum_extensions'] = 'Forum extensions';
 $string['privacy_quiz_feedback'] = 'Quiz feedback';
+$string['privacy_segment_comments'] = 'Segment-anchored comments';
 
 // Notification strings.
 $string['messageprovider:submission_comment'] = 'Submission comment notifications';
@@ -577,3 +584,42 @@ $string['course'] = 'Course';
 $string['maxgrade_prefix'] = 'Max: ';
 $string['search_no_results'] = '0 results';
 $string['search_x_of_y'] = '{$a->current} of {$a->total}';
+
+// Submission translation (local_nida integration).
+// These are fallbacks used only when the matching local_nida string is absent.
+$string['view_translation'] = 'View translation';
+$string['view_original'] = 'View original';
+$string['view_parallel'] = 'Side-by-side';
+$string['translation_advisory'] = 'Machine translation — advisory only. Do not grade solely from this view.';
+$string['translation_mixed'] = 'Mixed languages detected — the translation may be partly unreliable.';
+$string['translation_pending'] = 'Translation pending.';
+$string['translation_notext'] = 'This file contains no extractable text and cannot be translated.';
+$string['translation_failed'] = 'This file could not be translated.';
+$string['translation_unsupported'] = 'This file type is not supported for translation.';
+$string['translation_truncated'] = 'This document was long; only the first part was translated.';
+$string['translationpending'] = 'Translation pending.';
+$string['comments_on_document'] = 'Comments on your document';
+$string['document_page'] = 'Page {$a}';
+$string['student_language'] = 'Student language';
+$string['language_resolved'] = 'Submission language: {$a}';
+$string['language_english'] = 'English';
+$string['invalidlanguage'] = 'Invalid language selection.';
+
+// Segment comments (P2) — grader phrase-anchored comments in the side-by-side view.
+$string['comments_on_submission'] = 'Comments on your submission';
+$string['segcomment_add'] = 'Add comment';
+$string['segcomment_anchor'] = 'Commenting on: “{$a}”';
+$string['segcomment_placeholder'] = 'Write a comment on the selected phrase…';
+$string['segcomment_save'] = 'Save comment';
+$string['segcomment_cancel'] = 'Cancel';
+$string['segcomment_edit'] = 'Edit';
+$string['segcomment_delete'] = 'Delete';
+$string['segcomment_deleteconfirm'] = 'Delete this comment?';
+$string['segcomment_empty'] = 'No comments yet. Select a phrase in the original text to add one.';
+$string['segcomment_listheading'] = 'Comments on phrases';
+$string['segcomment_badsource'] = 'Comments can only be anchored to online-text or file submissions.';
+$string['segcomment_noanchor'] = 'Could not anchor the comment to the selected phrase. Please try selecting the phrase again.';
+$string['segcomment_nonida'] = 'Segment comments require the translation plugin (local_nida) to be installed and up to date.';
+$string['segcomment_notassign'] = 'Segment comments are only available for assignment submissions.';
+$string['segcomment_notfound'] = 'That comment no longer exists.';
+$string['segcomment_notowner'] = 'You can only delete your own comments.';

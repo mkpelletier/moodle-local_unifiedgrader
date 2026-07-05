@@ -80,6 +80,20 @@ class submission_comment_manager {
         ];
         $record->id = $DB->insert_record(self::TABLE, $record);
 
+        // Let local_nida translate the new comment bidirectionally. Guarded by
+        // class_exists so this degrades gracefully when local_nida is absent, and
+        // wrapped so a translation failure can never break commenting.
+        if (class_exists('\local_nida\local\assign\feedback_api')) {
+            try {
+                \local_nida\local\assign\feedback_api::notify_scomm_added((int) $record->id, $cmid);
+            } catch (\Throwable $e) {
+                debugging(
+                    'local_nida feedback_api::notify_scomm_added failed: ' . $e->getMessage(),
+                    DEBUG_DEVELOPER,
+                );
+            }
+        }
+
         return $record;
     }
 

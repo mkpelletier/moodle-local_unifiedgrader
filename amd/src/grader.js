@@ -26,6 +26,8 @@ import {get_string as getString} from 'core/str';
 import Mutations from 'local_unifiedgrader/mutations';
 import PreviewPanel from 'local_unifiedgrader/components/preview_panel';
 import MarkingPanel from 'local_unifiedgrader/components/marking_panel';
+import TranslationPanel from 'local_unifiedgrader/components/translation_panel';
+import SegComments from 'local_unifiedgrader/components/seg_comments';
 import StudentNavigator from 'local_unifiedgrader/components/student_navigator';
 import SubmissionComments from 'local_unifiedgrader/components/submission_comments';
 import PostGradesToggle from 'local_unifiedgrader/components/post_grades_toggle';
@@ -228,6 +230,27 @@ export const init = (containerId) => {
     if (markingEl) {
         new MarkingPanel({
             element: markingEl,
+            reactive: reactiveInstance,
+        });
+    }
+
+    // Grader translation toggle (assign + local_nida). Degrades silently when
+    // local_nida is absent (the external reports status 'unavailable').
+    const translationEl = container.querySelector('[data-region="translation-panel"]');
+    if (translationEl) {
+        new TranslationPanel({
+            element: translationEl,
+            reactive: reactiveInstance,
+        });
+    }
+
+    // Segment-anchored comments (assign + local_nida). Watches the translation
+    // view; highlights commented phrases inline and opens a floating composer over
+    // the page at the grader's text selection. Renders no docked UI of its own.
+    const segCommentsEl = container.querySelector('[data-region="seg-comments"]');
+    if (segCommentsEl) {
+        new SegComments({
+            element: segCommentsEl,
             reactive: reactiveInstance,
         });
     }

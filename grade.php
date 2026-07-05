@@ -267,6 +267,31 @@ $templatedata['helpurl'] = (new moodle_url(
     'integration-' . $cm->modname,
 ))->out(false);
 
+// Submission-language options for the document-viewer language badge/override.
+// Only relevant for assignments and only when local_nida exposes the course's
+// target languages. Guarded so the grader loads unchanged when nida is absent.
+$langoptions = [];
+if ($cm->modname === 'assign' && class_exists('\local_nida\local\enabled_courses')) {
+    try {
+        $courselangs = (new \local_nida\local\enabled_courses())->languages_for($course->id);
+        $labels = \local_nida\local\enabled_courses::language_options();
+        $langoptions[] = ['code' => 'en', 'label' => get_string('language_english', 'local_unifiedgrader')];
+        foreach ($courselangs as $code) {
+            if ($code === 'en') {
+                continue;
+            }
+            $langoptions[] = ['code' => $code, 'label' => $labels[$code] ?? $code];
+        }
+    } catch (\Throwable $e) {
+        debugging(
+            'local_nida enabled_courses::languages_for failed: ' . $e->getMessage(),
+            DEBUG_DEVELOPER,
+        );
+        $langoptions = [];
+    }
+}
+$templatedata['langoptionsjson'] = json_encode($langoptions);
+
 // Output.
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('local_unifiedgrader/grading_interface', $templatedata);

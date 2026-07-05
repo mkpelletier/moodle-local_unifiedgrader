@@ -258,6 +258,42 @@ final class assign_adapter_test extends \advanced_testcase {
     }
 
     /**
+     * With online-text-to-PDF enabled but no document converter available (as in
+     * CI and most dev sites), opening the same submission twice must not throw a
+     * duplicate-file exception and must not leave an orphaned temp HTML file: the
+     * conversion fails gracefully and falls back to the iframe preview.
+     */
+    public function test_get_submission_data_onlinetext_pdf_no_converter_is_graceful(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        set_config('onlinetext_as_pdf', 1, 'local_unifiedgrader');
+
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('local_unifiedgrader');
+        $s = $this->create_scenario();
+        $this->setUser($s->scenario->students[0]);
+        $plugingen->create_assign_submission(
+            $s->scenario->activity,
+            $s->scenario->students[0]->id,
+            '<p>Une réponse en français.</p>'
+        );
+
+        $this->setUser($s->scenario->teacher);
+        // Two opens in a row: the first would create the temp HTML, the second
+        // used to collide on it. Both must now succeed.
+        $first = $s->adapter->get_submission_data($s->scenario->students[0]->id);
+        $second = $s->adapter->get_submission_data($s->scenario->students[0]->id);
+
+        $this->assertEquals('submitted', $first['status']);
+        $this->assertEquals('submitted', $second['status']);
+        $this->assertSame(0, $DB->count_records('files', [
+            'component' => 'local_unifiedgrader',
+            'filearea' => 'onlinetextpdf',
+            'filename' => 'onlinetext.html',
+        ]), 'The temp conversion HTML must never be left orphaned.');
+    }
+
+    /**
      * Test get_grade_data with no grade.
      */
     public function test_get_grade_data_no_grade(): void {
@@ -297,6 +333,39 @@ final class assign_adapter_test extends \advanced_testcase {
         $this->assertEquals(85.0, $data['grade']);
         $this->assertStringContainsString('Good work!', $data['feedback']);
         $this->assertGreaterThan(0, $data['timegraded']);
+    }
+
+    /**
+     * On a marking-workflow assignment, posting grades must RELEASE the per-user
+     * workflow state (which is what actually makes the grade and feedback visible
+     * to students) — not just toggle the gradebook hidden flag.
+     */
+    public function test_post_grades_releases_marking_workflow(): void {
+        $this->resetAfterTest();
+
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('local_unifiedgrader');
+        $s = $this->create_scenario(['modparams' => ['markingworkflow' => 1]]);
+        $student = $s->scenario->students[0];
+
+        $this->setUser($student);
+        $plugingen->create_assign_submission($s->scenario->activity, $student->id);
+
+        $this->setUser($s->scenario->teacher);
+        $s->adapter->save_grade($student->id, 85.0, '<p>Good work!</p>');
+
+        // Graded but not released: feedback is not yet visible.
+        $this->assertFalse($s->adapter->is_grade_released($student->id));
+        $this->assertFalse($s->adapter->are_grades_posted());
+
+        // Post grades → release.
+        $s->adapter->set_grades_posted(0);
+        $this->assertTrue($s->adapter->is_grade_released($student->id));
+        $this->assertTrue($s->adapter->are_grades_posted());
+
+        // Hiding again un-releases (back to ready-for-release).
+        $s->adapter->set_grades_posted(1);
+        $this->assertFalse($s->adapter->is_grade_released($student->id));
+        $this->assertFalse($s->adapter->are_grades_posted());
     }
 
     /**
