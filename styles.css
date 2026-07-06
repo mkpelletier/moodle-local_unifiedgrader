@@ -1499,13 +1499,14 @@ span.local-unifiedgrader-mark-highlight {
 
 .local-unifiedgrader-pdfmark-strikethrough {
     background-color: rgba(220, 53, 69, 0.08);
-    background-image: linear-gradient(
-        to bottom,
-        transparent calc(55% - 1px),
-        #dc3545 calc(55% - 1px),
-        #dc3545 calc(55% + 1px),
-        transparent calc(55% + 1px)
-    );
+    background-image:
+        linear-gradient(
+            to bottom,
+            transparent calc(55% - 1px),
+            #dc3545 calc(55% - 1px),
+            #dc3545 calc(55% + 1px),
+            transparent calc(55% + 1px)
+        );
 }
 
 /* Hover/linked feedback, matching the flowing-text marks. */
