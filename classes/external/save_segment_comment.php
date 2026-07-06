@@ -62,6 +62,12 @@ class save_segment_comment extends external_api {
             ),
             'commenttext' => new external_value(PARAM_RAW, 'The grader comment (HTML)'),
             'commentformat' => new external_value(PARAM_INT, 'Comment text format', VALUE_DEFAULT, FORMAT_HTML),
+            'marktype' => new external_value(
+                PARAM_ALPHA,
+                'Mark type: comment, tick, cross, highlight or query',
+                VALUE_DEFAULT,
+                'comment'
+            ),
         ]);
     }
 
@@ -81,6 +87,7 @@ class save_segment_comment extends external_api {
      * @param array $srcsegids Source segment id(s) the grader anchored to.
      * @param string $commenttext The grader comment (HTML).
      * @param int $commentformat The comment text format.
+     * @param string $marktype The mark type: comment, tick, cross, highlight or query.
      * @return array The stored comment (fields for the client to render a marker).
      */
     public static function execute(
@@ -91,7 +98,8 @@ class save_segment_comment extends external_api {
         int $fileid,
         array $srcsegids,
         string $commenttext,
-        int $commentformat = FORMAT_HTML
+        int $commentformat = FORMAT_HTML,
+        string $marktype = 'comment'
     ): array {
         global $USER, $CFG;
 
@@ -104,7 +112,9 @@ class save_segment_comment extends external_api {
             'srcsegids' => $srcsegids,
             'commenttext' => $commenttext,
             'commentformat' => $commentformat,
+            'marktype' => $marktype,
         ]);
+        $marktype = segment_comment_manager::normalise_marktype($params['marktype']);
 
         $context = \context_module::instance($params['cmid']);
         self::validate_context($context);
@@ -160,6 +170,7 @@ class save_segment_comment extends external_api {
             (string) $anchor['anchortext'],
             $clean,
             FORMAT_HTML,
+            $marktype,
         );
 
         return [
@@ -172,6 +183,7 @@ class save_segment_comment extends external_api {
             'anchortext' => (string) $record->anchortext,
             'commenttext' => (string) $record->commenttext,
             'commentformat' => (int) $record->commentformat,
+            'marktype' => (string) $record->marktype,
             'authorid' => (int) $record->authorid,
             'timecreated' => (int) $record->timecreated,
             'timemodified' => (int) $record->timemodified,
@@ -271,6 +283,7 @@ class save_segment_comment extends external_api {
             'anchortext' => new external_value(PARAM_RAW, 'The exact anchored source phrase (plaintext)'),
             'commenttext' => new external_value(PARAM_RAW, 'The stored comment (cleaned HTML)'),
             'commentformat' => new external_value(PARAM_INT, 'Comment text format'),
+            'marktype' => new external_value(PARAM_ALPHA, 'Mark type: comment, tick, cross, highlight or query'),
             'authorid' => new external_value(PARAM_INT, 'Author (grader) user id'),
             'timecreated' => new external_value(PARAM_INT, 'Creation timestamp'),
             'timemodified' => new external_value(PARAM_INT, 'Last modified timestamp'),

@@ -591,7 +591,9 @@ $string['view_translation'] = 'View translation';
 $string['view_original'] = 'View original';
 $string['view_parallel'] = 'Side-by-side';
 $string['translation_advisory'] = 'Machine translation — advisory only. Do not grade solely from this view.';
+$string['translation_advisory_badge'] = 'Machine translation';
 $string['translation_mixed'] = 'Mixed languages detected — the translation may be partly unreliable.';
+$string['translation_mixed_badge'] = 'Mixed languages';
 $string['translation_pending'] = 'Translation pending.';
 $string['translation_notext'] = 'This file contains no extractable text and cannot be translated.';
 $string['translation_failed'] = 'This file could not be translated.';
@@ -616,10 +618,40 @@ $string['segcomment_edit'] = 'Edit';
 $string['segcomment_delete'] = 'Delete';
 $string['segcomment_deleteconfirm'] = 'Delete this comment?';
 $string['segcomment_empty'] = 'No comments yet. Select a phrase in the original text to add one.';
+$string['segcomment_hint'] = 'Select text to comment';
 $string['segcomment_listheading'] = 'Comments on phrases';
+$string['segcomment_badpage'] = 'A PDF mark must specify a valid page.';
 $string['segcomment_badsource'] = 'Comments can only be anchored to online-text or file submissions.';
 $string['segcomment_noanchor'] = 'Could not anchor the comment to the selected phrase. Please try selecting the phrase again.';
 $string['segcomment_nonida'] = 'Segment comments require the translation plugin (local_nida) to be installed and up to date.';
 $string['segcomment_notassign'] = 'Segment comments are only available for assignment submissions.';
 $string['segcomment_notfound'] = 'That comment no longer exists.';
 $string['segcomment_notowner'] = 'You can only delete your own comments.';
+
+// Segment marking tools (translated view).
+$string['segtool_select'] = 'Select text';
+$string['segtool_comment'] = 'Comment';
+$string['segtool_search'] = 'Find…';
+$string['segtool_undo'] = 'Undo';
+$string['segtool_redo'] = 'Redo';
+$string['segtool_delete'] = 'Delete selected mark';
+$string['segtool_clearall'] = 'Clear all';
+$string['segtool_clearconfirm'] = 'Delete all your marks on this submission? This cannot be undone.';
+$string['segtool_colour'] = 'Drawing colour';
+$string['segtool_confirm'] = 'Confirm?';
+$string['segtool_viewcolumn'] = 'Comments in the margin — click for hover popups';
+$string['segtool_viewpopup'] = 'Comments as hover popups — click for the margin column';
+$string['segmark_tick'] = 'Affirm (tick)';
+$string['segmark_cross'] = 'Correct (cross)';
+$string['segmark_highlight'] = 'Highlight';
+$string['segmark_query'] = 'Query';
+$string['segmark_strike'] = 'Strike out';
+$string['docinfo_language'] = 'Submission language';
+$string['docinfo_words'] = 'Words (translated)';
+$string['docinfo_comments'] = 'Comments';
+$string['docinfo_marks'] = 'Marks';
+$string['segwarn_title'] = 'About marking translated text';
+$string['segwarn_body'] = 'You are marking a machine translation. Comments and marks anchor to the '
+    . 'student\'s original text, so they stay in place and the student sees them. Freehand pen and shape '
+    . 'tools are not offered here because they cannot anchor to reflowing text — mark those on the '
+    . 'original file instead.';

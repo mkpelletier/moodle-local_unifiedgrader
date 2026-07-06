@@ -41,6 +41,8 @@ export default class extends BaseComponent {
             PDF_VIEWER_WRAPPER: '[data-region="pdf-viewer-wrapper"]',
             DOCUMENT_PREVIEW: '[data-region="document-preview"]',
             PREVIEW_IFRAME: '[data-region="preview-iframe"]',
+            TEXT_ANNOT_VIEW: '[data-region="text-annot-view"]',
+            ANNOTATION_TOOLBAR: '[data-region="annotation-toolbar"]',
         };
         this._container = null;
         this._currentFileId = null;
@@ -105,6 +107,9 @@ export default class extends BaseComponent {
         noSubEl.classList.remove('d-flex');
         pdfWrapper.classList.add('d-none');
         docPreview.classList.add('d-none');
+        this.getElement(this.selectors.TEXT_ANNOT_VIEW)?.classList.add('d-none');
+        // Hidden by default; re-shown only when a PDF is previewed.
+        this._setPixelToolbar(false);
         this._currentFileId = null;
         this._removePortfolioPopout();
 
@@ -312,15 +317,21 @@ export default class extends BaseComponent {
         const pdfWrapper = this.getElement(this.selectors.PDF_VIEWER_WRAPPER);
         const docPreview = this.getElement(this.selectors.DOCUMENT_PREVIEW);
 
-        // Hide both viewers first.
+        // Hide the viewers (incl. the inline text sheet) first.
         pdfWrapper.classList.add('d-none');
         docPreview.classList.add('d-none');
+        this.getElement(this.selectors.TEXT_ANNOT_VIEW)?.classList.add('d-none');
 
         // Remove the portfolio pop-out button when switching to a file preview.
         this._removePortfolioPopout();
 
         if ((file.mimetype === 'application/pdf' || file.convertible) && this._pdfViewer) {
-            // Use PDF.js viewer for PDF files (and files converted to PDF).
+            // Use PDF.js viewer for PDF files (and files converted to PDF). The old
+            // Fabric annotation toolbar is superseded by the text-anchored marks
+            // strip (seg_comments), which shows itself over the PDF; keep the old
+            // one hidden so it no longer grabs focus. (Freehand/shape tools are
+            // folded into the unified strip in a later slice.)
+            this._setPixelToolbar(false);
             pdfWrapper.classList.remove('d-none');
             // Pass file context for annotation persistence.
             const state = this.reactive.state;
@@ -333,6 +344,7 @@ export default class extends BaseComponent {
             this._pdfViewer.loadPdf(file.previewurl || file.url);
         } else if (file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
             // Use styled media player page for audio/video.
+            this._setPixelToolbar(false);
             const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
             const cmid = this.reactive.state.activity?.cmid;
             iframe.src = `${M.cfg.wwwroot}/local/unifiedgrader/preview_media.php`
@@ -340,6 +352,7 @@ export default class extends BaseComponent {
             docPreview.classList.remove('d-none');
         } else {
             // Use iframe for images, text, etc.
+            this._setPixelToolbar(false);
             const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
             iframe.src = file.previewurl || file.url;
             docPreview.classList.remove('d-none');
@@ -357,11 +370,27 @@ export default class extends BaseComponent {
     _showSubmissionContent() {
         const pdfWrapper = this.getElement(this.selectors.PDF_VIEWER_WRAPPER);
         const docPreview = this.getElement(this.selectors.DOCUMENT_PREVIEW);
+        const textView = this.getElement(this.selectors.TEXT_ANNOT_VIEW);
+        // Submission content is never annotated with the pixel toolbar.
+        this._setPixelToolbar(false);
         pdfWrapper.classList.add('d-none');
         docPreview.classList.add('d-none');
+        if (textView) {
+            textView.classList.add('d-none');
+        }
 
         // Remove the portfolio pop-out button if it was added previously.
         this._removePortfolioPopout();
+
+        // Assignment online text renders inline as an annotatable paper sheet
+        // (seg_comments then adds margin comments + marks). Other content types
+        // (forum posts, quiz attempts) keep the iframe so their plugin JS/CSS load.
+        const isAssign = this.reactive.state.activity?.type === 'assign';
+        const html = this.reactive.state.submission?.onlinetexthtml || '';
+        if (isAssign && html && textView) {
+            this._renderInlineText(textView, html);
+            return;
+        }
 
         const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
         const cmid = this.reactive.state.activity?.cmid;
@@ -380,6 +409,50 @@ export default class extends BaseComponent {
     }
 
     /**
+     * Render the submission's online text inline as an annotatable paper sheet.
+     * The structure mirrors the translated view so seg_comments decorates it; the
+     * offset anchor-mode tells it to use arbitrary-selection (not segment) anchoring.
+     *
+     * @param {HTMLElement} view The text-annot-view region.
+     * @param {string} html The formatted online-text HTML (server-cleaned).
+     */
+    _renderInlineText(view, html) {
+        // The inline text uses the seg_comments tool strip, not the pixel toolbar.
+        this._setPixelToolbar(false);
+        view.innerHTML = '';
+        const slot = document.createElement('div');
+        slot.className = 'local-unifiedgrader-translation-slot';
+        slot.dataset.sourceType = 'onlinetext';
+        slot.dataset.fileid = '0';
+        slot.dataset.anchorMode = 'offset';
+        const page = document.createElement('div');
+        page.className = 'local-unifiedgrader-translation-page';
+        const body = document.createElement('div');
+        body.className = 'local-unifiedgrader-translation-body';
+        // html is the adapter's format_text() output (already sanitised) — safe.
+        body.innerHTML = html;
+        page.appendChild(body);
+        slot.appendChild(page);
+        view.appendChild(slot);
+        view.classList.remove('d-none');
+    }
+
+    /**
+     * Show or hide the legacy pixel annotation toolbar. It drives the PDF viewer
+     * only; on the inline text / iframe / translated views the seg_comments tool
+     * strip is used instead, so the old toolbar is hidden there (it would
+     * otherwise linger from a previous PDF and grab focus).
+     *
+     * @param {boolean} show Whether to show it.
+     */
+    _setPixelToolbar(show) {
+        const toolbar = document.querySelector('[data-region="annotation-toolbar"]');
+        if (toolbar) {
+            toolbar.classList.toggle('d-none', !show);
+        }
+    }
+
+    /**
      * Render a Byblos portfolio in the iframe preview, with a pop-out button
      * that lets the teacher open the portfolio in a new tab.
      *
@@ -389,6 +462,8 @@ export default class extends BaseComponent {
         const pdfWrapper = this.getElement(this.selectors.PDF_VIEWER_WRAPPER);
         const docPreview = this.getElement(this.selectors.DOCUMENT_PREVIEW);
         pdfWrapper.classList.add('d-none');
+        this.getElement(this.selectors.TEXT_ANNOT_VIEW)?.classList.add('d-none');
+        this._setPixelToolbar(false);
 
         const iframe = this.getElement(this.selectors.PREVIEW_IFRAME);
         iframe.src = url;

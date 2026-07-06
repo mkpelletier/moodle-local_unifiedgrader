@@ -307,6 +307,12 @@ $functions = [
         'type' => 'write',
         'ajax' => true,
     ],
+    'local_unifiedgrader_save_text_comment' => [
+        'classname' => 'local_unifiedgrader\external\save_text_comment',
+        'description' => 'Save an offset-anchored comment/mark on a non-translated online-text submission.',
+        'type' => 'write',
+        'ajax' => true,
+    ],
     'local_unifiedgrader_get_segment_comments' => [
         'classname' => 'local_unifiedgrader\external\get_segment_comments',
         'description' => 'Get the segment-anchored comments for a student attempt.',

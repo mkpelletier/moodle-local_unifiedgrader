@@ -37,6 +37,19 @@ class segment_comment_manager {
     /** @var string The database table name (frozen by WP-P1). */
     private const TABLE = 'local_unifiedgrader_segcomment';
 
+    /** @var string[] The mark types a segment mark may carry. */
+    public const MARK_TYPES = ['comment', 'tick', 'cross', 'highlight', 'query', 'strikethrough'];
+
+    /**
+     * Coerce an arbitrary string to a valid mark type, defaulting to 'comment'.
+     *
+     * @param string $marktype The requested mark type.
+     * @return string A valid mark type.
+     */
+    public static function normalise_marktype(string $marktype): string {
+        return in_array($marktype, self::MARK_TYPES, true) ? $marktype : 'comment';
+    }
+
     /**
      * Insert a new segment comment.
      *
@@ -53,6 +66,8 @@ class segment_comment_manager {
      * @param string $anchortext The exact source phrase (plaintext).
      * @param string $commenttext The grader's comment (cleaned HTML).
      * @param int $commentformat The comment text format (FORMAT_HTML).
+     * @param string $marktype The mark type: comment, tick, cross, highlight or query.
+     * @param int $page 1-based PDF page for file (PDF text-layer) marks; 0 for online text.
      * @return \stdClass The stored record (with its new id).
      */
     public static function create(
@@ -68,7 +83,9 @@ class segment_comment_manager {
         int $endoffset,
         string $anchortext,
         string $commenttext,
-        int $commentformat
+        int $commentformat,
+        string $marktype = 'comment',
+        int $page = 0
     ): \stdClass {
         global $DB;
 
@@ -81,12 +98,14 @@ class segment_comment_manager {
             'attemptnumber' => $attemptnumber,
             'sourcetype' => $sourcetype,
             'fileid' => $fileid,
+            'page' => max(0, $page),
             'segmentid' => $segmentid,
             'startoffset' => $startoffset,
             'endoffset' => $endoffset,
             'anchortext' => $anchortext,
             'commenttext' => $commenttext,
             'commentformat' => $commentformat,
+            'marktype' => self::normalise_marktype($marktype),
             'timecreated' => $now,
             'timemodified' => $now,
         ];

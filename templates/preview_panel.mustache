@@ -27,6 +27,22 @@
                     data-action="translation-parallel">
                 <span data-region="translation-parallel-label"></span>
             </button>
+            {{! Compact advisory + mixed-language pills and the select-to-comment
+                hint. Toggled by translation_panel only while the translated view
+                is active — the advisory lives HERE, in the toolbar, so it never
+                stacks alert boxes above the document (visual continuity with the
+                original viewers). }}
+            <span data-region="translation-advisory"
+                  class="badge rounded-pill text-bg-warning d-none">
+                <i class="fa fa-language me-1" aria-hidden="true"></i>{{#str}} translation_advisory_badge, local_unifiedgrader {{/str}}
+            </span>
+            <span data-region="translation-mixed"
+                  class="badge rounded-pill text-bg-warning d-none">
+                {{#str}} translation_mixed_badge, local_unifiedgrader {{/str}}
+            </span>
+            <span data-region="translation-hint" class="small text-muted d-none">
+                {{#str}} segcomment_hint, local_unifiedgrader {{/str}}
+            </span>
             {{! Submission-language designation (assign + local_nida). Populated by
                 the translation_panel JS; click the code to reveal an override
                 selector. Replaces the old marking-panel language-confirm card. }}
@@ -80,5 +96,11 @@
                 title="{{#str}} previewpanel, local_unifiedgrader {{/str}}">
         </iframe>
     </div>
+
+    {{! Inline annotatable online text (non-translated). preview_panel renders the
+        submission's formatted online text here as a paper sheet; the seg_comments
+        component decorates it with margin comments and tick/cross/query marks
+        anchored by character offset. Shown instead of the iframe for online text. }}
+    <div data-region="text-annot-view" class="d-none flex-grow-1 overflow-auto" style="min-height: 0;"></div>
 
 </div>

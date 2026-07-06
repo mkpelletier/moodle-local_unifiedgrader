@@ -64,6 +64,9 @@ export default class extends BaseComponent {
             LANG_TOGGLE: '[data-action="translation-lang-toggle"]',
             LANG_CODE: '[data-region="translation-lang-code"]',
             LANG_SELECT: '[data-region="translation-lang-select"]',
+            ADVISORY: '[data-region="translation-advisory"]',
+            MIXED: '[data-region="translation-mixed"]',
+            HINT: '[data-region="translation-hint"]',
         };
         /** @type {Array<{code: string, label: string}>} The override language options. */
         this._langOptions = [];
@@ -77,6 +80,8 @@ export default class extends BaseComponent {
         this._parallel = false;
         /** @type {number} The user whose translation is currently loaded. */
         this._loadedUser = 0;
+        /** @type {?string} Source-pager selection: 'content', 'portfolio' or a {files}.id. */
+        this._activeFileid = null;
     }
 
     /**
@@ -127,9 +132,92 @@ export default class extends BaseComponent {
             langSelect.addEventListener('change', () => this._confirmLang(langSelect.value));
         }
 
+        // Follow the right-pane source pager (Submission / file pills): the
+        // translated view shows ONE source at a time, exactly like the standard
+        // viewers, and swaps sheets when the grader pages. The list element
+        // persists across re-renders, so a single delegated listener suffices.
+        const pilllist = container?.querySelector('[data-region="file-selector-list"]');
+        if (pilllist) {
+            pilllist.addEventListener('click', (e) => this._onSourcePillClick(e));
+        }
+
         if (this._isAssign() && state.submission && state.submission.userid) {
             this._fetch();
         }
+    }
+
+    /**
+     * A click in the right-pane source pager. Record the chosen source and, when
+     * the translated view is active, swap the translated sheet to match and
+     * re-hide the original viewer the preview panel just revealed (its own pill
+     * handler runs first — target before ancestors — and shows it synchronously).
+     *
+     * @param {Event} e The click event.
+     */
+    _onSourcePillClick(e) {
+        // Ignore the per-file download anchors — only the preview buttons page.
+        if (e.target.closest('a')) {
+            return;
+        }
+        const pill = e.target.closest('[data-fileid]');
+        if (!pill) {
+            return;
+        }
+        this._activeFileid = String(pill.dataset.fileid);
+        if (!this._showing) {
+            return;
+        }
+        // Re-hide whatever viewer the preview panel revealed for the new source,
+        // but keep the previous restore bookkeeping when nothing was visible
+        // (e.g. a non-previewable file opened in a new tab instead).
+        const previous = this._hiddenRegions;
+        this._hideOriginalViewers();
+        if (!this._hiddenRegions.length && previous && previous.length) {
+            this._hiddenRegions = previous;
+        }
+        this._renderTranslationBody();
+    }
+
+    /**
+     * The source pager's current selection: 'content', 'portfolio' or a stored
+     * {files}.id as a string. Falls back to the highlighted pill, or null when
+     * there is no pager (single-source submissions).
+     *
+     * @return {?string}
+     */
+    _activeSourceKey() {
+        if (this._activeFileid !== null) {
+            return this._activeFileid;
+        }
+        const container = this.element.closest('.local-unifiedgrader-container');
+        const active = container?.querySelector('[data-region="file-selector-list"] .btn-primary');
+        const pill = active ? active.closest('[data-fileid]') : null;
+        return pill ? String(pill.dataset.fileid) : null;
+    }
+
+    /**
+     * The payload sources the translated view should render: only the source
+     * the pager has selected — a file matched by its {files}.id, otherwise the
+     * non-file content — mirroring the standard view's one-source-at-a-time
+     * paging. Falls back to every source when nothing matches, so the view can
+     * never go silently blank.
+     *
+     * @return {Array<object>}
+     */
+    _sourcesForActive() {
+        const sources = this._data?.sources || [];
+        const key = this._activeSourceKey();
+        if (key === null) {
+            return sources;
+        }
+        let matched;
+        if (key === 'content' || key === 'portfolio') {
+            matched = sources.filter((s) => (s.type || 'onlinetext') !== 'file');
+        } else {
+            matched = sources.filter((s) => (s.type || 'onlinetext') === 'file'
+                && String(parseInt(s.fileid, 10) || 0) === key);
+        }
+        return matched.length ? matched : sources;
     }
 
     /**
@@ -174,6 +262,8 @@ export default class extends BaseComponent {
         this._showing = false;
         this._parallel = false;
         this._hiddenRegions = null;
+        this._activeFileid = null;
+        this._setPills(false);
     }
 
     /**
@@ -435,6 +525,7 @@ export default class extends BaseComponent {
         }
         this._showing = true;
         this._setToggleLabel(true);
+        await this._setPills(true);
         await this._renderTranslationBody();
     }
 
@@ -454,10 +545,16 @@ export default class extends BaseComponent {
         this._setAnnotationToolbar(true);
         this._showing = false;
         this._setToggleLabel(false);
+        this._setPills(false);
     }
 
     /**
-     * Render the translated body: advisory banner, notices, and content.
+     * Render the translated body.
+     *
+     * Visual continuity with the original viewers: no alert boxes are stacked
+     * above the document (the advisory lives in the toolbar as a pill — see
+     * _setPills); each source renders as a centred white "paper" sheet on the
+     * grey workspace backdrop, mirroring the PDF viewer's page metaphor.
      */
     async _renderTranslationBody() {
         const view = this._preview?.querySelector('[data-region="translation-view"]');
@@ -468,55 +565,96 @@ export default class extends BaseComponent {
 
         // Pending: show a placeholder and stop.
         if (this._data.status === 'pending') {
-            view.appendChild(await this._banner('pending', 'alert-info'));
+            const pending = await this._banner('pending', 'alert-info');
+            pending.classList.add('m-3');
+            view.appendChild(pending);
             return;
         }
 
-        // Persistent advisory banner.
-        view.appendChild(await this._banner('advisory', 'alert-warning'));
-        // Mixed-language notice.
-        if (this._data.mixedflag) {
-            view.appendChild(await this._banner('mixed', 'alert-warning'));
-        }
-
-        for (const source of (this._data.sources || [])) {
+        for (const source of this._sourcesForActive()) {
             view.appendChild(await this._renderSource(source));
         }
     }
 
     /**
-     * Render a single source (online text or file) into a DOM node.
+     * Render a single source (online text or file) as a paper sheet.
      *
      * @param {object} source A source entry.
      * @return {Promise<HTMLElement>}
      */
     async _renderSource(source) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'p-3 border-bottom';
-        wrapper.dataset.sourceType = source.type;
-
-        if (source.filename) {
-            const heading = document.createElement('div');
-            heading.className = 'fw-bold small text-muted mb-2';
-            heading.textContent = source.filename;
-            wrapper.appendChild(heading);
-        }
-
-        // Per-file verdict notice (notext / failed / unsupported / truncated).
-        if (source.verdict && FALLBACKS[source.verdict]) {
-            wrapper.appendChild(await this._banner(source.verdict, 'alert-secondary'));
-        }
+        const slot = document.createElement('div');
+        slot.className = 'local-unifiedgrader-translation-slot';
+        slot.dataset.sourceType = source.type;
+        // The stored-file id lets seg_comments map this sheet back to its payload
+        // source by identity (the sheets rendered are a pager-dependent subset,
+        // so DOM order cannot be used).
+        slot.dataset.fileid = String(parseInt(source.fileid, 10) || 0);
 
         const alignment = this._parseAlignment(source);
-        if (this._parallel && alignment) {
-            wrapper.appendChild(this._renderParallel(alignment));
+        const parallel = this._parallel && alignment;
+
+        const page = document.createElement('div');
+        page.className = 'local-unifiedgrader-translation-page'
+            + (parallel ? ' local-unifiedgrader-translation-page-wide' : '');
+        slot.appendChild(page);
+
+        // Filename as a slim running header on the sheet itself.
+        if (source.filename) {
+            const heading = document.createElement('div');
+            heading.className = 'small text-muted border-bottom pb-2 mb-3';
+            heading.textContent = source.filename;
+            page.appendChild(heading);
+        }
+
+        // Per-file verdict (notext / failed / unsupported / truncated) as a quiet
+        // note on the sheet, not an alert box.
+        if (source.verdict && FALLBACKS[source.verdict]) {
+            const note = document.createElement('div');
+            note.className = 'small text-muted fst-italic mb-2';
+            note.textContent = await this._resolveString(source.verdict);
+            page.appendChild(note);
+        }
+
+        if (parallel) {
+            page.appendChild(this._renderParallel(alignment));
         } else {
             const body = document.createElement('div');
             body.className = 'local-unifiedgrader-translation-body';
             body.innerHTML = source.html || '';
-            wrapper.appendChild(body);
+            page.appendChild(body);
         }
-        return wrapper;
+        return slot;
+    }
+
+    /**
+     * Toggle the toolbar pills (machine-translation advisory, mixed-language,
+     * select-to-comment hint) to match whether the translated view is showing.
+     * The long advisory/mixed strings become tooltips on the compact pills.
+     *
+     * @param {boolean} showing Whether the translated view is active.
+     */
+    async _setPills(showing) {
+        const pending = !this._data || this._data.status === 'pending';
+        const advisory = this.getElement(this.selectors.ADVISORY);
+        if (advisory) {
+            advisory.classList.toggle('d-none', !showing || pending);
+            if (showing && !pending && !advisory.title) {
+                advisory.title = await this._resolveString('advisory');
+            }
+        }
+        const mixed = this.getElement(this.selectors.MIXED);
+        if (mixed) {
+            mixed.classList.toggle('d-none', !showing || pending || !this._data?.mixedflag);
+            if (showing && !mixed.title) {
+                mixed.title = await this._resolveString('mixed');
+            }
+        }
+        const hint = this.getElement(this.selectors.HINT);
+        if (hint) {
+            hint.classList.toggle('d-none',
+                !showing || pending || !this._data || !this._hasAlignment(this._data));
+        }
     }
 
     /**
@@ -729,7 +867,7 @@ export default class extends BaseComponent {
             return;
         }
         this._hiddenRegions = [];
-        ['pdf-viewer-wrapper', 'document-preview'].forEach((region) => {
+        ['pdf-viewer-wrapper', 'document-preview', 'text-annot-view'].forEach((region) => {
             const el = this._preview.querySelector('[data-region="' + region + '"]');
             if (el && !el.classList.contains('d-none')) {
                 el.classList.add('d-none');

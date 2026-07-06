@@ -128,6 +128,12 @@ class get_submission_data extends external_api {
                 ]),
             ),
             'onlinetext' => new external_value(PARAM_RAW, 'Online text submission'),
+            'onlinetexthtml' => new external_value(
+                PARAM_RAW,
+                'Display-ready online text HTML (formatted) for inline annotation',
+                VALUE_DEFAULT,
+                ''
+            ),
             'timecreated' => new external_value(PARAM_INT, 'Time created'),
             'timemodified' => new external_value(PARAM_INT, 'Time modified'),
             'submittedat' => new external_value(

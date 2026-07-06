@@ -115,6 +115,13 @@ export default class PdfViewer extends BaseComponent {
         this._fitToWidth = true;
         /** @type {number} Current display scale factor. */
         this._currentScale = 1.0;
+        /**
+         * Horizontal space (px) reserved beside each page for the marks margin
+         * column (seg_comments announces it via unifiedgrader:pdfmarginreserve).
+         * Fit-to-width subtracts it so page + comment column fit the pane.
+         * @type {number}
+         */
+        this._reservedMargin = 0;
 
         // Page slot management.
         /** @type {Map<number, object>} Page number → slot object. */
@@ -163,6 +170,14 @@ export default class PdfViewer extends BaseComponent {
         // Annotation toolbar.
         /** @type {?AnnotationToolbar} */
         this._annotationToolbar = null;
+        /**
+         * Suppress the legacy Fabric drawing toolbar UI: it is replaced by the
+         * text-anchored marks strip (seg_comments), whose freehand/shape tools are
+         * folded in by a later slice. The annotation LAYER stays active so stored
+         * annotations still render; only the old toolbar UI is withheld.
+         * @type {boolean}
+         */
+        this._suppressLegacyToolbar = true;
 
         // Persistence context.
         /** @type {number} Course module ID. */
@@ -257,6 +272,81 @@ export default class PdfViewer extends BaseComponent {
                 this._scheduleSave();
             }
         });
+
+        // The text-anchored marks component (seg_comments) asks us to make the
+        // PDF text layer selectable when one of its text tools is active, so the
+        // grader can drag-select any run of PDF text to mark. Decoupled via a
+        // document event so the two components need no direct reference.
+        this._onSegTextSelect = (e) => {
+            if (this._pdfDoc) {
+                this.setTextSelectable(!!(e.detail && e.detail.enabled));
+                // The marks strip drives selection for MARKING, not measuring:
+                // keep the legacy word-count tooltip (which _setTextSelectableAll
+                // arms alongside selection) out of the flow. The document-info
+                // popout still reports the word count.
+                this._toggleWordCountListeners(false);
+                this._hideWordCountTooltip();
+            }
+        };
+        document.addEventListener('unifiedgrader:pdftextselect', this._onSegTextSelect);
+
+        // seg_comments reserves margin width beside each page for its comment
+        // column. In fit-to-width mode, re-fit so page + column fit the pane
+        // (otherwise the page's left edge is pushed out of view); a manual zoom
+        // is respected — the next fit-to-width picks the reserve up anyway.
+        this._onMarginReserve = (e) => {
+            const px = Math.max(0, parseInt(e.detail && e.detail.px, 10) || 0);
+            if (px === this._reservedMargin) {
+                return;
+            }
+            this._reservedMargin = px;
+            if (this._pdfDoc && this._fitToWidth) {
+                this._zoomFitToWidth();
+            }
+        };
+        document.addEventListener('unifiedgrader:pdfmarginreserve', this._onMarginReserve);
+
+        // The unified marks strip drives the Fabric drawing tools (shapes and
+        // colour) through this event. Driving ONE live layer is enough: setTool
+        // fires the onToolChange propagation and setColor/setShapeType are
+        // wrapped for cross-page state tracking. With no layer rendered yet the
+        // shared state fields still update, and _initAnnotationForSlot applies
+        // them to layers as pages render.
+        this._onMarkTool = (e) => {
+            const d = e.detail || {};
+            if (!this._pdfDoc) {
+                return;
+            }
+            const layer = this._activeAnnotationLayer
+                || [...this._pageSlots.values()].find((s) => s.annotationLayer)?.annotationLayer;
+            if (d.action === 'deleteselected') {
+                layer?.deleteSelected();
+                return;
+            }
+            if (d.color) {
+                if (layer) {
+                    layer.setColor(d.color);
+                } else {
+                    this._currentColor = d.color;
+                }
+            }
+            if (d.shape) {
+                if (layer) {
+                    layer.setShapeType(d.shape);
+                } else {
+                    this._currentShape = d.shape;
+                }
+            }
+            if (d.tool) {
+                const tool = d.tool === 'shape' ? 'shape' : 'select';
+                if (layer) {
+                    layer.setTool(tool);
+                } else {
+                    this._currentTool = tool;
+                }
+            }
+        };
+        document.addEventListener('unifiedgrader:pdftool', this._onMarkTool);
     }
 
     /**
@@ -585,6 +675,15 @@ export default class PdfViewer extends BaseComponent {
         canvasWrapper.style.backgroundColor = '#fff';
         canvasWrapper.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
 
+        // Expose this page's text layer as an offset-anchorable source so the
+        // text-anchored marks component (seg_comments) can decorate it just like
+        // online text. The mark's fileid + 1-based page identify the submission
+        // file and page; the char offsets index the page's text-layer text.
+        canvasWrapper.dataset.sourceType = 'file';
+        canvasWrapper.dataset.anchorMode = 'pdfpage';
+        canvasWrapper.dataset.page = pageNum;
+        canvasWrapper.dataset.fileid = this._fileid || 0;
+
         // PDF render canvas.
         const pdfCanvas = document.createElement('canvas');
         pdfCanvas.dataset.region = 'pdf-canvas';
@@ -762,20 +861,25 @@ export default class PdfViewer extends BaseComponent {
             // until the user happened to scroll and trigger _setActiveSlot
             // — every tool click in the interim would silently no-op.
             if (!this._readOnly && slot.annotationLayer) {
-                if (!this._annotationToolbar) {
-                    const toolbarEl = this.getElement(this.selectors.ANNOTATION_TOOLBAR);
-                    if (toolbarEl) {
-                        this._annotationToolbar = new AnnotationToolbar(
-                            toolbarEl, slot.annotationLayer
-                        );
-                        this._annotationToolbar.show();
+                // Track the active layer regardless (used by document-info and,
+                // later, the unified strip's freehand tools).
+                if (!this._activeAnnotationLayer) {
+                    this._activeAnnotationLayer = slot.annotationLayer;
+                }
+                if (!this._suppressLegacyToolbar) {
+                    if (!this._annotationToolbar) {
+                        const toolbarEl = this.getElement(this.selectors.ANNOTATION_TOOLBAR);
+                        if (toolbarEl) {
+                            this._annotationToolbar = new AnnotationToolbar(
+                                toolbarEl, slot.annotationLayer
+                            );
+                            this._annotationToolbar.show();
+                        }
+                        this._pushDocumentInfo();
+                    } else {
+                        this._annotationToolbar.setLayer(slot.annotationLayer);
+                        this._pushDocumentInfo();
                     }
-                    this._activeAnnotationLayer = slot.annotationLayer;
-                    this._pushDocumentInfo();
-                } else if (!this._activeAnnotationLayer) {
-                    this._activeAnnotationLayer = slot.annotationLayer;
-                    this._annotationToolbar.setLayer(slot.annotationLayer);
-                    this._pushDocumentInfo();
                 }
             }
 
@@ -1397,9 +1501,9 @@ export default class PdfViewer extends BaseComponent {
      */
     _calculateFitToWidthScale(page) {
         const container = this.getElement(this.selectors.PAGE_CONTAINER);
-        const containerWidth = container.clientWidth - 32;
+        const containerWidth = container.clientWidth - 32 - (this._reservedMargin || 0);
         const pageWidth = page.getViewport({scale: 1.0}).width;
-        return containerWidth / pageWidth;
+        return Math.max(0.1, containerWidth / pageWidth);
     }
 
     // ──────────────────────────────────────────────
@@ -1510,6 +1614,10 @@ export default class PdfViewer extends BaseComponent {
             spans.forEach((span) => {
                 span.style.color = 'transparent';
             });
+
+            // The text layer was just rebuilt (innerHTML cleared above), wiping any
+            // text-anchored mark overlays. Let seg_comments re-decorate this page.
+            this._notifyTextLayerRendered(slot);
         } catch (err) {
             window.console.warn('[pdf_viewer] Failed to render text layer:', err);
         }
@@ -1517,6 +1625,28 @@ export default class PdfViewer extends BaseComponent {
         if (this._readOnly) {
             slot.textLayerDiv.classList.add('text-selectable');
         }
+    }
+
+    /**
+     * Notify the text-anchored marks component that a page's text layer was
+     * (re)rendered, so it can re-materialise that page's marks. The event bubbles
+     * up to preview-content where seg_comments listens; it is a no-op if no such
+     * component is present.
+     *
+     * @param {object} slot The page slot whose text layer just rendered.
+     */
+    _notifyTextLayerRendered(slot) {
+        const wrapper = slot.canvasWrapper;
+        if (!wrapper) {
+            return;
+        }
+        wrapper.dispatchEvent(new CustomEvent('unifiedgrader:pdftextlayerrendered', {
+            bubbles: true,
+            detail: {
+                page: parseInt(slot.wrapper && slot.wrapper.dataset.pageNum, 10) || 0,
+                fileid: this._fileid || 0,
+            },
+        }));
     }
 
     /**
@@ -2517,6 +2647,18 @@ export default class PdfViewer extends BaseComponent {
         if (this._onKeyDown) {
             document.removeEventListener('keydown', this._onKeyDown);
             this._onKeyDown = null;
+        }
+        if (this._onSegTextSelect) {
+            document.removeEventListener('unifiedgrader:pdftextselect', this._onSegTextSelect);
+            this._onSegTextSelect = null;
+        }
+        if (this._onMarginReserve) {
+            document.removeEventListener('unifiedgrader:pdfmarginreserve', this._onMarginReserve);
+            this._onMarginReserve = null;
+        }
+        if (this._onMarkTool) {
+            document.removeEventListener('unifiedgrader:pdftool', this._onMarkTool);
+            this._onMarkTool = null;
         }
 
         if (this._pdfDoc) {

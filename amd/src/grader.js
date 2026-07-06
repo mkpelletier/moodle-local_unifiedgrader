@@ -137,6 +137,7 @@ export const init = (containerId) => {
             hascontent: false,
             files: [],
             onlinetext: '',
+            onlinetexthtml: '',
             timecreated: 0,
             timemodified: 0,
             attemptnumber: 0,

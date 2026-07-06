@@ -418,5 +418,39 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026070405, 'local', 'unifiedgrader');
     }
 
+    if ($oldversion < 2026070407) {
+        // Segment marks: a typed mark (comment / tick / cross / highlight / query)
+        // anchored to a translated segment, so ticks and crosses can be placed on
+        // paragraphs alongside text comments.
+        $table = new xmldb_table('local_unifiedgrader_segcomment');
+        $field = new xmldb_field(
+            'marktype',
+            XMLDB_TYPE_CHAR,
+            '20',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            'comment',
+            'commentformat'
+        );
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026070407, 'local', 'unifiedgrader');
+    }
+
+    if ($oldversion < 2026070601) {
+        // PDF text-layer marks (Phase B): a mark on a file source anchors to a
+        // 1-based page plus a char range in that page's PDF.js text layer.
+        $table = new xmldb_table('local_unifiedgrader_segcomment');
+        $field = new xmldb_field('page', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'fileid');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026070601, 'local', 'unifiedgrader');
+    }
+
     return true;
 }

@@ -430,6 +430,7 @@ class assign_adapter extends base_adapter {
             'hascontent' => $hascontent,
             'files' => $files,
             'onlinetext' => $onlinetext,
+            'onlinetexthtml' => $this->get_onlinetext_html($submission),
             'timecreated' => (int) $submission->timecreated,
             'timemodified' => (int) $submission->timemodified,
             // Canonical "when was this submitted, for lateness purposes"
@@ -1796,6 +1797,39 @@ class assign_adapter extends base_adapter {
         foreach ($this->assign->get_submission_plugins() as $plugin) {
             if ($plugin->get_type() === 'onlinetext' && $plugin->is_enabled()) {
                 return $plugin->get_editor_text('onlinetext', $submission->id);
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Get the submission's online text as display-ready HTML.
+     *
+     * Rewrites @@PLUGINFILE@@ URLs and runs format_text so embedded images and
+     * filters render — used for inline annotation of the online text in the
+     * grader (where the raw editor text is not display-ready).
+     *
+     * @param \stdClass $submission The submission record.
+     * @return string The formatted online-text HTML, or '' when there is none.
+     */
+    private function get_onlinetext_html(\stdClass $submission): string {
+        foreach ($this->assign->get_submission_plugins() as $plugin) {
+            if ($plugin->get_type() === 'onlinetext' && $plugin->is_enabled()) {
+                $text = (string) $plugin->get_editor_text('onlinetext', $submission->id);
+                if ($text === '') {
+                    return '';
+                }
+                $format = $plugin->get_editor_format('onlinetext', $submission->id);
+                $context = $this->assign->get_context();
+                $text = file_rewrite_pluginfile_urls(
+                    $text,
+                    'pluginfile.php',
+                    $context->id,
+                    'assignsubmission_onlinetext',
+                    'submissions_onlinetext',
+                    $submission->id
+                );
+                return format_text($text, $format, ['context' => $context]);
             }
         }
         return '';

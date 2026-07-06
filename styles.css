@@ -124,6 +124,16 @@
     margin-top: 4px;
 }
 
+/* When the page (plus its comment column) is wider than the pane, plain
+   `center` overflows BOTH edges and the left edge becomes unreachable by
+   scrolling. `safe center` degrades to flex-start on overflow, keeping the
+   left edge of the document in reach. (Older browsers ignore the invalid
+   value and keep the plain `center` above.) */
+.local-unifiedgrader-container .pdf-page-slot,
+.local-unifiedgrader-feedback .pdf-page-slot {
+    justify-content: safe center;
+}
+
 /* PDF viewer. */
 .local-unifiedgrader-container [data-region="pdf-viewer"] {
     background-color: var(--bs-gray-200, #e9ecef);
@@ -1084,6 +1094,51 @@
     word-break: break-word;
 }
 
+/* Translation view: mirror the PDF viewer's document metaphor — grey workspace
+   backdrop with each source on a centred white "paper" sheet — so toggling
+   between the original and the translation reads as the same document. */
+.local-unifiedgrader-container [data-region="translation-view"] {
+    background-color: var(--bs-gray-200, #e9ecef);
+}
+
+.local-unifiedgrader-translation-slot {
+    display: flex;
+    justify-content: center;
+    padding: 8px 16px;
+}
+
+.local-unifiedgrader-translation-slot:first-child {
+    padding-top: 16px;
+}
+
+.local-unifiedgrader-translation-slot:last-child {
+    padding-bottom: 16px;
+}
+
+.local-unifiedgrader-translation-page {
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    width: 100%;
+    max-width: 794px; /* A4 at 96dpi — matches the PDF page sheet. */
+    padding: 48px 56px;
+}
+
+/* Side-by-side needs room for two comfortable columns. */
+.local-unifiedgrader-translation-page-wide {
+    max-width: 1100px;
+}
+
+@media (max-width: 900px) {
+    .local-unifiedgrader-translation-page {
+        padding: 24px 20px;
+    }
+}
+
+.local-unifiedgrader-translation-body {
+    cursor: text; /* Affordance: this text is selectable (select to comment). */
+    line-height: 1.6;
+}
+
 .local-unifiedgrader-translation-body [data-nida-seg] {
     cursor: pointer;
 }
@@ -1119,8 +1174,13 @@
 .local-unifiedgrader-segcomment-pop {
     position: fixed;
     z-index: 1080;
-    width: 320px;
+    width: 350px;
     max-width: calc(100vw - 16px);
+    /* Never taller than the viewport: scroll internally so the footer
+       (Save / Cancel) is always reachable even with a long library list. */
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    overflow-x: hidden;
     background: #fff;
     border: 1px solid var(--bs-border-color, #dee2e6);
     border-radius: 0.375rem;
@@ -1131,5 +1191,355 @@
     resize: vertical;
     min-height: 60px;
     font-size: 0.8125rem;
+    /* The textarea is a width:100% form-control with m-2 margins; subtract the
+       horizontal margins so its margin-box fits the card (no horizontal scroll). */
+    width: calc(100% - 1rem);
+}
+
+/* Inline comment-library picker inside the segment composer (reuses the annotation
+   picker's list/tag look, but scoped to the fixed composer, not absolute). */
+.local-unifiedgrader-segcomment-pop .picker-list {
+    max-height: 140px;
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color-translucent, rgba(0, 0, 0, 0.08));
+    border-radius: 0.25rem;
+}
+
+.local-unifiedgrader-segcomment-pop .picker-tags {
+    margin-bottom: 0.25rem;
+    font-size: 0.7rem;
+}
+
+.local-unifiedgrader-segcomment-pop .picker-comment-item {
+    padding: 0.25rem 0.4rem;
+    border-bottom: 1px solid var(--bs-border-color-translucent, rgba(0, 0, 0, 0.06));
+    cursor: pointer;
+    font-size: 0.78rem;
+    line-height: 1.3;
+}
+
+.local-unifiedgrader-segcomment-pop .picker-comment-item:last-child {
+    border-bottom: none;
+}
+
+.local-unifiedgrader-segcomment-pop .picker-comment-item:hover {
+    background-color: var(--bs-primary-bg-subtle, #cfe2ff);
+}
+
+.local-unifiedgrader-segcomment-pop .picker-empty {
+    padding: 0.4rem;
+    text-align: center;
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: 0.78rem;
+}
+
+/* Translated-view marking tool strip. */
+.local-unifiedgrader-segtool {
+    min-width: 2rem;
+    font-weight: bold;
+    line-height: 1;
+}
+
+/* Round drawing-colour swatches, in a popout behind one toolbar button whose
+   dot shows the current colour. */
+.local-unifiedgrader-segswatch {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.local-unifiedgrader-segswatch.active {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0f6cbf;
+}
+
+/* The toolbar trigger is itself a swatch showing the current colour — slightly
+   smaller than the popout swatches so it sits comfortably in the strip. */
+.local-unifiedgrader-segswatch-current {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+}
+
+.local-unifiedgrader-segswatch-current:hover,
+.local-unifiedgrader-segswatch-current:focus {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(15, 108, 191, 0.5);
+    outline: none;
+}
+
+/* The swatch popout lays its colours out in a row (d-none still hides it). */
+.local-unifiedgrader-segswatch-pop {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+}
+
+/* While a Fabric canvas tool (shape) is active, the pointer belongs to the
+   drawing canvas — our overlay marks must not intercept draws over marked text. */
+.local-unifiedgrader-canvastool .local-unifiedgrader-pdfmark,
+.local-unifiedgrader-canvastool .local-unifiedgrader-pdfbadge,
+.local-unifiedgrader-canvastool .local-unifiedgrader-pdfpin {
+    pointer-events: none;
+}
+
+/* Vertical rule between toolbar button groups (matches the standard toolbar). */
+.local-unifiedgrader-segtool-sep {
+    display: inline-block;
+    align-self: stretch;
+    width: 0;
+    min-height: 1.4rem;
+    margin: 0 0.15rem;
+    border-left: 1px solid #dee2e6;
+}
+
+/* The mark selected via click (targetable by the toolbar delete button). */
+.local-unifiedgrader-seg-selected {
+    outline: 2px solid rgba(15, 108, 191, 0.9);
+    outline-offset: 1px;
+    border-radius: 2px;
+}
+
+.local-unifiedgrader-seg-card.local-unifiedgrader-seg-selected {
+    box-shadow: 0 0 0 2px rgba(15, 108, 191, 0.9);
+    outline: none;
+}
+
+.local-unifiedgrader-segwarn {
+    font-size: 1.1rem;
+    text-decoration: none;
+}
+
+.local-unifiedgrader-segwarn-pop {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 1085;
+    width: 300px;
+    max-width: calc(100vw - 16px);
+}
+
+/* In a stamp tool the text stays selectable so the grader can drag-select any
+   length to mark (a plain click marks the word/segment under the cursor). */
+.local-unifiedgrader-seg-marking .local-unifiedgrader-seg {
+    cursor: pointer;
+}
+
+.local-unifiedgrader-seg-marking .local-unifiedgrader-seg:hover {
+    background-color: rgba(15, 108, 191, 0.08);
+    border-radius: 2px;
+}
+
+/* Search hit highlight. */
+.local-unifiedgrader-seg-found {
+    background-color: rgba(255, 214, 0, 0.5);
+    border-radius: 2px;
+}
+
+/* Two-column layout: translated text + comment gutter, with an SVG line overlay. */
+.local-unifiedgrader-seg-layout {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.local-unifiedgrader-seg-layout .local-unifiedgrader-translation-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.local-unifiedgrader-seg-gutter {
+    flex: 0 0 250px;
+    width: 250px;
+}
+
+.local-unifiedgrader-seg-gutter:empty {
+    display: none;
+}
+
+.local-unifiedgrader-seg-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.local-unifiedgrader-seg-line {
+    stroke: #0f6cbf;
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+    fill: none;
+    opacity: 0.5;
+}
+
+.local-unifiedgrader-seg-line.local-unifiedgrader-seg-linked {
+    stroke-width: 2;
+    opacity: 1;
+}
+
+/* Numbered comment pin in the text. */
+.local-unifiedgrader-seg-pin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.1rem;
+    height: 1.1rem;
+    padding: 0 0.2rem;
+    margin-right: 2px;
+    border-radius: 0.6rem;
+    background: #0f6cbf;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: bold;
+    line-height: 1;
+    cursor: pointer;
+    vertical-align: super;
+}
+
+/* Gutter comment card. */
+.local-unifiedgrader-seg-card {
+    cursor: pointer;
+    font-size: 0.8125rem;
+    position: relative;
+    z-index: 2;
+}
+
+.local-unifiedgrader-seg-cardnum {
+    font-size: 0.65rem;
+}
+
+/* Linked/active state (hover a pin, phrase or card lights the set). */
+.local-unifiedgrader-seg-linked.local-unifiedgrader-seg-commented,
+.local-unifiedgrader-seg-linked.local-unifiedgrader-seg-card {
+    background-color: rgba(15, 108, 191, 0.22);
+    box-shadow: 0 0 0 2px rgba(15, 108, 191, 0.35);
+}
+
+/* Inline segment stamps (tick / cross / highlight / query). */
+.local-unifiedgrader-seg-stampbadge {
+    margin-right: 2px;
+    font-weight: bold;
+    cursor: pointer;
+    vertical-align: super;
+    font-size: 0.7rem;
+}
+
+.local-unifiedgrader-mark-tick {
+    color: #198754;
+}
+
+.local-unifiedgrader-mark-cross {
+    color: #dc3545;
+}
+
+.local-unifiedgrader-mark-query {
+    color: #0d6efd;
+}
+
+span.local-unifiedgrader-mark-highlight {
+    background-color: rgba(255, 214, 0, 0.4);
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+/* Strike-out mark: a line through the text (no inline badge). Longhands, not the
+   text-decoration shorthand, so an explicit line colour survives the transparent
+   text colour forced on PDF text-layer spans (the strike shows over the canvas). */
+.local-unifiedgrader-mark-strike {
+    text-decoration-line: line-through;
+    text-decoration-color: #dc3545;
+    text-decoration-thickness: 2px;
+    cursor: pointer;
+}
+
+/* PDF marks are painted as OVERLAY RECTANGLES (the technique PDF.js itself uses
+   for search highlights) — the text layer's spans are arbitrarily split and
+   scaleX-transformed, so wrapping them in place mis-measures. The canvas glyphs
+   can't be recoloured (painted pixels): a tinted wash over the marked range, in
+   the mark's colour, is the PDF equivalent of the translated view's coloured
+   text. The overlay ignores the pointer; the rects themselves are clickable. */
+.local-unifiedgrader-pdfmarks {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+}
+
+.local-unifiedgrader-pdfmark {
+    position: absolute;
+    pointer-events: auto;
+    cursor: pointer;
+    border-radius: 2px;
+}
+
+.local-unifiedgrader-pdfmark-comment {
+    background-color: rgba(15, 108, 191, 0.2);
+    border-bottom: 2px solid #0f6cbf;
+}
+
+.local-unifiedgrader-pdfmark-tick {
+    background-color: rgba(25, 135, 84, 0.28);
+}
+
+.local-unifiedgrader-pdfmark-cross {
+    background-color: rgba(220, 53, 69, 0.25);
+}
+
+.local-unifiedgrader-pdfmark-query {
+    background-color: rgba(13, 110, 253, 0.2);
+}
+
+.local-unifiedgrader-pdfmark-highlight {
+    background-color: rgba(255, 214, 0, 0.45);
+}
+
+.local-unifiedgrader-pdfmark-strikethrough {
+    background-color: rgba(220, 53, 69, 0.08);
+    background-image: linear-gradient(
+        to bottom,
+        transparent calc(55% - 1px),
+        #dc3545 calc(55% - 1px),
+        #dc3545 calc(55% + 1px),
+        transparent calc(55% + 1px)
+    );
+}
+
+/* Hover/linked feedback, matching the flowing-text marks. */
+.local-unifiedgrader-pdfmark:hover,
+.local-unifiedgrader-pdfmark.local-unifiedgrader-seg-linked {
+    box-shadow: 0 0 0 2px rgba(15, 108, 191, 0.35);
+}
+
+/* Stamp glyph floated above the start of its marked range. */
+.local-unifiedgrader-pdfbadge {
+    position: absolute;
+    transform: translate(-40%, -70%);
+    pointer-events: auto;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: bold;
+    line-height: 1;
+    text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+}
+
+/* Numbered comment pin floated above the start of its range (inherits the blue
+   circle look from .local-unifiedgrader-seg-pin). */
+.local-unifiedgrader-pdfpin {
+    position: absolute;
+    transform: translate(-45%, -75%);
+    pointer-events: auto;
+    z-index: 1;
+}
+
+/* Narrow pane: drop the gutter + leader lines; pins still open the composer. */
+@media (max-width: 900px) {
+    .local-unifiedgrader-seg-gutter,
+    .local-unifiedgrader-seg-lines {
+        display: none;
+    }
 }
 

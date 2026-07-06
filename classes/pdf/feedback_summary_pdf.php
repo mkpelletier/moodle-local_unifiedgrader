@@ -219,7 +219,7 @@ class feedback_summary_pdf extends \pdf {
         foreach ($data['penalties'] as $penalty) {
             $html .= '<span style="background-color: #FFF3CD; color: #856404; '
                 . 'font-size: 8pt; border-radius: 3px;">'
-                . '&nbsp;&nbsp;' . htmlspecialchars($penalty['text']) . '&nbsp;&nbsp;'
+                . '&nbsp;&nbsp;' . htmlspecialchars(pdf_text::plain($penalty['text'])) . '&nbsp;&nbsp;'
                 . '</span>&nbsp;&nbsp;';
         }
         $html .= '</div>';
@@ -247,8 +247,9 @@ class feedback_summary_pdf extends \pdf {
             get_string('feedback_summary_overall_feedback', 'local_unifiedgrader')
         );
 
-        // Sanitise HTML for TCPDF rendering.
-        $feedback = $this->sanitise_feedback_html($feedback);
+        // Flatten filter_nida markup to the translated content only (the badge
+        // and hidden original are web chrome), then sanitise for TCPDF.
+        $feedback = $this->sanitise_feedback_html(pdf_text::flatten($feedback));
 
         // Wrap in styled container.
         $html = '<div style="font-size: 9pt; color: #212529; line-height: 1.5;">'
@@ -321,11 +322,11 @@ class feedback_summary_pdf extends \pdf {
                 if (!empty($level['selected'])) {
                     $levelshtml .= '<span style="background-color: #CFE2FF; color: #084298; '
                         . 'font-weight: bold;">'
-                        . htmlspecialchars($level['definition'])
+                        . htmlspecialchars(pdf_text::plain($level['definition']))
                         . ' (' . $level['score'] . ' pts)</span><br/>';
                 } else {
                     $levelshtml .= '<span style="color: #6C757D;">'
-                        . htmlspecialchars($level['definition'])
+                        . htmlspecialchars(pdf_text::plain($level['definition']))
                         . ' (' . $level['score'] . ' pts)</span><br/>';
                 }
             }
@@ -341,7 +342,7 @@ class feedback_summary_pdf extends \pdf {
 
             $html .= '<tr>'
                 . '<td style="background-color: ' . $rowbg . '; font-weight: bold; vertical-align: top;">'
-                . htmlspecialchars($criterion['description']) . '</td>'
+                . htmlspecialchars(pdf_text::plain($criterion['description'])) . '</td>'
                 . '<td style="background-color: ' . $rowbg . '; vertical-align: top;">'
                 . $levelshtml . '</td>'
                 . '<td style="background-color: ' . $rowbg . '; text-align: center; vertical-align: top;">'
@@ -354,7 +355,7 @@ class feedback_summary_pdf extends \pdf {
                     . '<td colspan="3" style="background-color: #E8F4FD; color: #055160; '
                     . 'font-style: italic; font-size: 7.5pt; padding-left: 10px;">'
                     . '<span style="font-weight: bold;">Comment:</span> '
-                    . htmlspecialchars($criterion['remark'])
+                    . htmlspecialchars(pdf_text::plain($criterion['remark']))
                     . '</td></tr>';
             }
 
@@ -447,14 +448,14 @@ class feedback_summary_pdf extends \pdf {
 
             $remarkhtml = '';
             if (!empty($criterion['hasremark']) && !empty($criterion['remark'])) {
-                $remarkhtml = htmlspecialchars($criterion['remark']);
+                $remarkhtml = htmlspecialchars(pdf_text::plain($criterion['remark']));
             } else {
                 $remarkhtml = '<span style="color: #ADB5BD; font-style: italic;">No comment</span>';
             }
 
             $html .= '<tr>'
                 . '<td style="background-color: ' . $rowbg . '; font-weight: bold; vertical-align: top;">'
-                . htmlspecialchars($criterion['shortname']) . '</td>'
+                . htmlspecialchars(pdf_text::plain($criterion['shortname'])) . '</td>'
                 . '<td style="background-color: ' . $rowbg . '; text-align: center; vertical-align: top;">'
                 . $scorehtml . '</td>'
                 . '<td style="background-color: ' . $rowbg . '; vertical-align: top;">'
@@ -511,10 +512,10 @@ class feedback_summary_pdf extends \pdf {
 
         $html = '<table cellpadding="3" cellspacing="0" style="font-size: 8pt;">';
         foreach ($data['plagiarismlinks'] as $link) {
-            $label = htmlspecialchars($link['label'] ?? '');
-            // Strip HTML tags from plagiarism output but keep the text content.
-            // The HTML often contains <a> tags with report links that won't work in PDF.
-            $text = trim(strip_tags($link['html'] ?? ''));
+            $label = htmlspecialchars(pdf_text::plain($link['label'] ?? ''));
+            // Reduce plagiarism output to text content (links won't work in a
+            // PDF), flattening any nida markup so badge captions cannot bleed.
+            $text = pdf_text::plain($link['html'] ?? '');
             if (empty($text)) {
                 $text = get_string('plagiarism_pending', 'local_unifiedgrader');
             }
@@ -567,8 +568,9 @@ class feedback_summary_pdf extends \pdf {
             ?? get_string('quiz_your_attempt', 'local_unifiedgrader');
         $this->render_section_heading($title);
 
-        // Convert Bootstrap HTML to TCPDF-compatible inline styles.
-        $html = $this->convert_bootstrap_to_pdf_html($data['additionalcontent']);
+        // Flatten filter_nida markup to the translation, then convert Bootstrap
+        // HTML to TCPDF-compatible inline styles.
+        $html = $this->convert_bootstrap_to_pdf_html(pdf_text::flatten($data['additionalcontent']));
 
         // Sanitise (strip media, event handlers).
         $html = $this->sanitise_feedback_html($html);
