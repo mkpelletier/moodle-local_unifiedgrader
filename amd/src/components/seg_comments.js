@@ -74,6 +74,13 @@ const SHAPES = [
     {shape: 'arrow', icon: 'fa-long-arrow-right', key: 'annotate_shape_arrow', fallback: 'Arrow'},
 ];
 
+/** Freehand pen brush widths (px), matching the classic annotation toolbar. */
+const PEN_WIDTHS = [
+    {width: 1, key: 'annotate_pen_fine', fallback: 'Fine'},
+    {width: 3, key: 'annotate_pen_medium', fallback: 'Medium'},
+    {width: 8, key: 'annotate_pen_thick', fallback: 'Thick'},
+];
+
 /** The shape/drawing colour palette (matches the classic annotation toolbar). */
 const COLORS = [
     {color: '#EF4540', key: 'annotate_red', fallback: 'Red'},
@@ -206,6 +213,12 @@ export default class extends BaseComponent {
         this._shapeColor = '#EF4540';
         /** @type {?HTMLButtonElement} The shape tool button (icon reflects _shape). */
         this._shapeBtn = null;
+        /** @type {number} The active Fabric pen (brush) width. */
+        this._penWidth = 3;
+        /** @type {?Function} Handler for a committed Fabric action (undo timeline). */
+        this._onPdfAction = null;
+        /** @type {?Function} Handler for the Fabric-history purge (zoom). */
+        this._onPdfPurge = null;
     }
 
     /**
@@ -293,6 +306,16 @@ export default class extends BaseComponent {
         this._onPdfTextLayer = () => this._scheduleSync();
         document.addEventListener('unifiedgrader:pdftextlayerrendered', this._onPdfTextLayer);
 
+        // Fabric (shape/pen) actions on the PDF join the strip's unified undo
+        // timeline: one marker per action, tagged with its page; purged on zoom
+        // when the Fabric layers' own undo stacks reset.
+        this._onPdfAction = (e) => {
+            this._recordOp('fabric', {page: parseInt(e.detail && e.detail.page, 10) || 0});
+        };
+        document.addEventListener('unifiedgrader:pdfaction', this._onPdfAction);
+        this._onPdfPurge = () => this._purgeFabricHistory();
+        document.addEventListener('unifiedgrader:pdfpurgehistory', this._onPdfPurge);
+
         this._sync();
     }
 
@@ -303,6 +326,14 @@ export default class extends BaseComponent {
         if (this._onPdfTextLayer) {
             document.removeEventListener('unifiedgrader:pdftextlayerrendered', this._onPdfTextLayer);
             this._onPdfTextLayer = null;
+        }
+        if (this._onPdfAction) {
+            document.removeEventListener('unifiedgrader:pdfaction', this._onPdfAction);
+            this._onPdfAction = null;
+        }
+        if (this._onPdfPurge) {
+            document.removeEventListener('unifiedgrader:pdfpurgehistory', this._onPdfPurge);
+            this._onPdfPurge = null;
         }
         this._hideHoverPop();
         this._observer?.disconnect();
@@ -573,9 +604,11 @@ export default class extends BaseComponent {
         });
         strip.appendChild(tools);
 
-        // Fabric shape tools + colour palette (PDF pixel annotations; hidden on
-        // flowing-text views, which have no drawing canvas).
+        // Fabric drawing tools (PDF pixel annotations; hidden on flowing-text
+        // views, which have no drawing canvas): select/move, shapes, pen, colour.
+        strip.appendChild(this._buildMoveTool());
         strip.appendChild(this._buildShapeCluster());
+        strip.appendChild(this._buildPenCluster());
         strip.appendChild(this._buildColorCluster());
         strip.appendChild(this._sep());
 
@@ -807,7 +840,7 @@ export default class extends BaseComponent {
      * @param {string} tool The tool key.
      */
     _setTool(tool) {
-        const wasShape = this._tool === 'shape';
+        const wasCanvas = this._isCanvasTool();
         this._tool = tool;
         this._strip?.querySelectorAll('[data-segtool]').forEach((b) => {
             b.classList.toggle('active', b.dataset.segtool === tool);
@@ -816,13 +849,20 @@ export default class extends BaseComponent {
         // click lands cleanly on a phrase.
         this._root?.classList.toggle('local-unifiedgrader-seg-marking',
             tool !== 'select' && tool !== 'comment');
-        // Shape mode hands the pointer to the Fabric canvas: our overlay marks
-        // must not intercept draws, and the PDF viewer swaps its own tool +
-        // disables the text layer (via its onToolChange plumbing).
-        this._root?.classList.toggle('local-unifiedgrader-canvastool', tool === 'shape');
+        // A canvas tool (shape/pen) hands the pointer to the Fabric canvas: our
+        // overlay marks must not intercept draws, and the PDF viewer swaps its own
+        // tool + disables the text layer (via its onToolChange plumbing).
+        const isCanvas = this._isCanvasTool();
+        this._root?.classList.toggle('local-unifiedgrader-canvastool', isCanvas);
         if (tool === 'shape') {
             this._dispatchPdfTool({tool: 'shape', shape: this._shape, color: this._shapeColor});
-        } else if (wasShape) {
+        } else if (tool === 'pen') {
+            this._dispatchPdfTool({tool: 'pen', width: this._penWidth, color: this._shapeColor});
+        } else if (tool === 'annotmove') {
+            // Fabric select mode: existing shapes/strokes become selectable and
+            // draggable for fine positioning (the viewer disables the text layer).
+            this._dispatchPdfTool({tool: 'select'});
+        } else if (wasCanvas) {
             this._dispatchPdfTool({tool: 'select'});
             // The viewer turned text selection off for the canvas; our change
             // guard thinks it is still on — force a fresh request.
@@ -830,6 +870,14 @@ export default class extends BaseComponent {
             this._requestPdfTextSelect(true);
         }
         this._updateHistoryButtons();
+    }
+
+    /**
+     * Whether the active tool draws on the Fabric canvas (shape or pen).
+     * @return {boolean}
+     */
+    _isCanvasTool() {
+        return this._tool === 'shape' || this._tool === 'pen' || this._tool === 'annotmove';
     }
 
     /**
@@ -940,7 +988,7 @@ export default class extends BaseComponent {
         this._strip.querySelectorAll('[data-pdf-only="1"]').forEach((el) => {
             el.classList.toggle('d-none', !pdf);
         });
-        if (!pdf && this._tool === 'shape') {
+        if (!pdf && this._isCanvasTool()) {
             this._setTool('comment');
         }
     }
@@ -2465,6 +2513,98 @@ export default class extends BaseComponent {
     }
 
     /**
+     * Build the select/move tool: puts the Fabric layer into select mode so the
+     * grader can click an existing shape/stroke and drag it for fine positioning.
+     * PDF-only.
+     * @return {HTMLElement}
+     */
+    _buildMoveTool() {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-secondary local-unifiedgrader-segtool';
+        btn.dataset.segtool = 'annotmove';
+        btn.dataset.pdfOnly = '1';
+        btn.innerHTML = '<i class="fa fa-arrows-up-down-left-right" aria-hidden="true"></i>';
+        this._str('segtool_move', 'Select / move annotations').then((s) => {
+            btn.title = s;
+            btn.setAttribute('aria-label', s);
+            return s;
+        }).catch(() => {});
+        btn.addEventListener('click', () => this._setTool('annotmove'));
+        return btn;
+    }
+
+    /**
+     * Build the freehand pen tool: a strip button with a popout to pick the
+     * brush width. PDF-only.
+     * @return {HTMLElement}
+     */
+    _buildPenCluster() {
+        const wrap = document.createElement('span');
+        wrap.className = 'position-relative';
+        wrap.dataset.pdfOnly = '1';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-secondary local-unifiedgrader-segtool';
+        btn.dataset.segtool = 'pen';
+        btn.innerHTML = '<i class="fa fa-pencil" aria-hidden="true"></i>';
+        this._str('annotate_pen', 'Pen').then((s) => {
+            btn.title = s;
+            btn.setAttribute('aria-label', s);
+            return s;
+        }).catch(() => {});
+
+        const pop = document.createElement('div');
+        pop.className = 'local-unifiedgrader-segwarn-pop card shadow d-none p-1 d-flex flex-row align-items-center gap-1';
+        pop.style.position = 'absolute';
+        pop.style.top = '100%';
+        pop.style.left = '0';
+        pop.style.right = 'auto';
+        pop.style.zIndex = '1085';
+        pop.style.width = 'auto';
+        PEN_WIDTHS.forEach((w) => {
+            const opt = document.createElement('button');
+            opt.type = 'button';
+            opt.className = 'btn btn-sm btn-outline-secondary border-0 d-flex align-items-center'
+                + (w.width === this._penWidth ? ' active' : '');
+            opt.dataset.penwidth = w.width;
+            // A short line whose thickness previews the brush width.
+            opt.innerHTML = '<span style="display:inline-block;width:22px;height:' + w.width
+                + 'px;background:currentColor;border-radius:' + w.width + 'px;"></span>';
+            this._str(w.key, w.fallback).then((s) => {
+                opt.title = s;
+                opt.setAttribute('aria-label', s);
+                return s;
+            }).catch(() => {});
+            opt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._penWidth = w.width;
+                pop.querySelectorAll('[data-penwidth]').forEach((b) => {
+                    b.classList.toggle('active', parseInt(b.dataset.penwidth, 10) === w.width);
+                });
+                pop.classList.add('d-none');
+                this._setTool('pen');
+            });
+            pop.appendChild(opt);
+        });
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._closePopouts(pop);
+            pop.classList.toggle('d-none');
+            if (this._tool !== 'pen') {
+                this._setTool('pen');
+            }
+        });
+        document.addEventListener('click', () => pop.classList.add('d-none'));
+
+        wrap.appendChild(btn);
+        wrap.appendChild(pop);
+        return wrap;
+    }
+
+    /**
      * Build the drawing colour tool: one button showing the current colour as a
      * dot, expanding to a popout of full-size swatches. PDF-only.
      * @return {HTMLElement}
@@ -2727,6 +2867,21 @@ export default class extends BaseComponent {
     }
 
     /**
+     * Drop Fabric (shape/pen) markers from the undo/redo timeline. Called when the
+     * PDF viewer rebuilds its layers (zoom): the Fabric layers' own undo stacks
+     * reset, so these markers would otherwise undo into empty layers and no-op.
+     * Text-mark ops are unaffected.
+     */
+    _purgeFabricHistory() {
+        const total = this._history.length + this._redoStack.length;
+        this._history = this._history.filter((op) => op.type !== 'fabric');
+        this._redoStack = this._redoStack.filter((op) => op.type !== 'fabric');
+        if (this._history.length + this._redoStack.length !== total) {
+            this._updateHistoryButtons();
+        }
+    }
+
+    /**
      * Reflect history/selection availability on the toolbar buttons.
      */
     _updateHistoryButtons() {
@@ -2737,8 +2892,9 @@ export default class extends BaseComponent {
             this._redoBtn.disabled = !this._redoStack.length;
         }
         if (this._delBtn) {
-            // Shape mode: the trash targets the canvas's selected object instead.
-            this._delBtn.disabled = this._tool !== 'shape' && !this._selectedId;
+            // In a canvas tool the trash targets the canvas's selected object; we
+            // can't cheaply know if one is selected, so keep it enabled there.
+            this._delBtn.disabled = !this._isCanvasTool() && !this._selectedId;
         }
     }
 
@@ -2773,8 +2929,8 @@ export default class extends BaseComponent {
      * Delete the currently selected mark (toolbar delete button).
      */
     _deleteSelected() {
-        // In shape mode the trash acts on the Fabric canvas's selected object.
-        if (this._tool === 'shape') {
+        // In a canvas tool the trash acts on the Fabric canvas's selected object.
+        if (this._isCanvasTool()) {
             this._dispatchPdfTool({action: 'deleteselected'});
             return;
         }
@@ -2794,16 +2950,18 @@ export default class extends BaseComponent {
      * Clears the undo/redo history.
      */
     async _clearAll() {
+        // Also wipe the PDF's drawn (Fabric) annotations — shapes, pen strokes —
+        // which are a separate layer from the text marks.
+        if (this._hasPdf()) {
+            this._dispatchPdfTool({action: 'clearall'});
+        }
         const myId = this._myId();
         const mine = this._comments.filter((c) => !myId || parseInt(c.authorid, 10) === myId);
-        if (!mine.length) {
-            return;
-        }
-        const ids = new Set(mine.map((c) => c.id));
         for (const mark of mine) {
             // eslint-disable-next-line no-await-in-loop
             await this._deleteId(mark.id);
         }
+        const ids = new Set(mine.map((c) => c.id));
         this._comments = this._comments.filter((c) => !ids.has(c.id));
         this._history = [];
         this._redoStack = [];
@@ -2819,6 +2977,14 @@ export default class extends BaseComponent {
     async _undo() {
         const op = this._history.pop();
         if (!op) {
+            return;
+        }
+        // A Fabric (shape/pen) action: the pixel layer repaints itself; just ask
+        // the owning page's layer to undo. No mark re-render needed.
+        if (op.type === 'fabric') {
+            this._dispatchPdfTool({action: 'undo', page: op.data.page});
+            this._redoStack.push(op);
+            this._updateHistoryButtons();
             return;
         }
         if (op.type === 'add') {
@@ -2843,6 +3009,12 @@ export default class extends BaseComponent {
     async _redo() {
         const op = this._redoStack.pop();
         if (!op) {
+            return;
+        }
+        if (op.type === 'fabric') {
+            this._dispatchPdfTool({action: 'redo', page: op.data.page});
+            this._history.push(op);
+            this._updateHistoryButtons();
             return;
         }
         if (op.type === 'add') {

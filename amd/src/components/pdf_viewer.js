@@ -317,10 +317,37 @@ export default class PdfViewer extends BaseComponent {
             if (!this._pdfDoc) {
                 return;
             }
+            // Undo/redo target one specific page's layer (the unified history in
+            // the marks strip records which page each Fabric action was on).
+            if (d.action === 'undo' || d.action === 'redo') {
+                const pageslot = this._pageSlots.get(parseInt(d.page, 10));
+                if (pageslot && pageslot.annotationLayer) {
+                    if (d.action === 'undo') {
+                        pageslot.annotationLayer.undo();
+                    } else {
+                        pageslot.annotationLayer.redo();
+                    }
+                }
+                return;
+            }
             const layer = this._activeAnnotationLayer
                 || [...this._pageSlots.values()].find((s) => s.annotationLayer)?.annotationLayer;
             if (d.action === 'deleteselected') {
                 layer?.deleteSelected();
+                return;
+            }
+            if (d.action === 'clearall') {
+                // Clear every rendered page's Fabric layer (each fires onChange,
+                // which syncs its now-empty state into the central map), then wipe
+                // the map so non-rendered pages are cleared too, and persist.
+                for (const [, slot] of this._pageSlots) {
+                    slot.annotationLayer?.clearAnnotations();
+                }
+                this._pageAnnotations.clear();
+                this._dirty = true;
+                DirtyTracker.markDirty('annotations');
+                this._scheduleSave();
+                this._scheduleCacheWrite();
                 return;
             }
             if (d.color) {
@@ -328,6 +355,13 @@ export default class PdfViewer extends BaseComponent {
                     layer.setColor(d.color);
                 } else {
                     this._currentColor = d.color;
+                }
+            }
+            if (typeof d.width === 'number') {
+                if (layer) {
+                    layer.setBrushWidth(d.width);
+                } else {
+                    this._brushWidth = d.width;
                 }
             }
             if (d.shape) {
@@ -338,7 +372,7 @@ export default class PdfViewer extends BaseComponent {
                 }
             }
             if (d.tool) {
-                const tool = d.tool === 'shape' ? 'shape' : 'select';
+                const tool = (d.tool === 'shape' || d.tool === 'pen') ? d.tool : 'select';
                 if (layer) {
                     layer.setTool(tool);
                 } else {
@@ -939,6 +973,15 @@ export default class PdfViewer extends BaseComponent {
                 this._scheduleCacheWrite();
             });
 
+            // A new Fabric action (draw/place/delete) on this page: record one
+            // marker in the marks strip's unified undo timeline, tagged with the
+            // page so undo/redo can target this layer.
+            layer.onUserAction(() => {
+                document.dispatchEvent(new CustomEvent('unifiedgrader:pdfaction', {
+                    detail: {page: pageNum},
+                }));
+            });
+
             layer.onToolChange((tool) => {
                 // Guard: when propagating setTool to other layers, their
                 // _notifyToolChange fires this callback again. Without this
@@ -1430,7 +1473,11 @@ export default class PdfViewer extends BaseComponent {
         // Flush all annotation states to central map.
         this._saveAllSlotAnnotations();
 
-        // Destroy all slots (DOM + layers).
+        // Destroy all slots (DOM + layers). Fabric per-page undo history does not
+        // survive the rebuild (annotations are re-loaded, but their undo stacks
+        // reset), so tell the marks strip to drop its Fabric undo markers — else
+        // its unified undo would hit empty layers and silently no-op.
+        document.dispatchEvent(new CustomEvent('unifiedgrader:pdfpurgehistory'));
         this._destroyAllSlots();
 
         // Recreate slots at new scale.

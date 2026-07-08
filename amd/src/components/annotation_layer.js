@@ -153,6 +153,14 @@ export default class AnnotationLayer {
         // Callbacks (arrays to support multiple listeners).
         /** @type {Function[]} */
         this._onChangeCallbacks = [];
+        /**
+         * Fired ONLY on a new user action (draw/place/delete), never on undo,
+         * redo or load — so a unified history (the marks strip) can record one
+         * marker per Fabric action and stay in lockstep with this layer's own
+         * undo/redo stacks.
+         * @type {Function[]}
+         */
+        this._onUserActionCallbacks = [];
         /** @type {Function[]} */
         this._onSelectionChangeCallbacks = [];
         /** @type {Function[]} */
@@ -463,6 +471,7 @@ export default class AnnotationLayer {
             this._canvas.discardActiveObject();
             this._canvas.requestRenderAll();
             this._notifyChange();
+            this._fireUserAction();
         }
     }
 
@@ -569,6 +578,22 @@ export default class AnnotationLayer {
      */
     onChange(callback) {
         this._onChangeCallbacks.push(callback);
+    }
+
+    /**
+     * Register a callback fired on a NEW user action only (not undo/redo/load).
+     *
+     * @param {Function} callback Called with no args when the user commits an action.
+     */
+    onUserAction(callback) {
+        this._onUserActionCallbacks.push(callback);
+    }
+
+    /**
+     * Notify listeners that the user committed a new undoable action.
+     */
+    _fireUserAction() {
+        this._onUserActionCallbacks.forEach((cb) => cb());
     }
 
     /**
@@ -738,6 +763,7 @@ export default class AnnotationLayer {
             this._undoStack.push({type: 'add', object: path});
             this._redoStack = [];
             this._notifyChange();
+            this._fireUserAction();
         }
     }
 
@@ -920,6 +946,7 @@ export default class AnnotationLayer {
             this._undoStack.push({type: 'add', object: arrow});
             this._redoStack = [];
             this._notifyChange();
+            this._fireUserAction();
             return;
         }
 
@@ -928,6 +955,7 @@ export default class AnnotationLayer {
         this._undoStack.push({type: 'add', object: shape});
         this._redoStack = [];
         this._notifyChange();
+        this._fireUserAction();
     }
 
     /**
