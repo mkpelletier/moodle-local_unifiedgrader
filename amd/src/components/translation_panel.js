@@ -36,6 +36,7 @@ import {BaseComponent} from 'core/reactive';
 import {get_string as getString} from 'core/str';
 import Ajax from 'core/ajax';
 import Notification from 'core/notification';
+import sanitizeToFragment from '../lib/html_sanitizer';
 
 /** Advisory fallback strings (English) used when local_nida strings are absent. */
 const FALLBACKS = {
@@ -702,7 +703,9 @@ export default class extends BaseComponent {
         } else {
             const body = document.createElement('div');
             body.className = 'local-unifiedgrader-translation-body';
-            body.innerHTML = source.html || '';
+            // source.html is already sanitised server-side (local_nida clean_text());
+            // sanitizeToFragment is a second, independent layer — see its module doc.
+            body.appendChild(sanitizeToFragment(source.html || ''));
             page.appendChild(body);
         }
         return slot;
@@ -743,8 +746,10 @@ export default class extends BaseComponent {
      *
      * The server sends per-segment inner HTML already sanitised by local_nida
      * (clean_text, no spans). We wrap each segment in its OWN data-nida-seg span
-     * created here — wrapping already-clean HTML is XSS-safe — then wire the
-     * cross-column highlight through _wireHighlight().
+     * created here (a trusted attribute set directly, never part of the
+     * untrusted string) and additionally run the segment HTML through
+     * sanitizeToFragment() as a second, independent layer before inserting it —
+     * then wire the cross-column highlight through _wireHighlight().
      *
      * @param {object} alignment {segments: [{id, src, tx}], groups: [[srcIds], [txIds]]}.
      * @return {HTMLElement}
@@ -770,8 +775,9 @@ export default class extends BaseComponent {
             const span = document.createElement('span');
             span.dataset.nidaSeg = id;
             span.className = 'local-unifiedgrader-seg';
-            // html is server-cleaned per-segment inner HTML — safe to assign.
-            span.innerHTML = html || '';
+            // html is server-cleaned per-segment inner HTML; sanitizeToFragment
+            // is the second, independent defense-in-depth layer (see its doc).
+            span.appendChild(sanitizeToFragment(html || ''));
             inner.appendChild(span);
             inner.appendChild(document.createTextNode(' '));
         };
