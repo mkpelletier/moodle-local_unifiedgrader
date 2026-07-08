@@ -483,6 +483,12 @@ class feedback_data_helper {
         if (empty($hashes)) {
             return [];
         }
+        // Defensive: this helper is only reached today through class_exists-guarded
+        // callers, but keep the graceful-fail guarantee local so a future caller
+        // cannot fatal the grader when Nida is uninstalled.
+        if (!class_exists('\local_nida\local\store')) {
+            return [];
+        }
         $rows = (new \local_nida\local\store())->published_for_hashes($hashes);
 
         $rank = [

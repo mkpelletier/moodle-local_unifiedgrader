@@ -139,6 +139,22 @@ class get_submission_translation extends external_api {
             ];
         }
 
+        // English dubs of recorder audio embedded in the submission — grader-only.
+        // local_nida returns each as a ready serve.php URL + filename; older
+        // versions omit the field entirely, so default to none.
+        $audio = [];
+        foreach (($result->audio ?? []) as $clip) {
+            $clip = (array) $clip;
+            $url = (string) ($clip['url'] ?? '');
+            if ($url === '') {
+                continue;
+            }
+            $audio[] = [
+                'url' => $url,
+                'filename' => (string) ($clip['filename'] ?? ''),
+            ];
+        }
+
         return [
             'status' => (string) ($result->status ?? 'unavailable'),
             'hasmetadata' => $hasmetadata,
@@ -148,6 +164,7 @@ class get_submission_translation extends external_api {
             'agreement' => $hasmetadata ? (int) ($result->agreement ?? 1) : 1,
             'mixedflag' => !empty($result->mixedflag),
             'sources' => $sources,
+            'audio' => $audio,
         ];
     }
 
@@ -166,6 +183,7 @@ class get_submission_translation extends external_api {
             'agreement' => 1,
             'mixedflag' => false,
             'sources' => [],
+            'audio' => [],
         ];
     }
 
@@ -217,6 +235,15 @@ class get_submission_translation extends external_api {
                     ),
                 ]),
                 'Per-source translated content',
+                VALUE_DEFAULT,
+                [],
+            ),
+            'audio' => new external_multiple_structure(
+                new external_single_structure([
+                    'url' => new external_value(PARAM_RAW, 'Recorder serve.php URL for the English audio dub'),
+                    'filename' => new external_value(PARAM_TEXT, 'Display name of the dubbed clip', VALUE_DEFAULT, ''),
+                ]),
+                'English dubs of recorder audio embedded in the submission (grader-only)',
                 VALUE_DEFAULT,
                 [],
             ),

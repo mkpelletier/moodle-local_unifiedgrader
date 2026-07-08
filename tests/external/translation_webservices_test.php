@@ -69,6 +69,8 @@ final class translation_webservices_test extends \advanced_testcase {
         $this->assertFalse($result['hasmetadata']);
         $this->assertSame('', $result['detectedlang']);
         $this->assertSame([], $result['sources']);
+        // The audio-dub channel is part of the contract and empty when unavailable.
+        $this->assertSame([], $result['audio']);
     }
 
     /**

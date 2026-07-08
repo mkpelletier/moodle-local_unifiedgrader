@@ -46,6 +46,7 @@ const FALLBACKS = {
     failed: 'This file could not be translated.',
     unsupported: 'This file type is not supported for translation.',
     truncated: 'This document was long and only the first part was translated.',
+    audiodub_heading: 'Audio submission — English dub (machine-generated, advisory only)',
 };
 
 export default class extends BaseComponent {
@@ -329,8 +330,11 @@ export default class extends BaseComponent {
      */
     _updateControls(result) {
         const status = result.status;
-        // Only offer the toggle when a translation is (or will be) available.
-        if (status === 'nottranslated' || status === 'unavailable' || status === 'noattempt') {
+        // An audio-only submission has no text translation but still needs the
+        // panel (to play the English dub), so keep it open when dubs are present.
+        const hasAudio = Array.isArray(result.audio) && result.audio.length > 0;
+        // Only offer the toggle when a translation (or a dub) is available.
+        if (!hasAudio && (status === 'nottranslated' || status === 'unavailable' || status === 'noattempt')) {
             this._hidePanel();
             return;
         }
@@ -563,17 +567,94 @@ export default class extends BaseComponent {
         }
         view.innerHTML = '';
 
-        // Pending: show a placeholder and stop.
+        // Pending: show a placeholder for the text, but still surface any audio
+        // dub below (a dub can finish before the text translation does).
         if (this._data.status === 'pending') {
             const pending = await this._banner('pending', 'alert-info');
             pending.classList.add('m-3');
             view.appendChild(pending);
+        } else {
+            for (const source of this._sourcesForActive()) {
+                view.appendChild(await this._renderSource(source));
+            }
+        }
+
+        await this._renderAudioDubs(view);
+    }
+
+    /**
+     * Render an English audio dub of any recorder clip the student embedded in
+     * their submission, as its own paper sheet with an advisory heading. The dub
+     * is delivered by the recorder's serve.php; we resolve a presigned URL up
+     * front so playback works in browsers that will not follow a media 302.
+     *
+     * @param {HTMLElement} view The translation-view container to append into.
+     * @return {Promise<void>}
+     */
+    async _renderAudioDubs(view) {
+        const dubs = Array.isArray(this._data?.audio) ? this._data.audio : [];
+        if (!dubs.length) {
             return;
         }
 
-        for (const source of this._sourcesForActive()) {
-            view.appendChild(await this._renderSource(source));
+        const slot = document.createElement('div');
+        slot.className = 'local-unifiedgrader-translation-slot';
+        slot.dataset.sourceType = 'audio';
+
+        const page = document.createElement('div');
+        page.className = 'local-unifiedgrader-translation-page';
+        slot.appendChild(page);
+
+        const heading = document.createElement('div');
+        heading.className = 'small text-muted border-bottom pb-2 mb-3';
+        heading.textContent = await this._resolveString('audiodub_heading');
+        page.appendChild(heading);
+
+        dubs.forEach((dub) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'mb-3';
+            if (dub.filename) {
+                const name = document.createElement('div');
+                name.className = 'small fw-semibold mb-1';
+                name.textContent = dub.filename;
+                wrap.appendChild(name);
+            }
+            const audio = document.createElement('audio');
+            audio.controls = true;
+            audio.preload = 'none';
+            audio.className = 'w-100';
+            wrap.appendChild(audio);
+            page.appendChild(wrap);
+            this._resolveDubSrc(dub.url, audio);
+        });
+
+        view.appendChild(slot);
+    }
+
+    /**
+     * Resolve a recorder serve.php URL to a short-lived presigned media URL and
+     * set it on the audio element. Falls back to the redirecting serve.php URL if
+     * the JSON handshake fails (browsers that follow the 302 still play it).
+     *
+     * @param {string} serveUrl The recorder serve.php URL for the dub.
+     * @param {HTMLAudioElement} audioEl The element to set the source on.
+     * @return {Promise<void>}
+     */
+    async _resolveDubSrc(serveUrl, audioEl) {
+        try {
+            const sep = serveUrl.indexOf('?') === -1 ? '?' : '&';
+            const resp = await fetch(serveUrl + sep + 'format=json', {credentials: 'same-origin'});
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && data.url) {
+                    audioEl.src = data.url;
+                    return;
+                }
+            }
+        } catch (e) {
+            // Fall through to the redirect URL below.
         }
+        audioEl.src = serveUrl;
     }
 
     /**
