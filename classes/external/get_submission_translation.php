@@ -114,11 +114,26 @@ class get_submission_translation extends external_api {
         $hasmetadata = isset($result->detectedlang) && $result->detectedlang !== null;
 
         $sources = [];
+        $fs = get_file_storage();
         foreach (($result->sources ?? []) as $source) {
             $source = (array) $source;
             $alignment = $source['alignment'] ?? null;
             if ($alignment !== null && !is_string($alignment)) {
                 $alignment = json_encode($alignment);
+            }
+            // File metadata for the document-info popout (empty for online text).
+            // Reading mimetype/filesize off the stored file is metadata-only — no
+            // content is served here — and the fileid comes from local_nida's
+            // server-side submission API, not the client.
+            $fileid = (int) ($source['fileid'] ?? 0);
+            $mimetype = '';
+            $filesize = 0;
+            if ($fileid > 0) {
+                $storedfile = $fs->get_file_by_id($fileid);
+                if ($storedfile && !$storedfile->is_directory()) {
+                    $mimetype = (string) $storedfile->get_mimetype();
+                    $filesize = (int) $storedfile->get_filesize();
+                }
             }
             $sources[] = [
                 'type' => (string) ($source['type'] ?? 'onlinetext'),
@@ -126,7 +141,9 @@ class get_submission_translation extends external_api {
                 // Stored-file id a segment comment on this source must anchor to
                 // (0 for online text). The grader JS sends it back on save so the
                 // resolver can locate the file's source segment.
-                'fileid' => (int) ($source['fileid'] ?? 0),
+                'fileid' => $fileid,
+                'mimetype' => $mimetype,
+                'filesize' => $filesize,
                 // Content is pre-sanitised by local_nida (clean_text, FORMAT_HTML)
                 // before it leaves its submission_api; UG passes it through
                 // unchanged. The alignment payload carries per-segment inner HTML
@@ -217,6 +234,18 @@ class get_submission_translation extends external_api {
                     'fileid' => new external_value(
                         PARAM_INT,
                         '{files}.id a segment comment on this source anchors to (0 for online text)',
+                        VALUE_DEFAULT,
+                        0,
+                    ),
+                    'mimetype' => new external_value(
+                        PARAM_RAW,
+                        'Source file MIME type for the document-info popout (empty for online text)',
+                        VALUE_DEFAULT,
+                        '',
+                    ),
+                    'filesize' => new external_value(
+                        PARAM_INT,
+                        'Source file size in bytes (0 for online text)',
                         VALUE_DEFAULT,
                         0,
                     ),

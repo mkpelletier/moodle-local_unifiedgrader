@@ -452,5 +452,18 @@ function xmldb_local_unifiedgrader_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026070601, 'local', 'unifiedgrader');
     }
 
+    if ($oldversion < 2026071601) {
+        // Per-comment marker colour: the grader's selected colour is stored so the
+        // numbered pin (and caret/highlight) render in that colour. Nullable — an
+        // unset colour falls back to the default in the client.
+        $table = new xmldb_table('local_unifiedgrader_segcomment');
+        $field = new xmldb_field('color', XMLDB_TYPE_CHAR, '7', null, null, null, null, 'marktype');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026071601, 'local', 'unifiedgrader');
+    }
+
     return true;
 }

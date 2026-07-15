@@ -306,6 +306,19 @@ export default class PdfViewer extends BaseComponent {
         };
         document.addEventListener('unifiedgrader:pdfmarginreserve', this._onMarginReserve);
 
+        // The seg_comments doc-info popout can't count a whole PDF itself, so it
+        // asks the viewer (which has the pdf.js text layers) for the word count and
+        // renders the reply. Only the viewer showing that file answers.
+        this._onRequestWordCount = async (e) => {
+            const fileid = parseInt(e.detail && e.detail.fileid, 10) || 0;
+            if (!fileid || fileid !== this._fileid || !this._pdfDoc) {
+                return;
+            }
+            const words = await this._getWordCount(fileid);
+            document.dispatchEvent(new CustomEvent('unifiedgrader:wordcount', {detail: {fileid, words}}));
+        };
+        document.addEventListener('unifiedgrader:requestwordcount', this._onRequestWordCount);
+
         // The unified marks strip drives the Fabric drawing tools (shapes and
         // colour) through this event. Driving ONE live layer is enough: setTool
         // fires the onToolChange propagation and setColor/setShapeType are
@@ -516,6 +529,8 @@ export default class PdfViewer extends BaseComponent {
             filename: file.filename || '',
             filesize: file.filesize || 0,
             mimetype: file.mimetype || '',
+            timecreated: file.timecreated || 0,
+            timemodified: file.timemodified || 0,
         };
     }
 
@@ -1577,15 +1592,46 @@ export default class PdfViewer extends BaseComponent {
 
         const info = {
             filename: this._fileInfo?.filename || '',
+            mimetype: this._fileInfo?.mimetype || '',
             filesize: this._fileInfo?.filesize || 0,
+            filetimecreated: this._fileInfo?.timecreated || 0,
+            filetimemodified: this._fileInfo?.timemodified || 0,
             pages: this._totalPages,
             metadata: metadata,
         };
 
         const fileid = this._fileid;
         const wordCountFn = () => this._getWordCount(fileid);
+        const commentCountFn = () => this._countCommentAnnotations();
 
-        this._annotationToolbar.setDocumentInfo(info, wordCountFn);
+        this._annotationToolbar.setDocumentInfo(info, wordCountFn, commentCountFn);
+    }
+
+    /**
+     * Count comment-type annotations across every page for the current file.
+     *
+     * Flushes rendered-slot changes into the central map first so comments added
+     * this session are included, then tallies objects with annotationType
+     * 'comment'.
+     *
+     * @returns {number}
+     */
+    _countCommentAnnotations() {
+        try {
+            this._saveAllSlotAnnotations();
+        } catch {
+            // Best-effort flush — fall back to whatever is already in the map.
+        }
+        let count = 0;
+        this._pageAnnotations.forEach((json) => {
+            const objects = (json && json.objects) || [];
+            objects.forEach((obj) => {
+                if (obj && obj.annotationType === 'comment') {
+                    count += 1;
+                }
+            });
+        });
+        return count;
     }
 
     /**
@@ -2701,6 +2747,7 @@ export default class PdfViewer extends BaseComponent {
         }
         if (this._onMarginReserve) {
             document.removeEventListener('unifiedgrader:pdfmarginreserve', this._onMarginReserve);
+            document.removeEventListener('unifiedgrader:requestwordcount', this._onRequestWordCount);
             this._onMarginReserve = null;
         }
         if (this._onMarkTool) {

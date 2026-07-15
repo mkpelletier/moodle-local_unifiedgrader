@@ -49,7 +49,7 @@ two views, toggled by the recording switcher:</p>
 
 <ul>
     <li><strong>All sessions</strong> (default): cumulative chats, talks, raise-hand events, poll votes, emoji reactions, and total attendance duration across every session the student attended. The <em>Activity Score</em> tile shows BBB's 0-10 composite, averaged across sessions.</li>
-    <li><strong>Per-session</strong>: clicking a recording pill loads that recording in the iframe <em>and</em> filters the card to that session's metrics with the session's exact Activity Score badge.</li>
+    <li><strong>Per-session</strong>: clicking a recording pill loads that recording — the annotation overlay when <code>bbbext_advgrd</code> is installed, otherwise the iframe — <em>and</em> filters the card to that session's metrics with the session's exact Activity Score badge. The pill is the single recording selector: in overlay mode it reloads the preview scoped to that recording (there is no separate dropdown).</li>
 </ul>
 
 <p>Sessions match recordings on BBB's internal recording id (the same string
@@ -112,10 +112,25 @@ JOIN logs Moodle writes itself when a student clicks <em>Join</em>).
 Non-attendees show a <em>"Did not attend"</em> badge but remain gradeable.</p>
 
 <h4>Group mode</h4>
-<p>BBB tags meetings and recordings with a <code>groupid</code>; the
-adapter inherits that filter when it lists recordings, so the recording
-switcher only shows recordings visible to the active group. Engagement
-data is scoped per-user regardless of group.</p>
+<p>BBB tags meetings and recordings with a <code>groupid</code>, and its recording
+API filters by the <em>viewer's</em> group. In a <strong>separate-groups</strong>
+activity a student (without <em>access all groups</em>) therefore only sees
+recordings for their own group, and the switcher lists just those; a grader with
+<em>access all groups</em> sees every recording. Engagement data is scoped
+per-user regardless of group.</p>
+
+<div class="alert alert-info">
+    <strong>Student feedback is always reachable
+    <span class="badge bg-secondary">v2.7.0</span>.</strong> That group filter
+    would otherwise hide the recording a student's annotation feedback lives on
+    (a different group, or a <code>groupid&nbsp;0</code> meeting), leaving them
+    with no selector and no feedback. So the adapter and the
+    <code>bbbext_advgrd</code> overlay additionally surface every recording the
+    student has feedback on — looked up by feedback and fetched by recording id,
+    which bypasses the group filter — and the student auto-lands on a recording
+    that carries their comments. Separate-groups students always see their
+    feedback, even when the recording itself sits outside their group.
+</div>
 
 <div class="local-unifiedgrader-help-screenshot">
     <i class="fa fa-image" aria-hidden="true"></i>

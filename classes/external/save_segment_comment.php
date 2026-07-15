@@ -68,6 +68,12 @@ class save_segment_comment extends external_api {
                 VALUE_DEFAULT,
                 'comment'
             ),
+            'color' => new external_value(
+                PARAM_RAW_TRIMMED,
+                'Marker colour as #RRGGBB hex; empty uses the default',
+                VALUE_DEFAULT,
+                ''
+            ),
         ]);
     }
 
@@ -88,6 +94,7 @@ class save_segment_comment extends external_api {
      * @param string $commenttext The grader comment (HTML).
      * @param int $commentformat The comment text format.
      * @param string $marktype The mark type: comment, tick, cross, highlight or query.
+     * @param string $color Marker colour (#RRGGBB) or '' for the default.
      * @return array The stored comment (fields for the client to render a marker).
      */
     public static function execute(
@@ -99,7 +106,8 @@ class save_segment_comment extends external_api {
         array $srcsegids,
         string $commenttext,
         int $commentformat = FORMAT_HTML,
-        string $marktype = 'comment'
+        string $marktype = 'comment',
+        string $color = ''
     ): array {
         global $USER, $CFG;
 
@@ -113,6 +121,7 @@ class save_segment_comment extends external_api {
             'commenttext' => $commenttext,
             'commentformat' => $commentformat,
             'marktype' => $marktype,
+            'color' => $color,
         ]);
         $marktype = segment_comment_manager::normalise_marktype($params['marktype']);
 
@@ -171,6 +180,8 @@ class save_segment_comment extends external_api {
             $clean,
             FORMAT_HTML,
             $marktype,
+            0,
+            $params['color'],
         );
 
         return [
@@ -184,6 +195,7 @@ class save_segment_comment extends external_api {
             'commenttext' => (string) $record->commenttext,
             'commentformat' => (int) $record->commentformat,
             'marktype' => (string) $record->marktype,
+            'color' => (string) ($record->color ?? ''),
             'authorid' => (int) $record->authorid,
             'timecreated' => (int) $record->timecreated,
             'timemodified' => (int) $record->timemodified,
@@ -284,6 +296,7 @@ class save_segment_comment extends external_api {
             'commenttext' => new external_value(PARAM_RAW, 'The stored comment (cleaned HTML)'),
             'commentformat' => new external_value(PARAM_INT, 'Comment text format'),
             'marktype' => new external_value(PARAM_ALPHA, 'Mark type: comment, tick, cross, highlight or query'),
+            'color' => new external_value(PARAM_RAW, 'Marker colour (#RRGGBB) or empty for the default'),
             'authorid' => new external_value(PARAM_INT, 'Author (grader) user id'),
             'timecreated' => new external_value(PARAM_INT, 'Creation timestamp'),
             'timemodified' => new external_value(PARAM_INT, 'Last modified timestamp'),

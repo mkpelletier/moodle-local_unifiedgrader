@@ -114,6 +114,7 @@
 }}
 <div class="local-unifiedgrader-feedback" data-region="feedback-viewer"
      data-cmid="{{cmid}}" data-fileid="{{selectedfileid}}"
+     data-userid="{{userid}}" data-attempt="{{selectedattempt}}"
      data-pdfurl="{{selectedfileurl}}" data-pdffiles="{{pdffilesjson}}"
      data-annotatedpdfmap="{{annotatedpdfmapjson}}">
 
@@ -296,7 +297,10 @@
                     </div>
                 {{/hasannotationtranslations}}
 
-                {{! Translated segment-anchored comments on the student's submission (local_nida) }}
+                {{! Segment-anchored comments as a plain list — only for non-PDF (online-text) submissions.
+                    PDF submissions render these in place on the document (numbered pins + margin cards via
+                    the read-only seg_comments view), so the list here would be redundant. }}
+                {{^haspdffiles}}
                 {{#hassegmentcomments}}
                     <div class="card {{#hasfeedback}}mt-3{{/hasfeedback}}{{^hasfeedback}}{{#hasannotationtranslations}}mt-3{{/hasannotationtranslations}}{{/hasfeedback}}"
                          data-region="segment-comments">
@@ -308,20 +312,29 @@
                         </div>
                         <div class="card-body p-0">
                             {{#segmentcomments}}
-                                <div class="border-bottom p-3">
-                                    <blockquote class="small text-muted fst-italic mb-2 ps-2 border-start border-2">
-                                        &ldquo;{{{anchortext}}}&rdquo;
-                                    </blockquote>
-                                    <div class="mb-0 p-2 rounded small"
-                                         style="background-color: rgba(13, 202, 240, 0.08);
-                                                border: 1px solid rgba(13, 202, 240, 0.25);">
-                                        <div>{{{displayhtml}}}</div>
+                                <div class="border-bottom p-3" data-segnum="{{number}}">
+                                    <div class="d-flex align-items-start gap-2">
+                                        <span class="badge rounded-pill flex-shrink-0"
+                                              style="background-color: {{color}}; color: {{inkcolor}};">{{number}}</span>
+                                        <div class="flex-grow-1">
+                                            {{#showanchor}}
+                                                <blockquote class="small text-muted fst-italic mb-2 ps-2 border-start border-2">
+                                                    &ldquo;{{{anchortext}}}&rdquo;
+                                                </blockquote>
+                                            {{/showanchor}}
+                                            <div class="mb-0 p-2 rounded small"
+                                                 style="background-color: rgba(13, 202, 240, 0.08);
+                                                        border: 1px solid rgba(13, 202, 240, 0.25);">
+                                                <div>{{{displayhtml}}}</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             {{/segmentcomments}}
                         </div>
                     </div>
                 {{/hassegmentcomments}}
+                {{/haspdffiles}}
 
                 {{! Rubric display (read-only) }}
                 {{#hasrubric}}

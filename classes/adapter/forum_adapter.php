@@ -764,6 +764,17 @@ class forum_adapter extends base_adapter {
                 false,
             );
             foreach ($files as $file) {
+                // A recording / image / archive can never produce a plagiarism
+                // result — show a neutral note rather than the vendor's red
+                // "scan failed" (see plagiarism_applies_to_file()).
+                if (!$this->plagiarism_applies_to_file($file)) {
+                    $results[] = [
+                        'label' => $file->get_filename(),
+                        'html' => '',
+                        'notapplicable' => true,
+                    ];
+                    continue;
+                }
                 $filehtml = plagiarism_get_links([
                     'userid' => $userid,
                     'file' => $file,
@@ -775,6 +786,7 @@ class forum_adapter extends base_adapter {
                     $results[] = [
                         'label' => $file->get_filename(),
                         'html' => $filehtml,
+                        'notapplicable' => false,
                     ];
                 }
             }

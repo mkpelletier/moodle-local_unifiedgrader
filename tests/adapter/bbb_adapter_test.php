@@ -163,6 +163,233 @@ final class bbb_adapter_test extends \advanced_testcase {
     }
 
     /**
+     * Build an adapter whose recording list is stubbed with synthetic entries.
+     *
+     * This is the only way to exercise the multi-recording switcher in PHPUnit:
+     * real recordings are fetched from the (mock) BBB server, which the test
+     * harness can't reach, so recording::get_recordings_for_instance() always
+     * comes back empty here. We stub bbb_adapter::get_recordings_for_user()
+     * instead and let the rest of get_submission_data() run for real.
+     *
+     * @param \stdClass $scenario The grading scenario (cm, context, course).
+     * @param array $recordings Synthetic recording rows to return.
+     * @return bbb_adapter
+     */
+    private function adapter_with_recordings(\stdClass $scenario, array $recordings): bbb_adapter {
+        $adapter = $this->getMockBuilder(bbb_adapter::class)
+            ->setConstructorArgs([$scenario->cm, $scenario->context, $scenario->course])
+            ->onlyMethods(['get_recordings_for_user'])
+            ->getMock();
+        $adapter->method('get_recordings_for_user')->willReturn($recordings);
+        return $adapter;
+    }
+
+    /**
+     * Build one synthetic recording row shaped like get_recordings_for_user() output.
+     *
+     * @param string $ref The BBB internal recording id (data-recordingref / overlay id).
+     * @param string $url The playback URL that becomes activerecordingurl when selected.
+     * @param string $label The session label shown on the pill.
+     * @param int $id The Moodle recording entity id.
+     * @return array
+     */
+    private function fake_recording(string $ref, string $url, string $label, int $id): array {
+        return [
+            'recordingid' => $id,
+            'bbbrecordingid' => $ref,
+            'name' => $label,
+            'playbackurl' => $url,
+            'statisticsurl' => '',
+            'hasstatisticsurl' => false,
+            'starttime' => 1000,
+            'endtime' => 2000,
+            'groupid' => 0,
+            'sessionlabel' => $label,
+        ];
+    }
+
+    /**
+     * Assert whether the switcher pill carrying $attr="$value" is rendered active.
+     *
+     * The template puts the `active` class first in the <button> tag (in `class`),
+     * ahead of the data-* attributes, so an active pill matches
+     * `<button …active…$attr="$value"…>` within a single tag.
+     *
+     * @param string $content Rendered submission HTML.
+     * @param string $attr The identifying attribute name (e.g. data-recordingref).
+     * @param string $value The identifying attribute value.
+     * @param bool $active Whether the pill is expected to be active.
+     */
+    private function assert_pill_active(string $content, string $attr, string $value, bool $active): void {
+        $re = '/<button\b[^>]*\bactive\b[^>]*' . preg_quote($attr . '="' . $value . '"', '/') . '/s';
+        $this->assertSame(
+            $active ? 1 : 0,
+            preg_match($re, $content),
+            "Pill {$attr}=\"{$value}\" active state should be " . ($active ? 'true' : 'false'),
+        );
+    }
+
+    /**
+     * Regression: get_submission_data() must pin the player + annotation overlay
+     * to the recording named by the ?recordingid switcher param.
+     *
+     * Before the switcher fix this param was ignored, so the overlay always fell
+     * back to the first recording — which is why students (and graders) could not
+     * see feedback on any recording but the earliest.
+     */
+    public function test_get_submission_data_pins_selection_to_recordingid_param(): void {
+        $this->resetAfterTest();
+
+        $s = $this->create_scenario();
+        $recordings = [
+            $this->fake_recording('rec-alpha', 'https://bbb.test/play/ALPHA', 'Session A', 101),
+            $this->fake_recording('rec-bravo', 'https://bbb.test/play/BRAVO', 'Session B', 102),
+        ];
+        $adapter = $this->adapter_with_recordings($s->scenario, $recordings);
+
+        // The grader/student picked the SECOND recording; the switcher reload
+        // carries its id as ?recordingid.
+        $_POST['recordingid'] = 'rec-bravo';
+
+        $content = $adapter->get_submission_data($s->scenario->students[0]->id)['content'];
+
+        // The activerecordingurl (the "Open in new tab" href, rendered on both the
+        // overlay and iframe paths) is the chosen recording's URL — the same id
+        // handed to bbbext_advgrd_render_overlay(), so this proves both the player
+        // and the annotation overlay pivot to the selection.
+        $this->assertStringContainsString('href="https://bbb.test/play/BRAVO"', $content);
+        $this->assertStringNotContainsString('href="https://bbb.test/play/ALPHA"', $content);
+
+        // The second pill is highlighted; the first pill and "All sessions" are not.
+        $this->assert_pill_active($content, 'data-recordingref', 'rec-bravo', true);
+        $this->assert_pill_active($content, 'data-recordingref', 'rec-alpha', false);
+        $this->assert_pill_active($content, 'data-action', 'bbb-show-aggregate', false);
+    }
+
+    /**
+     * With no ?recordingid param, get_submission_data() defaults to the aggregate
+     * "All sessions" view with the first recording loaded in the player.
+     */
+    public function test_get_submission_data_defaults_to_all_sessions(): void {
+        $this->resetAfterTest();
+
+        $s = $this->create_scenario();
+        $recordings = [
+            $this->fake_recording('rec-alpha', 'https://bbb.test/play/ALPHA', 'Session A', 101),
+            $this->fake_recording('rec-bravo', 'https://bbb.test/play/BRAVO', 'Session B', 102),
+        ];
+        $adapter = $this->adapter_with_recordings($s->scenario, $recordings);
+
+        // No recordingid param set.
+        $content = $adapter->get_submission_data($s->scenario->students[0]->id)['content'];
+
+        // Player defaults to the first recording.
+        $this->assertStringContainsString('href="https://bbb.test/play/ALPHA"', $content);
+        // The "All sessions" pill is active; no individual recording is highlighted.
+        $this->assert_pill_active($content, 'data-action', 'bbb-show-aggregate', true);
+        $this->assert_pill_active($content, 'data-recordingref', 'rec-alpha', false);
+        $this->assert_pill_active($content, 'data-recordingref', 'rec-bravo', false);
+    }
+
+    /**
+     * An unrecognised ?recordingid (e.g. a recording since deleted) falls back to
+     * the aggregate view rather than erroring or blanking the player.
+     */
+    public function test_get_submission_data_unknown_recordingid_falls_back(): void {
+        $this->resetAfterTest();
+
+        $s = $this->create_scenario();
+        $recordings = [
+            $this->fake_recording('rec-alpha', 'https://bbb.test/play/ALPHA', 'Session A', 101),
+            $this->fake_recording('rec-bravo', 'https://bbb.test/play/BRAVO', 'Session B', 102),
+        ];
+        $adapter = $this->adapter_with_recordings($s->scenario, $recordings);
+
+        $_POST['recordingid'] = 'rec-deleted-999';
+
+        $content = $adapter->get_submission_data($s->scenario->students[0]->id)['content'];
+
+        // Falls back to the first recording + the "All sessions" aggregate pill.
+        $this->assertStringContainsString('href="https://bbb.test/play/ALPHA"', $content);
+        $this->assert_pill_active($content, 'data-action', 'bbb-show-aggregate', true);
+        $this->assert_pill_active($content, 'data-recordingref', 'rec-bravo', false);
+    }
+
+    /**
+     * Build an adapter with both the recording list and the feedback-recording-id
+     * lookup stubbed.
+     *
+     * @param \stdClass $scenario
+     * @param array $recordings Synthetic recording rows.
+     * @param array $feedbackids Recording ids the target user has feedback on.
+     * @return bbb_adapter
+     */
+    private function adapter_with_feedback(\stdClass $scenario, array $recordings, array $feedbackids): bbb_adapter {
+        $adapter = $this->getMockBuilder(bbb_adapter::class)
+            ->setConstructorArgs([$scenario->cm, $scenario->context, $scenario->course])
+            ->onlyMethods(['get_recordings_for_user', 'get_feedback_recording_ids'])
+            ->getMock();
+        $adapter->method('get_recordings_for_user')->willReturn($recordings);
+        $adapter->method('get_feedback_recording_ids')->willReturn($feedbackids);
+        return $adapter;
+    }
+
+    /**
+     * Regression: a student viewing their OWN feedback (no ?recordingid) must land
+     * on the recording that carries their feedback, not the aggregate / first
+     * recording. This is the separate-groups case — BBB hides the fed-back
+     * recording from the student, so it's surfaced by feedback id and made the
+     * default so their comments actually show.
+     */
+    public function test_get_submission_data_student_lands_on_feedback_recording(): void {
+        $this->resetAfterTest();
+
+        $s = $this->create_scenario();
+        $student = $s->scenario->students[0];
+        $recordings = [
+            $this->fake_recording('rec-alpha', 'https://bbb.test/play/ALPHA', 'Session A', 101),
+            $this->fake_recording('rec-bravo', 'https://bbb.test/play/BRAVO', 'Session B', 102),
+        ];
+        // Their feedback lives on the SECOND recording only.
+        $adapter = $this->adapter_with_feedback($s->scenario, $recordings, ['rec-bravo']);
+
+        // Student is the current user viewing their own feedback; no recordingid.
+        $this->setUser($student);
+        $content = $adapter->get_submission_data($student->id)['content'];
+
+        // Player + overlay default to the fed-back recording, and its pill is lit.
+        $this->assertStringContainsString('href="https://bbb.test/play/BRAVO"', $content);
+        $this->assert_pill_active($content, 'data-recordingref', 'rec-bravo', true);
+        $this->assert_pill_active($content, 'data-action', 'bbb-show-aggregate', false);
+    }
+
+    /**
+     * A grader viewing a student's submission is NOT forced onto the feedback
+     * recording — they keep the aggregate default and can still pick any pill.
+     * (The auto-land is scoped to a viewer looking at their own feedback.)
+     */
+    public function test_get_submission_data_grader_keeps_aggregate_default(): void {
+        $this->resetAfterTest();
+
+        // The create_scenario() helper sets the current user to the teacher.
+        $s = $this->create_scenario();
+        $student = $s->scenario->students[0];
+        $recordings = [
+            $this->fake_recording('rec-alpha', 'https://bbb.test/play/ALPHA', 'Session A', 101),
+            $this->fake_recording('rec-bravo', 'https://bbb.test/play/BRAVO', 'Session B', 102),
+        ];
+        $adapter = $this->adapter_with_feedback($s->scenario, $recordings, ['rec-bravo']);
+
+        // Teacher (current user) viewing the student's feedback.
+        $content = $adapter->get_submission_data($student->id)['content'];
+
+        // Aggregate default: first recording in the player, "All sessions" lit.
+        $this->assertStringContainsString('href="https://bbb.test/play/ALPHA"', $content);
+        $this->assert_pill_active($content, 'data-action', 'bbb-show-aggregate', true);
+        $this->assert_pill_active($content, 'data-recordingref', 'rec-bravo', false);
+    }
+
+    /**
      * Test get_submission_data aggregates engagement metrics across multiple sessions.
      */
     public function test_get_submission_data_aggregates_metrics(): void {

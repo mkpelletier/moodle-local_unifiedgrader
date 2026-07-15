@@ -71,6 +71,10 @@ grading to work.</p>
     <text x="614" y="134" class="cp-text cp-text-bold">TinyMCE recorder</text>
     <text x="614" y="152" class="cp-label">audio / video feedback inline</text>
 
+    <rect x="600" y="180" width="180" height="50" rx="6" class="cp-opt"/>
+    <text x="614" y="204" class="cp-text cp-text-bold">local_nida</text>
+    <text x="614" y="222" class="cp-label">submission / feedback translation</text>
+
     <!-- Arrows from core to companions -->
     <path d="M400 220 L105 280" class="cp-arrow" marker-end="url(#cp-arrowhead)"/>
     <path d="M400 220 L285 280" class="cp-arrow" marker-end="url(#cp-arrowhead)"/>
@@ -79,6 +83,7 @@ grading to work.</p>
     <path d="M520 175 L600 75" class="cp-arrow" marker-end="url(#cp-arrowhead)"/>
     <path d="M520 190 L600 135" class="cp-arrow" marker-end="url(#cp-arrowhead)"/>
     <path d="M280 175 L200 80" class="cp-arrow" marker-end="url(#cp-arrowhead)"/>
+    <path d="M520 200 L600 205" class="cp-arrow" marker-end="url(#cp-arrowhead)"/>
 </svg>
 <figcaption class="text-muted small">
     Solid green is this plugin. Blue is the four supported activity types.
@@ -115,6 +120,63 @@ the assignment's submission plugin configuration directly.</p>
     <span>Screenshot: Byblos portfolio rendered in the preview pane with the
     pop-out button visible top-right and the Portfolio pill highlighted in the
     right-rail file selector.</span>
+</div>
+</section>
+
+{{! ----- local_nida translation ----- }}
+<section id="plugin-nida">
+<h3>local_nida — submission &amp; feedback translation <span class="badge bg-secondary">v2.7.0</span></h3>
+
+<p><code>local_nida</code> teaches the grader to work across a language barrier:
+it renders a machine <strong>translation of a non-English submission</strong> for
+the marker, and translates the marker's <strong>feedback back into the student's
+language</strong>. It is opt-in per course — an admin enables the course and
+picks its target languages — and when it isn't installed, or a course isn't
+enabled, every hook below degrades silently and grading is unchanged.</p>
+
+<h4>Translation panel (what the grader sees)</h4>
+<p>For an assignment whose submission isn't in English, the preview pane gains a
+translation view driven by
+<code>local_unifiedgrader_get_submission_translation</code>:</p>
+<ul>
+    <li><strong>English translation</strong> of the online text and each extractable file, shown alongside the original. A <em>machine-translation advisory</em> pill and a <em>mixed-language</em> warning make the provenance explicit; a <em>side-by-side (parallel)</em> sub-mode aligns source and translation segment by segment.</li>
+    <li><strong>Submission-language badge.</strong> nida detects the language and the marker can confirm or override it (<code>local_unifiedgrader_confirm_student_language</code>) so feedback is translated back into the right language. The override list is the course's target languages plus English; when the detected language isn't one of them (e.g. French in a course that doesn't target it) the selector leads with a disabled placeholder showing the detected code rather than silently pre-selecting English.</li>
+    <li><strong>Audio dub.</strong> When the submission embeds recorder audio, the panel can play a machine-generated <em>English dub</em> of it (grader-only, advisory).</li>
+</ul>
+
+<h4>Over-the-page segment comments</h4>
+<p>Beyond whole-submission feedback, a marker can comment on an individual
+<em>phrase</em> of the submission text. Each comment is anchored to a source
+segment server-side — resolved against nida's aligned source <em>by hash</em>, so
+no segment identifier is ever trusted from the browser — via
+<code>local_unifiedgrader_save_segment_comment</code>. On the student's feedback
+page every segment comment is rendered in the viewer's own language.</p>
+
+<h4>Translated feedback for the student</h4>
+<p>On the student feedback view, feedback reaches the student in their language
+across every channel:</p>
+<ul>
+    <li>Overall feedback, rubric and marking-guide remarks flow through <code>format_text()</code> and are swapped automatically by the nida filter.</li>
+    <li>PDF-annotation text bypasses <code>format_text()</code>, so it's delivered as a page-keyed translated list built by <code>feedback_data_helper::build_annotation_translations()</code>.</li>
+    <li>Segment comments are translated and resolved from the nida store by hash (<code>build_segment_comment_translations()</code>).</li>
+    <li>A <em>translation-pending</em> indicator shows while nida is still translating a channel (<code>feedback_api::get_feedback_status()</code>), so a half-translated page is never presented as final.</li>
+</ul>
+
+<h4>How the integration works</h4>
+<ul>
+    <li>Course targets come from <code>local_nida</code>'s <em>enabled courses</em> allowlist; <code>grade.php</code> passes the course's languages to the panel, and the feedback page reads the viewer's language via <code>current_language()</code>.</li>
+    <li>Every hook is <code>class_exists()</code> / <code>function_exists()</code>-gated and wrapped so a translation-subsystem failure can never break grading: the externals return a terminal <code>unavailable</code> / <code>saved=false</code>, and the panel hides itself on a terminal status or any AJAX error.</li>
+    <li>Translated HTML is already <code>clean_text()</code>'d server-side by nida; the grader UI passes it through a second, independent <strong>client-side sanitiser</strong> before display as defence-in-depth.</li>
+</ul>
+
+<p>The plugin's own UI-string translations (Afrikaans, German, …) are a separate
+concern — see <a href="#feature-i18n">Languages</a>.</p>
+
+<div class="local-unifiedgrader-help-screenshot">
+    <i class="fa fa-image" aria-hidden="true"></i>
+    <span>Screenshot: the translation panel showing a non-English submission with
+    its English translation side-by-side, the machine-translation advisory pill,
+    and the submission-language badge with its confirm dropdown open.</span>
 </div>
 </section>
 

@@ -380,12 +380,15 @@ class feedback_data_helper {
      * for one graded attempt, resolves each comment's translated text from the
      * local_nida store in the viewer's language, and returns a flat list pairing the
      * anchored source phrase (quoted from the student's own original submission text)
-     * with the translated comment (the English original is the fallback). The store
-     * lookup is batched into a single query (no per-comment query).
+     * with the comment. For a non-English viewer with local_nida, each comment is
+     * translated into the viewer's language (English original as fallback), batched
+     * into a single store query; English viewers (and sites without nida) get the
+     * grader's original text — every student must be able to read their feedback.
+     * Stamps (tick/cross/…) and empty comments are skipped; each entry carries the
+     * pin's number and colour so the list reads like the grader's marginalia.
      *
-     * Returns an empty structure (hassegmentcomments=false) when local_nida is
-     * absent, the segcomment table does not exist, the viewer reads English, or
-     * there are no segment comments for this attempt.
+     * Returns an empty structure (hassegmentcomments=false) when the segcomment
+     * table does not exist or there are no text comments for this attempt.
      *
      * @param int $cmid Course module ID.
      * @param int $userid Student user ID.
@@ -405,41 +408,55 @@ class feedback_data_helper {
 
         $empty = ['hassegmentcomments' => false, 'comments' => []];
 
-        // English viewers see the original; nothing to translate.
-        if ($lang === '' || strpos($lang, 'en') === 0) {
-            return $empty;
-        }
-        // Degrade gracefully when local_nida is not installed.
-        if (!class_exists('\local_nida\local\store') || !class_exists('\local_nida\local\hasher')) {
-            return $empty;
-        }
-        // The segcomment table is created by an earlier Phase-2 work package; guard so
-        // the feedback page is unchanged when the table (or its data) is absent.
+        // The segcomment table is created by an earlier Phase-2 work package; guard
+        // so the feedback page is unchanged when the table (or its data) is absent.
         if (!$DB->get_manager()->table_exists('local_unifiedgrader_segcomment')) {
             return $empty;
         }
 
+        // Document order (page, then offset) so the numbering matches the pins the
+        // grader placed top-to-bottom.
         $rows = $DB->get_records(
             'local_unifiedgrader_segcomment',
             ['cmid' => $cmid, 'userid' => $userid, 'attemptnumber' => $attempt],
-            'timecreated ASC, id ASC',
+            'page ASC, startoffset ASC, timecreated ASC',
         );
         if (empty($rows)) {
             return $empty;
         }
 
-        // Batch: hash every comment text once and resolve all translations in a
-        // single store query, then pick the best per hash for this language.
-        $hashes = [];
-        foreach ($rows as $row) {
-            $hashes[] = \local_nida\local\hasher::hash((string) $row->commenttext);
+        // Translate only for a non-English viewer when local_nida is available.
+        // English viewers (and sites without nida) get the grader's original text —
+        // the point is that every student can read the feedback, translated or not.
+        $cantranslate = ($lang !== '' && strpos($lang, 'en') !== 0)
+            && class_exists('\local_nida\local\store')
+            && class_exists('\local_nida\local\hasher');
+        $map = [];
+        if ($cantranslate) {
+            $hashes = [];
+            foreach ($rows as $row) {
+                $hashes[] = \local_nida\local\hasher::hash((string) $row->commenttext);
+            }
+            $map = self::resolve_translation_map(array_values(array_unique($hashes)), $lang);
         }
-        $map = self::resolve_translation_map(array_values(array_unique($hashes)), $lang);
 
         $comments = [];
+        $number = 0;
         foreach ($rows as $row) {
+            // Text comments only — stamps (tick/cross/…) carry no feedback text and
+            // are positional, so they belong on the PDF, not this list.
+            if (($row->marktype ?? 'comment') !== 'comment') {
+                continue;
+            }
             $commenttext = (string) $row->commenttext;
-            $translated = $map[\local_nida\local\hasher::hash($commenttext)] ?? null;
+            if (trim($commenttext) === '') {
+                continue;
+            }
+            $number++;
+
+            $translated = $cantranslate
+                ? ($map[\local_nida\local\hasher::hash($commenttext)] ?? null)
+                : null;
             $hastranslation = $translated !== null;
             if ($hastranslation) {
                 // Translated comment text is delivered as HTML by local_nida.
@@ -449,22 +466,58 @@ class feedback_data_helper {
                     ['context' => $context, 'para' => false],
                 );
             } else {
-                // English-original fallback: render the grader's comment in its own format.
+                // Original: render the grader's comment in its own format.
                 $displayhtml = format_text(
                     $commenttext,
                     (int) $row->commentformat,
                     ['context' => $context, 'para' => false],
                 );
             }
+
+            // A 1-character anchor is a point/caret comment — quoting a single
+            // letter is noise, so suppress the quote; phrase comments keep it.
+            $anchor = trim((string) $row->anchortext);
+            $showanchor = \core_text::strlen($anchor) >= 2;
+            // Mirror the pin: the stored colour + an auto-contrast number ink.
+            $color = segment_comment_manager::normalise_color($row->color ?? null) ?? '#0f6cbf';
+
             $comments[] = [
+                'number' => $number,
+                'color' => $color,
+                'inkcolor' => self::marker_ink($color),
                 // Anchor phrase is plain source text — escape it for safe display.
-                'anchortext' => s((string) $row->anchortext),
+                'anchortext' => s($anchor),
+                'showanchor' => $showanchor,
                 'displayhtml' => $displayhtml,
                 'hastranslation' => $hastranslation,
             ];
         }
 
+        if (empty($comments)) {
+            return $empty;
+        }
         return ['hassegmentcomments' => true, 'comments' => $comments];
+    }
+
+    /**
+     * The legible number ink (#fff or a dark ink) for a marker background colour,
+     * mirroring the client-side _textOn: white unless it fails WCAG AA (4.5:1) on
+     * the given background, as on a bright yellow pin.
+     *
+     * @param string $hex A #RRGGBB colour.
+     * @return string '#fff' or '#212529'.
+     */
+    private static function marker_ink(string $hex): string {
+        $m = [];
+        if (!preg_match('/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i', $hex, $m)) {
+            return '#fff';
+        }
+        $lin = function (string $c): float {
+            $v = hexdec($c) / 255;
+            return $v <= 0.03928 ? $v / 12.92 : pow(($v + 0.055) / 1.055, 2.4);
+        };
+        $l = 0.2126 * $lin($m[1]) + 0.7152 * $lin($m[2]) + 0.0722 * $lin($m[3]);
+        return (1.05 / ($l + 0.05)) >= 4.5 ? '#fff' : '#212529';
     }
 
     /**

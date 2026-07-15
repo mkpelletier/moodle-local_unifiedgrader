@@ -34,6 +34,7 @@ use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_unifiedgrader\adapter\adapter_factory;
 use local_unifiedgrader\segment_comment_manager;
 
 /**
@@ -61,7 +62,7 @@ class get_segment_comments extends external_api {
      * @return array The list of stored comments.
      */
     public static function execute(int $cmid, int $userid, int $attempt): array {
-        global $CFG;
+        global $CFG, $USER;
 
         $params = self::validate_parameters(self::execute_parameters(), [
             'cmid' => $cmid,
@@ -71,7 +72,24 @@ class get_segment_comments extends external_api {
 
         $context = \context_module::instance($params['cmid']);
         self::validate_context($context);
-        require_capability('local/unifiedgrader:grade', $context);
+
+        // Graders read any student's marks. A student may read their OWN marks once
+        // the grade is released — this powers the read-only margin view on their
+        // feedback page. Anything else is denied.
+        if (!has_capability('local/unifiedgrader:grade', $context)) {
+            require_capability('local/unifiedgrader:viewfeedback', $context);
+            if ((int) $params['userid'] !== (int) $USER->id) {
+                throw new \required_capability_exception(
+                    $context,
+                    'local/unifiedgrader:grade',
+                    'nopermissions',
+                    '',
+                );
+            }
+            if (!adapter_factory::create($params['cmid'])->is_grade_released((int) $USER->id)) {
+                throw new \moodle_exception('feedback_not_available', 'local_unifiedgrader');
+            }
+        }
 
         // Release the PHP session lock so concurrent grader AJAX does not serialize
         // behind this request. This handler does not write to $SESSION.
@@ -102,6 +120,7 @@ class get_segment_comments extends external_api {
                 'commenttext' => (string) $record->commenttext,
                 'commentformat' => (int) $record->commentformat,
                 'marktype' => (string) ($record->marktype ?? 'comment'),
+                'color' => (string) ($record->color ?? ''),
                 'authorid' => (int) $record->authorid,
                 'authorfullname' => fullname($record),
                 'timecreated' => (int) $record->timecreated,
@@ -164,6 +183,12 @@ class get_segment_comments extends external_api {
                         'Mark type: comment, tick, cross, highlight or query',
                         VALUE_DEFAULT,
                         'comment'
+                    ),
+                    'color' => new external_value(
+                        PARAM_RAW,
+                        'Marker colour (#RRGGBB) or empty for the default',
+                        VALUE_DEFAULT,
+                        ''
                     ),
                     'authorid' => new external_value(PARAM_INT, 'Author (grader) user id'),
                     'authorfullname' => new external_value(PARAM_NOTAGS, 'Author display name'),

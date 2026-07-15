@@ -161,6 +161,7 @@ $string['feedbackfiles'] = 'Feedback files';
 $string['plagiarism'] = 'Plagiarism';
 $string['plagiarism_pending'] = 'Plagiarism scan in progress';
 $string['plagiarism_error'] = 'Plagiarism scan failed';
+$string['plagiarism_notapplicable'] = 'Not applicable — plagiarism scanning only covers text documents.';
 
 // Student feedback view.
 $string['assessment_criteria'] = 'Assessment criteria';
@@ -248,7 +249,18 @@ $string['docinfo_author'] = 'Author';
 $string['docinfo_creator'] = 'Creator';
 $string['docinfo_created'] = 'Created';
 $string['docinfo_modified'] = 'Modified';
+$string['docinfo_mimetype'] = 'File type';
 $string['docinfo_calculating'] = 'Calculating...';
+$string['docinfo_empty'] = 'No document information available.';
+$string['docinfo_group_document'] = 'Document';
+$string['docinfo_group_feedback'] = 'Feedback';
+$string['docinfo_group_translation'] = 'Translation';
+$string['docinfo_original_language'] = 'Original language';
+$string['docinfo_translated_words'] = 'Translated words';
+$string['docinfo_language_pair'] = 'Direction';
+$string['docinfo_confidence'] = 'Confidence';
+$string['docinfo_confidence_confirmed'] = 'Confirmed';
+$string['docinfo_confidence_review'] = 'Needs review';
 
 // Forum feedback view.
 $string['view_forum_feedback'] = 'View Forum Feedback';
@@ -651,7 +663,6 @@ $string['segmark_strike'] = 'Strike out';
 $string['docinfo_language'] = 'Submission language';
 $string['docinfo_words'] = 'Words (translated)';
 $string['docinfo_comments'] = 'Comments';
-$string['docinfo_marks'] = 'Marks';
 $string['segwarn_title'] = 'About marking translated text';
 $string['segwarn_body'] = 'You are marking a machine translation. Comments and marks anchor to the '
     . 'student\'s original text, so they stay in place and the student sees them. Freehand pen and shape '

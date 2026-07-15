@@ -45,6 +45,7 @@ import {BaseComponent} from 'core/reactive';
 import {get_string as getString} from 'core/str';
 import Ajax from 'core/ajax';
 import Notification from 'core/notification';
+import renderDocInfo from '../lib/doc_info';
 
 /** Class on a translated phrase span (the click/hit target). */
 const SEG_CLASS = 'local-unifiedgrader-seg';
@@ -83,10 +84,12 @@ const PEN_WIDTHS = [
 
 /** The shape/drawing colour palette (matches the classic annotation toolbar). */
 const COLORS = [
-    {color: '#EF4540', key: 'annotate_red', fallback: 'Red'},
-    {color: '#FFCF35', key: 'annotate_yellow', fallback: 'Yellow'},
-    {color: '#98CA3E', key: 'annotate_green', fallback: 'Green'},
-    {color: '#7D9FD3', key: 'annotate_blue', fallback: 'Blue'},
+    // WCAG-tuned: the pin number's ink is auto-chosen (_textOn) so red/green/blue
+    // keep a white number while yellow stays bright (dark number). See types.js.
+    {color: '#D0342C', key: 'annotate_red', fallback: 'Red'},
+    {color: '#F2C200', key: 'annotate_yellow', fallback: 'Yellow'},
+    {color: '#2E7D32', key: 'annotate_green', fallback: 'Green'},
+    {color: '#5D779E', key: 'annotate_blue', fallback: 'Blue'},
     {color: '#333333', key: 'annotate_black', fallback: 'Black'},
 ];
 
@@ -199,6 +202,11 @@ export default class extends BaseComponent {
         this._squelchUntil = 0;
         /** @type {string} How comments display: 'popup' (hover, default) or 'column' (margin). */
         this._commentView = 'popup';
+        /**
+         * @type {boolean} Read-only mode (the student feedback view): render the
+         * grader's marks in the margin (column) view but no toolbar or editing.
+         */
+        this._readonly = false;
         /** @type {?HTMLButtonElement} The comment-view toggle button. */
         this._viewBtn = null;
         /** @type {?HTMLElement} The open hover popup (popup view), if any. */
@@ -246,30 +254,39 @@ export default class extends BaseComponent {
         // source wrapper declares its anchoring via data-anchor-mode.
         this._root = this._preview;
         this._view = this._preview.querySelector('[data-region="translation-view"]');
+        this._readonly = this.element.dataset.readonly === '1';
 
-        // Sticky per-browser preference for how comments display (default: hover
-        // popups; a stored choice wins).
-        try {
-            const stored = window.localStorage.getItem('local_unifiedgrader_segview');
-            if (stored === 'column' || stored === 'popup') {
-                this._commentView = stored;
+        if (this._readonly) {
+            // Student feedback view: always the margin (column) view, and no
+            // editing UI — skip the toolbar and the placement listeners. Hover
+            // (below) still links a pin to its card.
+            this._commentView = 'column';
+        } else {
+            // Sticky per-browser preference for how comments display (default: hover
+            // popups; a stored choice wins).
+            try {
+                const stored = window.localStorage.getItem('local_unifiedgrader_segview');
+                if (stored === 'column' || stored === 'popup') {
+                    this._commentView = stored;
+                }
+            } catch (e) {
+                // Storage unavailable (private browsing) — keep the default.
             }
-        } catch (e) {
-            // Storage unavailable (private browsing) — keep the default.
+
+            this._buildStrip();
+
+            this._root.addEventListener('mouseup', (e) => this._onMouseUp(e));
+            this._root.addEventListener('click', (e) => this._onClick(e));
+            this._root.addEventListener('keydown', (e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-segcomment-id]')) {
+                    e.preventDefault();
+                    this._onClick(e);
+                }
+            });
         }
 
-        this._buildStrip();
-
-        this._root.addEventListener('mouseup', (e) => this._onMouseUp(e));
-        this._root.addEventListener('click', (e) => this._onClick(e));
         this._root.addEventListener('mouseover', (e) => this._onHover(e, true));
         this._root.addEventListener('mouseout', (e) => this._onHover(e, false));
-        this._root.addEventListener('keydown', (e) => {
-            if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-segcomment-id]')) {
-                e.preventDefault();
-                this._onClick(e);
-            }
-        });
 
         // Leader lines re-project on resize (everything else scrolls together).
         window.addEventListener('resize', () => {
@@ -496,6 +513,7 @@ export default class extends BaseComponent {
                 detectedlang: result.detectedlang || '',
                 resolvedlang: result.resolvedlang || '',
                 mixedflag: !!result.mixedflag,
+                agreement: typeof result.agreement === 'number' ? result.agreement : 1,
             };
         } catch (e) {
             this._sources = [];
@@ -549,6 +567,9 @@ export default class extends BaseComponent {
         const out = {
             type: source.type || 'onlinetext',
             fileid: parseInt(source.fileid, 10) || 0,
+            filename: source.filename || '',
+            mimetype: source.mimetype || '',
+            filesize: parseInt(source.filesize, 10) || 0,
             segments: [],
             groups: [],
         };
@@ -703,6 +724,22 @@ export default class extends BaseComponent {
      * @return {HTMLElement}
      */
     _buildDocInfo() {
+        this._wordCounts = this._wordCounts || {};
+        // One-time listener for the PDF viewer's word-count reply; re-fills the
+        // popout if it's open so a "Calculating…" row resolves to the real count.
+        if (!this._wordCountListener) {
+            this._wordCountListener = (e) => {
+                const fid = parseInt(e.detail && e.detail.fileid, 10) || 0;
+                if (!fid) {
+                    return;
+                }
+                this._wordCounts[fid] = parseInt(e.detail.words, 10) || 0;
+                if (this._docInfoPop && !this._docInfoPop.classList.contains('d-none')) {
+                    this._fillDocInfo(this._docInfoPop);
+                }
+            };
+            document.addEventListener('unifiedgrader:wordcount', this._wordCountListener);
+        }
         const wrap = document.createElement('span');
         wrap.className = 'position-relative';
         const btn = document.createElement('button');
@@ -742,36 +779,191 @@ export default class extends BaseComponent {
      * @param {HTMLElement} pop The popout element.
      */
     async _fillDocInfo(pop) {
-        pop.innerHTML = '';
-        const rows = [];
-        if (this._meta && this._meta.hasmetadata) {
-            const lang = (this._meta.resolvedlang || this._meta.detectedlang || '').toUpperCase();
-            if (lang) {
-                rows.push([await this._str('docinfo_language', 'Submission language'), lang]);
-            }
-        }
-        let words = 0;
-        this._root?.querySelectorAll('.local-unifiedgrader-translation-body').forEach((b) => {
-            words += this._norm(b.textContent).split(' ').filter(Boolean).length;
-        });
-        rows.push([await this._str('docinfo_words', 'Words (translated)'), String(words)]);
-        const comments = this._comments.filter((c) => (c.marktype || 'comment') === 'comment').length;
-        rows.push([await this._str('docinfo_comments', 'Comments'), String(comments)]);
-        rows.push([await this._str('docinfo_marks', 'Marks'), String(this._comments.length - comments)]);
+        this._docInfoPop = pop;
+        this._wordCounts = this._wordCounts || {};
+        const [
+            lWordcount, lComments, lMimetype, lFilesize, lCreated, lModified,
+            lGroupDoc, lGroupFeedback, lGroupTranslation, lOriginalLang,
+            lTranslatedWords, lLangPair, lConfidence, lConfConfirmed, lConfReview,
+            lCalc, lEmpty,
+        ] = await Promise.all([
+            this._str('docinfo_wordcount', 'Word count'),
+            this._str('docinfo_comments', 'Comments'),
+            this._str('docinfo_mimetype', 'File type'),
+            this._str('docinfo_filesize', 'File size'),
+            this._str('docinfo_created', 'Created'),
+            this._str('docinfo_modified', 'Modified'),
+            this._str('docinfo_group_document', 'Document'),
+            this._str('docinfo_group_feedback', 'Feedback'),
+            this._str('docinfo_group_translation', 'Translation'),
+            this._str('docinfo_original_language', 'Original language'),
+            this._str('docinfo_translated_words', 'Translated words'),
+            this._str('docinfo_language_pair', 'Direction'),
+            this._str('docinfo_confidence', 'Confidence'),
+            this._str('docinfo_confidence_confirmed', 'Confirmed'),
+            this._str('docinfo_confidence_review', 'Needs review'),
+            this._str('docinfo_calculating', 'Calculating…'),
+            this._str('docinfo_empty', 'No document information available.'),
+        ]);
 
-        rows.forEach(([k, v]) => {
-            const row = document.createElement('div');
-            row.className = 'd-flex justify-content-between gap-3';
-            const key = document.createElement('span');
-            key.className = 'text-muted';
-            key.textContent = k;
-            const val = document.createElement('span');
-            val.className = 'fw-semibold';
-            val.textContent = v;
-            row.appendChild(key);
-            row.appendChild(val);
-            pop.appendChild(row);
+        // Original word count from the aligned source segments (when present).
+        let originalWords = 0;
+        (this._sources || []).forEach((s) => {
+            (s.segments || []).forEach((seg) => {
+                originalWords += this._wordCountFromHtml(seg.src || '');
+            });
         });
+        // Translated word count from the rendered translation body.
+        let translatedWords = 0;
+        this._root?.querySelectorAll('.local-unifiedgrader-translation-body').forEach((b) => {
+            translatedWords += this._norm(b.textContent).split(' ').filter(Boolean).length;
+        });
+
+        // Document metadata for the file currently in view, from the submission's
+        // file list in state — which carries mimetype/filesize/timestamps for every
+        // file whether translated or not.
+        const activeFile = this._activeFile();
+        let documentInfo = null;
+        if (activeFile) {
+            documentInfo = {
+                created: activeFile.timecreated ? this._formatFileDate(activeFile.timecreated) : null,
+                modified: activeFile.timemodified ? this._formatFileDate(activeFile.timemodified) : null,
+                mimetype: activeFile.mimetype || null,
+                filesize: activeFile.filesize ? this._formatBytes(activeFile.filesize) : null,
+            };
+        }
+
+        const hasmeta = !!(this._meta && this._meta.hasmetadata);
+
+        // Top word count: the source document's. For a file (PDF, or Word/etc.
+        // converted to PDF) the whole-document count comes from the PDF viewer,
+        // requested async — its reply re-fills this popout. Translated views put
+        // the translated count in the Translation group; plain online text counts
+        // what's shown.
+        let docWords;
+        if (originalWords > 0) {
+            docWords = originalWords;
+        } else if (hasmeta) {
+            docWords = null;
+        } else if (activeFile) {
+            const fid = parseInt(activeFile.fileid, 10) || 0;
+            if (this._wordCounts[fid] !== undefined) {
+                docWords = this._wordCounts[fid] || null;
+            } else {
+                document.dispatchEvent(new CustomEvent('unifiedgrader:requestwordcount', {detail: {fileid: fid}}));
+                docWords = lCalc;
+            }
+        } else {
+            docWords = translatedWords || null;
+        }
+
+        // Feedback: margin comments of type 'comment' (tick/cross/query marks are
+        // excluded — they aren't feedback text).
+        const comments = this._comments.filter((c) => (c.marktype || 'comment') === 'comment').length;
+
+        // Translation group (Nida only). Original language + translated words +
+        // direction + whether detection agreed with the student's profile.
+        let translation = null;
+        if (hasmeta) {
+            const src = (this._meta.resolvedlang || this._meta.detectedlang || '').toUpperCase();
+            translation = {
+                originallang: src || null,
+                translatedwords: translatedWords || null,
+                langpair: src ? (src + ' → EN') : null,
+                confidence: this._meta.agreement === 0 ? lConfReview : lConfConfirmed,
+            };
+        }
+
+        renderDocInfo(pop, {
+            wordcount: docWords,
+            pages: null,
+            document: documentInfo,
+            comments,
+            translation,
+        }, {
+            wordcount: lWordcount,
+            comments: lComments,
+            mimetype: lMimetype,
+            filesize: lFilesize,
+            created: lCreated,
+            modified: lModified,
+            groupDocument: lGroupDoc,
+            groupFeedback: lGroupFeedback,
+            groupTranslation: lGroupTranslation,
+            originallang: lOriginalLang,
+            translatedwords: lTranslatedWords,
+            langpair: lLangPair,
+            confidence: lConfidence,
+            empty: lEmpty,
+        });
+    }
+
+    /**
+     * Word count of an HTML fragment (tags stripped).
+     * @param {string} html
+     * @return {number}
+     */
+    _wordCountFromHtml(html) {
+        if (!html) {
+            return 0;
+        }
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        return this._norm(tmp.textContent || '').split(' ').filter(Boolean).length;
+    }
+
+    /**
+     * Human-readable byte size.
+     * @param {number} bytes
+     * @return {string}
+     */
+    _formatBytes(bytes) {
+        if (!bytes) {
+            return '0 B';
+        }
+        const units = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(1024));
+        const size = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1);
+        return size + ' ' + units[i];
+    }
+
+    /**
+     * The submission file currently in view (from state), matched by the fileid of
+     * the visible file / PDF-page wrapper. Null for online text or no file.
+     *
+     * @return {?object}
+     */
+    _activeFile() {
+        const files = this.reactive.state.submission?.files || [];
+        if (!files.length || !this._root) {
+            return null;
+        }
+        const visible = [...this._root.querySelectorAll('[data-fileid]')]
+            .find((w) => w.offsetParent !== null && (parseInt(w.dataset.fileid, 10) || 0) > 0);
+        const fileid = visible ? (parseInt(visible.dataset.fileid, 10) || 0) : 0;
+        if (!fileid) {
+            return null;
+        }
+        return files.find((f) => (parseInt(f.fileid, 10) || 0) === fileid) || null;
+    }
+
+    /**
+     * Format a Unix timestamp (seconds) as a short readable date, or null.
+     *
+     * @param {number} ts
+     * @return {?string}
+     */
+    _formatFileDate(ts) {
+        if (!ts) {
+            return null;
+        }
+        try {
+            return new Date(ts * 1000).toLocaleDateString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric',
+            });
+        } catch (e) {
+            return null;
+        }
     }
 
     /**
@@ -991,6 +1183,16 @@ export default class extends BaseComponent {
         if (!pdf && this._isCanvasTool()) {
             this._setTool('comment');
         }
+
+        // The comment-view (margin ⇄ hover) toggle only does something when there
+        // are phrase comments to rearrange. Annotation-tool pins live in the PDF
+        // annotation layer, not here, so on a PDF marked up with pins only (or any
+        // view with no comments) the toggle would be a dead control. Show it only
+        // when it actually functions.
+        if (this._viewBtn) {
+            const hascomments = this._comments.some((c) => (c.marktype || 'comment') === 'comment');
+            this._viewBtn.classList.toggle('d-none', !hascomments);
+        }
     }
 
     /**
@@ -1130,6 +1332,8 @@ export default class extends BaseComponent {
         pin.textContent = num;
         pin.setAttribute('role', 'button');
         pin.setAttribute('tabindex', '0');
+        pin.style.backgroundColor = this._markColor(mark);
+        pin.style.color = this._textOn(this._markColor(mark));
         spans[0].insertBefore(pin, spans[0].firstChild);
 
         // Column view fills the margin gutter; popup view leaves it empty (it
@@ -1208,12 +1412,11 @@ export default class extends BaseComponent {
             && (parseInt(c.fileid, 10) || 0) === fileid
             && (parseInt(c.page, 10) || 0) === page);
         if (mine.length) {
-            const base = overlay.getBoundingClientRect();
             // One text walk serves every mark on the page: overlay painting
             // never mutates the text layer, so the walk stays valid throughout.
             const walk = this._walkText(body);
             mine.forEach((mark) => {
-                const painted = this._paintPdfMark(overlay, base, body, mark, gutter, seq, walk);
+                const painted = this._paintPdfMark(overlay, body, mark, gutter, seq, walk);
                 if (painted && (mark.marktype || 'comment') === 'comment') {
                     seq++;
                 }
@@ -1258,7 +1461,6 @@ export default class extends BaseComponent {
      * Paint one mark's overlay rects onto a page overlay: a stamp also gets its
      * glyph badge; a comment gets a numbered pin and a card in the page gutter.
      * @param {HTMLElement} overlay The page's mark overlay layer.
-     * @param {DOMRect} base The overlay's viewport rect (coordinate origin).
      * @param {HTMLElement} body The page text-layer element.
      * @param {object} mark The mark record.
      * @param {?HTMLElement} gutter The page's margin gutter (comment cards).
@@ -1266,7 +1468,13 @@ export default class extends BaseComponent {
      * @param {?{nodes: Array, raw: string}} walk Prebuilt text walk of the body.
      * @return {boolean} Whether the mark was painted.
      */
-    _paintPdfMark(overlay, base, body, mark, gutter, num, walk) {
+    _paintPdfMark(overlay, body, mark, gutter, num, walk) {
+        // Read the overlay origin per mark, not once for the page. Appending the
+        // first comment card flips the gutter from :empty (collapsed) to a 250px
+        // column, reflowing the flex row and shifting the page; a single cached
+        // origin would then place every later mark — and the caret — to the left
+        // of its glyph.
+        const origin = overlay.getBoundingClientRect();
         const loc = this._resolveOffsets(body, mark, walk);
         if (!loc) {
             return false;
@@ -1278,6 +1486,59 @@ export default class extends BaseComponent {
         } catch (e) {
             return false;
         }
+
+        const marktype = mark.marktype || 'comment';
+        const color = this._markColor(mark);
+        // A point comment (anchored to a single character) renders as a thin caret
+        // at the click position rather than a word wash. Distinguished by span ≤ 1;
+        // longer selections keep the highlight logic below.
+        const span = (parseInt(mark.endoffset, 10) || 0) - (parseInt(mark.startoffset, 10) || 0);
+        if (marktype === 'comment' && span <= 1) {
+            let rect = range.getBoundingClientRect();
+            if (!rect || rect.height < 1) {
+                const host = range.startContainer.nodeType === Node.TEXT_NODE
+                    ? range.startContainer.parentElement
+                    : range.startContainer;
+                rect = host ? host.getBoundingClientRect() : null;
+            }
+            if (!rect) {
+                return false;
+            }
+            const caretEl = document.createElement('div');
+            caretEl.className = 'local-unifiedgrader-pdfmark local-unifiedgrader-pdfmark-comment'
+                + ' local-unifiedgrader-pdfmark-point';
+            caretEl.dataset.segcommentId = mark.id;
+            caretEl.setAttribute('role', 'button');
+            caretEl.setAttribute('tabindex', '0');
+            caretEl.style.left = (rect.left - origin.left) + 'px';
+            caretEl.style.top = (rect.top - origin.top) + 'px';
+            caretEl.style.height = rect.height + 'px';
+            // Set the caret's width/fill inline too: if the .pdfmark-point rule
+            // hasn't loaded yet (stale CSS cache), an empty absolute div would be
+            // width:auto (0) and never show. A 3px bar + soft halo keeps the point
+            // legible against the page text.
+            caretEl.style.width = '3px';
+            caretEl.style.backgroundColor = color;
+            caretEl.style.borderBottom = 'none';
+            caretEl.style.boxShadow = '0 0 0 1px rgba(255, 255, 255, 0.7)';
+            overlay.appendChild(caretEl);
+            const pin = document.createElement('sup');
+            pin.className = 'local-unifiedgrader-seg-pin local-unifiedgrader-pdfpin';
+            pin.dataset.segcommentId = mark.id;
+            pin.textContent = num;
+            pin.setAttribute('role', 'button');
+            pin.setAttribute('tabindex', '0');
+            pin.style.left = (rect.left - origin.left) + 'px';
+            pin.style.top = (rect.top - origin.top) + 'px';
+            pin.style.backgroundColor = color;
+            pin.style.color = this._textOn(color);
+            overlay.appendChild(pin);
+            if (gutter && this._commentView === 'column') {
+                gutter.appendChild(this._card(mark, num));
+            }
+            return true;
+        }
+
         // getClientRects() duplicates fully-covered text-layer spans (one rect
         // for the element, one for its text node — Chrome in particular), which
         // stacks the translucent wash and darkens part of the range. Keep a rect
@@ -1304,17 +1565,20 @@ export default class extends BaseComponent {
         if (!rects.length) {
             return false;
         }
-        const marktype = mark.marktype || 'comment';
         rects.forEach((r) => {
             const d = document.createElement('div');
             d.className = 'local-unifiedgrader-pdfmark local-unifiedgrader-pdfmark-' + marktype;
             d.dataset.segcommentId = mark.id;
             d.setAttribute('role', 'button');
             d.setAttribute('tabindex', '0');
-            d.style.left = (r.left - base.left) + 'px';
-            d.style.top = (r.top - base.top) + 'px';
+            d.style.left = (r.left - origin.left) + 'px';
+            d.style.top = (r.top - origin.top) + 'px';
             d.style.width = r.width + 'px';
             d.style.height = r.height + 'px';
+            if (marktype === 'comment') {
+                d.style.backgroundColor = this._tint(color, 0.2);
+                d.style.borderBottomColor = color;
+            }
             overlay.appendChild(d);
         });
         if (marktype === 'comment') {
@@ -1327,8 +1591,10 @@ export default class extends BaseComponent {
             pin.textContent = num;
             pin.setAttribute('role', 'button');
             pin.setAttribute('tabindex', '0');
-            pin.style.left = (rects[0].left - base.left) + 'px';
-            pin.style.top = (rects[0].top - base.top) + 'px';
+            pin.style.left = (rects[0].left - origin.left) + 'px';
+            pin.style.top = (rects[0].top - origin.top) + 'px';
+            pin.style.backgroundColor = color;
+            pin.style.color = this._textOn(color);
             overlay.appendChild(pin);
             // Column view fills the margin gutter; popup view leaves it empty
             // (it collapses) and the card shows as a hover popover instead.
@@ -1346,8 +1612,8 @@ export default class extends BaseComponent {
             badge.title = meta.fallback;
             badge.setAttribute('role', 'button');
             badge.setAttribute('tabindex', '0');
-            badge.style.left = (rects[0].left - base.left) + 'px';
-            badge.style.top = (rects[0].top - base.top) + 'px';
+            badge.style.left = (rects[0].left - origin.left) + 'px';
+            badge.style.top = (rects[0].top - origin.top) + 'px';
             overlay.appendChild(badge);
         }
         return true;
@@ -1400,8 +1666,13 @@ export default class extends BaseComponent {
         const head = document.createElement('div');
         head.className = 'd-flex align-items-center gap-1 mb-1';
         const chip = document.createElement('span');
-        chip.className = 'badge bg-primary local-unifiedgrader-seg-cardnum';
+        // No bg-primary utility here: its `background-color … !important` would
+        // beat the inline colour and leave a blue badge with (for light swatches)
+        // an unreadable dark number. Inline bg + auto-ink match the pin exactly.
+        chip.className = 'badge local-unifiedgrader-seg-cardnum';
         chip.textContent = num;
+        chip.style.backgroundColor = this._markColor(mark);
+        chip.style.color = this._textOn(this._markColor(mark));
         head.appendChild(chip);
         if (mark.authorfullname) {
             const author = document.createElement('span');
@@ -1582,6 +1853,10 @@ export default class extends BaseComponent {
                 target.rect = span.getBoundingClientRect();
                 target.getRect = () => span.getBoundingClientRect();
             }
+        } else if (mode === 'pdfpage' && this._tool === 'comment') {
+            // Bare click on a PDF with the Comment tool: drop a point (caret)
+            // anchor rather than snapping to (and washing) the nearest word.
+            target = this._targetForPoint(wrapper, e.clientX, e.clientY);
         } else {
             // Non-translated: click a word (caret → word range → offsets).
             target = this._targetForWord(wrapper, e.clientX, e.clientY);
@@ -1722,6 +1997,66 @@ export default class extends BaseComponent {
         const live = wordRange.cloneRange();
         const target = this._offsetTarget(wrapper, off);
         target.rect = wordRange.getBoundingClientRect();
+        target.getRect = () => live.getBoundingClientRect();
+        return target;
+    }
+
+    /**
+     * Build a POINT (caret) offset target from a click: anchor to the single
+     * character at the caret rather than expanding to the whole word. The server
+     * needs a non-empty anchortext, so a point is one char; the renderer draws it
+     * as a thin caret (span ≤ 1) instead of a word wash.
+     *
+     * @param {HTMLElement} wrapper The source wrapper.
+     * @param {number} x Viewport x.
+     * @param {number} y Viewport y.
+     * @return {?object} An offset target, or null.
+     */
+    _targetForPoint(wrapper, x, y) {
+        const body = this._bodyForWrapper(wrapper);
+        if (!body) {
+            return null;
+        }
+        const caret = this._caretRange(x, y);
+        if (!caret || caret.startContainer.nodeType !== Node.TEXT_NODE || !body.contains(caret.startContainer)) {
+            return null;
+        }
+        const node = caret.startContainer;
+        const text = node.nodeValue || '';
+        let s = caret.startOffset;
+        // Land on the nearest non-whitespace char (an all-whitespace anchor is
+        // rejected server-side): prefer forward from the caret, else backward.
+        if (!(s < text.length && /\S/.test(text[s]))) {
+            let f = s;
+            while (f < text.length && !/\S/.test(text[f])) {
+                f++;
+            }
+            let b = s - 1;
+            while (b >= 0 && !/\S/.test(text[b])) {
+                b--;
+            }
+            if (f < text.length) {
+                s = f;
+            } else if (b >= 0) {
+                s = b;
+            } else {
+                return null;
+            }
+        }
+        const e = s + 1;
+        if (e > text.length) {
+            return null;
+        }
+        const charRange = document.createRange();
+        charRange.setStart(node, s);
+        charRange.setEnd(node, e);
+        const off = this._selectionToOffsets(body, charRange);
+        if (!off) {
+            return null;
+        }
+        const live = charRange.cloneRange();
+        const target = this._offsetTarget(wrapper, off);
+        target.rect = charRange.getBoundingClientRect();
         target.getRect = () => live.getBoundingClientRect();
         return target;
     }
@@ -2290,6 +2625,7 @@ export default class extends BaseComponent {
                     endoffset: parseInt(a.endoffset, 10) || 0,
                     anchortext: a.anchortext || '',
                     commenttext, commentformat: 1, marktype,
+                    color: existing ? (existing.color || '') : this._commentColor(),
                 },
             };
         } else {
@@ -2310,6 +2646,7 @@ export default class extends BaseComponent {
                     cmid, userid, attempt,
                     sourcetype: target.sourcetype, fileid: target.fileid,
                     srcsegids, commenttext, commentformat: 1, marktype,
+                    color: existing ? (existing.color || '') : this._commentColor(),
                 },
             };
         }
@@ -2389,8 +2726,73 @@ export default class extends BaseComponent {
             anchortext: row.anchortext, commenttext: row.commenttext,
             commentformat: row.commentformat, marktype: row.marktype || 'comment',
             authorid: row.authorid, authorfullname: '',
+            color: row.color || '',
             timecreated: row.timecreated, timemodified: row.timemodified,
         };
+    }
+
+    /**
+     * The colour to store on a new comment: the grader's currently selected
+     * palette colour, or '' to let the client fall back to the default.
+     * @return {string} A #RRGGBB hex, or ''.
+     */
+    _commentColor() {
+        return (/^#[0-9a-fA-F]{6}$/).test(this._shapeColor || '') ? this._shapeColor : '';
+    }
+
+    /**
+     * The render colour for a mark: its stored colour, or the default blue when
+     * unset/invalid (so pre-colour comments keep their look).
+     * @param {object} mark The mark record.
+     * @return {string} A #RRGGBB hex.
+     */
+    _markColor(mark) {
+        const c = (mark && mark.color) || '';
+        return (/^#[0-9a-fA-F]{6}$/).test(c) ? c : '#0f6cbf';
+    }
+
+    /**
+     * A translucent rgba() from a #RRGGBB hex, for the highlight wash.
+     * @param {string} hex A #RRGGBB colour.
+     * @param {number} alpha Opacity 0–1.
+     * @return {string} An rgba() string (or the input if unparseable).
+     */
+    _tint(hex, alpha) {
+        const m = (/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/).exec(hex);
+        if (!m) {
+            return hex;
+        }
+        return 'rgba(' + parseInt(m[1], 16) + ', ' + parseInt(m[2], 16)
+            + ', ' + parseInt(m[3], 16) + ', ' + alpha + ')';
+    }
+
+    /**
+     * WCAG relative luminance of a #RRGGBB colour (0 black … 1 white).
+     * @param {string} hex A #RRGGBB colour.
+     * @return {number}
+     */
+    _relLum(hex) {
+        const m = (/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/).exec(hex);
+        if (!m) {
+            return 0;
+        }
+        const ch = [1, 2, 3].map((i) => {
+            const c = parseInt(m[i], 16) / 255;
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+    }
+
+    /**
+     * The legible number/text colour for a marker background: white unless it
+     * would fail WCAG AA (4.5:1) on that background — as on a bright yellow —
+     * where a dark number reads far better. Keeps the dark swatches on white.
+     * @param {string} bg A #RRGGBB background colour.
+     * @return {string} '#fff' or a dark ink.
+     */
+    _textOn(bg) {
+        const whiteContrast = 1.05 / (this._relLum(bg) + 0.05);
+        return whiteContrast >= 4.5 ? '#fff' : '#212529';
     }
 
     // --- History (undo/redo), selection, delete, clear --------------------------
@@ -3071,6 +3473,7 @@ export default class extends BaseComponent {
                     endoffset: parseInt(data.endoffset, 10) || 0,
                     anchortext: data.anchortext || '',
                     commenttext: data.commenttext || '', commentformat: 1, marktype,
+                    color: data.color || '',
                 },
             };
         } else {
@@ -3084,6 +3487,7 @@ export default class extends BaseComponent {
                     cmid, userid, attempt,
                     sourcetype: data.sourcetype, fileid: data.fileid,
                     srcsegids, commenttext: data.commenttext || '', commentformat: 1, marktype,
+                    color: data.color || '',
                 },
             };
         }

@@ -122,6 +122,8 @@ class get_submission_data extends external_api {
                     'filename' => new external_value(PARAM_TEXT, 'File name'),
                     'mimetype' => new external_value(PARAM_TEXT, 'MIME type'),
                     'filesize' => new external_value(PARAM_INT, 'File size in bytes'),
+                    'timecreated' => new external_value(PARAM_INT, 'File upload time', VALUE_DEFAULT, 0),
+                    'timemodified' => new external_value(PARAM_INT, 'File last-modified time', VALUE_DEFAULT, 0),
                     'url' => new external_value(PARAM_URL, 'Download URL'),
                     'previewurl' => new external_value(PARAM_URL, 'Inline preview URL'),
                     'convertible' => new external_value(PARAM_BOOL, 'Whether file can be converted to PDF'),
@@ -149,6 +151,13 @@ class get_submission_data extends external_api {
                 new external_single_structure([
                     'label' => new external_value(PARAM_TEXT, 'Label for the plagiarism link (filename or Online text)'),
                     'html' => new external_value(PARAM_RAW, 'Rendered plagiarism HTML from the plugin'),
+                    'notapplicable' => new external_value(
+                        PARAM_BOOL,
+                        'True when the file type cannot be plagiarism-scanned (audio/video/image/archive), so the'
+                            . ' client shows a neutral note instead of the vendor plugin\'s "scan failed" error',
+                        VALUE_DEFAULT,
+                        false,
+                    ),
                 ]),
                 'Plagiarism report links from enabled plagiarism plugins',
                 VALUE_DEFAULT,

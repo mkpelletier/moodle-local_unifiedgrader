@@ -654,6 +654,7 @@ $templatedata = [
     'feedbackdownloadurl' => $feedbackdownloadurl,
     'submissionpreviewurl' => $submissionpreviewurl,
     'userid' => $userid,
+    'selectedattempt' => $selectedattempt,
     'hasfeedbackfiles' => $hasfeedbackfiles,
     'feedbackfiles' => $feedbackfiles,
     'feedbackfilecount' => count($feedbackfiles),

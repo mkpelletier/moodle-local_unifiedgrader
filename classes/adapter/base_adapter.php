@@ -207,6 +207,40 @@ abstract class base_adapter {
     }
 
     /**
+     * Whether plagiarism scanning can say anything meaningful about a file.
+     *
+     * Plagiarism services extract and compare text, so a recording, image or
+     * archive can never yield a useful result. The vendor plugin reports that as
+     * a failed scan — which reads to a teacher as "something broke" and offers a
+     * "Try again" that can never succeed. Callers use this to show a neutral
+     * "not applicable" note instead of relaying that false alarm, while a genuine
+     * failure on a real document still surfaces as an error worth acting on.
+     *
+     * Deny-list rather than allow-list on purpose: an unfamiliar document format
+     * still goes to the plugin (a real result beats a wrongly-suppressed one),
+     * and supporting audio later is a one-line removal here.
+     *
+     * @param \stored_file $file The submitted file.
+     * @return bool True when the file is worth sending to a plagiarism plugin.
+     */
+    protected function plagiarism_applies_to_file(\stored_file $file): bool {
+        $mimetype = (string) $file->get_mimetype();
+        foreach (['audio/', 'video/', 'image/'] as $prefix) {
+            if (strpos($mimetype, $prefix) === 0) {
+                return false;
+            }
+        }
+        return !in_array($mimetype, [
+            'application/zip',
+            'application/x-tar',
+            'application/g-zip',
+            'application/x-gzip',
+            'application/x-rar-compressed',
+            'application/x-7z-compressed',
+        ], true);
+    }
+
+    /**
      * Get the grading definition (rubric/marking guide) for this activity.
      *
      * Returns the serialized grading definition with criteria and levels/scores.

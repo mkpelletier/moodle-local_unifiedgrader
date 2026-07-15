@@ -41,10 +41,21 @@ class segment_comment_manager {
     public const MARK_TYPES = ['comment', 'tick', 'cross', 'highlight', 'query', 'strikethrough'];
 
     /**
-     * Coerce an arbitrary string to a valid mark type, defaulting to 'comment'.
+     * Validate a marker colour: a #RRGGBB hex string, else null (use the default).
+     *
+     * @param string|null $color The requested colour.
+     * @return string|null A lowercased #rrggbb hex, or null when invalid/unset.
+     */
+    public static function normalise_color(?string $color): ?string {
+        $color = trim((string) $color);
+        return preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? strtolower($color) : null;
+    }
+
+    /**
+     * Whitelist a mark type; anything unknown collapses to 'comment'.
      *
      * @param string $marktype The requested mark type.
-     * @return string A valid mark type.
+     * @return string
      */
     public static function normalise_marktype(string $marktype): string {
         return in_array($marktype, self::MARK_TYPES, true) ? $marktype : 'comment';
@@ -68,6 +79,7 @@ class segment_comment_manager {
      * @param int $commentformat The comment text format (FORMAT_HTML).
      * @param string $marktype The mark type: comment, tick, cross, highlight or query.
      * @param int $page 1-based PDF page for file (PDF text-layer) marks; 0 for online text.
+     * @param string|null $color Marker colour (#RRGGBB); null uses the client default.
      * @return \stdClass The stored record (with its new id).
      */
     public static function create(
@@ -85,7 +97,8 @@ class segment_comment_manager {
         string $commenttext,
         int $commentformat,
         string $marktype = 'comment',
-        int $page = 0
+        int $page = 0,
+        ?string $color = null
     ): \stdClass {
         global $DB;
 
@@ -106,6 +119,7 @@ class segment_comment_manager {
             'commenttext' => $commenttext,
             'commentformat' => $commentformat,
             'marktype' => self::normalise_marktype($marktype),
+            'color' => self::normalise_color($color),
             'timecreated' => $now,
             'timemodified' => $now,
         ];

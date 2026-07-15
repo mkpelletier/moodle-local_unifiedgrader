@@ -39,17 +39,19 @@
         <div data-region="bbb-recording-switcher" class="btn-group btn-group-sm flex-wrap" role="tablist"
              aria-label="{{#str}} bbb_recording_switcher, local_unifiedgrader {{/str}}">
             <button type="button"
-                    class="btn btn-outline-secondary"
+                    class="btn btn-outline-secondary{{#isaggregate}} active{{/isaggregate}}"
                     data-recordingref=""
-                    data-action="bbb-show-aggregate">
+                    data-action="bbb-show-aggregate"
+                    aria-selected="{{#isaggregate}}true{{/isaggregate}}{{^isaggregate}}false{{/isaggregate}}">
                 {{#str}} bbb_all_sessions, local_unifiedgrader {{/str}}
             </button>
             {{#recordings}}
             <button type="button"
-                    class="btn btn-outline-secondary"
+                    class="btn btn-outline-secondary{{#isactive}} active{{/isactive}}"
                     data-recording-url="{{playbackurl}}"
                     data-recording-id="{{recordingid}}"
-                    data-recordingref="{{bbbrecordingid}}">
+                    data-recordingref="{{bbbrecordingid}}"
+                    aria-selected="{{#isactive}}true{{/isactive}}{{^isactive}}false{{/isactive}}">
                 {{sessionlabel}}
             </button>
             {{/recordings}}
@@ -134,7 +136,7 @@
             {{! Aggregate (all sessions) tiles — visible by default. Switcher
                 JS toggles visibility between this block and the per-session
                 blocks below when the teacher selects an individual recording. }}
-            <div data-region="bbb-tiles-aggregate">
+            <div data-region="bbb-tiles-aggregate" class="{{^showaggregatetiles}}d-none{{/showaggregatetiles}}">
                 {{#activitypoints.hasactivityscore}}
                 <div class="alert alert-info py-2 px-3 mb-2 d-flex align-items-center justify-content-between">
                     <div>
@@ -187,7 +189,7 @@
             </div>
 
             {{#activitypoints.sessions}}
-            <div data-region="bbb-tiles-session" data-recordingref="{{recordingref}}" class="d-none">
+            <div data-region="bbb-tiles-session" data-recordingref="{{recordingref}}" class="{{^isactive}}d-none{{/isactive}}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="small text-muted">
                         {{#str}} bbb_session_label_prefix, local_unifiedgrader {{/str}} {{sessionlabel}}
@@ -297,12 +299,21 @@
     if (!container) {
         return;
     }
-    var iframe = container.querySelector('[data-region="bbb-recording-iframe"]');
-    var buttons = container.querySelectorAll('[data-region="bbb-recording-switcher"] button');
+    var switcher = container.querySelector('[data-region="bbb-recording-switcher"]');
+    if (!switcher) {
+        return;
+    }
+    var buttons = switcher.querySelectorAll('button');
     if (!buttons.length) {
         return;
     }
 
+    // When the bbbext_advgrd annotation overlay is active it replaces the plain
+    // playback iframe, so there is no in-page src to swap: switching recordings
+    // means reloading this preview with the chosen recording id so the server
+    // re-renders the overlay (player + its comments) and the matching tiles.
+    // When only the plain iframe is present we swap its src in place, no reload.
+    var iframe = container.querySelector('[data-region="bbb-recording-iframe"]');
     var aggregate = container.querySelector('[data-region="bbb-tiles-aggregate"]');
     var sessionPanels = container.querySelectorAll('[data-region="bbb-tiles-session"]');
 
@@ -323,9 +334,6 @@
     }
 
     function showSession(recordingref) {
-        if (aggregate) {
-            aggregate.classList.add('d-none');
-        }
         var matched = false;
         sessionPanels.forEach(function(panel) {
             var match = panel.getAttribute('data-recordingref') === recordingref;
@@ -336,36 +344,53 @@
         });
         // No engagement data for this recording — fall back to the aggregate
         // view rather than show an empty card.
-        if (!matched && aggregate) {
-            aggregate.classList.remove('d-none');
+        if (aggregate) {
+            aggregate.classList.toggle('d-none', matched);
         }
     }
 
-    // Default selection: "All sessions" pill (data-action=bbb-show-aggregate).
-    var defaultBtn = container.querySelector(
-        '[data-region="bbb-recording-switcher"] [data-action="bbb-show-aggregate"]',
-    ) || buttons[0];
-    setActive(defaultBtn);
-    showAggregate();
+    function applyTiles(btn) {
+        var ref = btn.getAttribute('data-recordingref') || '';
+        if (btn.getAttribute('data-action') === 'bbb-show-aggregate' || !ref) {
+            showAggregate();
+        } else {
+            showSession(ref);
+        }
+    }
+
+    // Initial tiles state follows the server-selected (active) pill.
+    var activeBtn = switcher.querySelector('button.active') || buttons[0];
+    applyTiles(activeBtn);
 
     buttons.forEach(function(btn) {
         btn.addEventListener('click', function() {
-            var url = btn.getAttribute('data-recording-url');
-            if (iframe && url && url !== iframe.getAttribute('src')) {
-                iframe.setAttribute('src', url);
-            }
-            setActive(btn);
+            var ref = btn.getAttribute('data-recordingref') || '';
+            var isAggregate = btn.getAttribute('data-action') === 'bbb-show-aggregate' || !ref;
 
-            if (btn.getAttribute('data-action') === 'bbb-show-aggregate') {
-                showAggregate();
-            } else {
-                var ref = btn.getAttribute('data-recordingref') || '';
-                if (ref) {
-                    showSession(ref);
-                } else {
-                    showAggregate();
+            if (iframe) {
+                // Plain playback: swap the iframe in place — no reload needed.
+                var url = btn.getAttribute('data-recording-url');
+                if (url && url !== iframe.getAttribute('src')) {
+                    iframe.setAttribute('src', url);
                 }
+                setActive(btn);
+                applyTiles(btn);
+                return;
             }
+
+            // Overlay path: already selected? Nothing to do — avoid a needless reload.
+            if (btn.classList.contains('active')) {
+                return;
+            }
+            // Reload this preview scoped to the chosen recording so the server
+            // rebuilds the annotation overlay and tiles for that session.
+            var target = new URL(window.location.href);
+            if (isAggregate) {
+                target.searchParams.delete('recordingid');
+            } else {
+                target.searchParams.set('recordingid', ref);
+            }
+            window.location.href = target.toString();
         });
     });
 })();

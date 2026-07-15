@@ -26,6 +26,7 @@
 
 import {Reactive} from 'core/reactive';
 import PdfViewer from 'local_unifiedgrader/components/pdf_viewer';
+import SegComments from 'local_unifiedgrader/components/seg_comments';
 import {loadStudentAnnotations} from 'local_unifiedgrader/annotation/persistence';
 
 /**
@@ -40,6 +41,9 @@ export const init = async() => {
     const cmid = parseInt(container.dataset.cmid, 10);
     const fileid = parseInt(container.dataset.fileid, 10);
     const pdfUrl = container.dataset.pdfurl;
+    const userid = parseInt(container.dataset.userid, 10);
+    const attempt = Number.isNaN(parseInt(container.dataset.attempt, 10))
+        ? -1 : parseInt(container.dataset.attempt, 10);
 
     // Find the PDF viewer component element.
     const viewerEl = container.querySelector('[data-region="pdf-viewer-component"]');
@@ -50,8 +54,18 @@ export const init = async() => {
     // Ensure read-only flag is set on the element (PdfViewer reads this in create()).
     viewerEl.dataset.readonly = '1';
 
-    // Create a minimal reactive instance — PdfViewer extends BaseComponent which
-    // requires a Reactive parent. We use a trivial state with no mutations.
+    let files = [];
+    try {
+        files = JSON.parse(container.dataset.pdffiles || '[]');
+    } catch (e) {
+        files = [];
+    }
+
+    // Reactive parent for the read-only components. PdfViewer only needs `loaded`;
+    // the read-only SegComments reads activity/submission (cmid, type, userid,
+    // attempt, files) to fetch and anchor the grader's marks. No mutations — the
+    // student view never changes state. Root values must be objects (Moodle's
+    // StateManager can't proxy primitives).
     const reactive = new Reactive({
         name: 'feedback_viewer',
         eventName: 'feedback_viewer:stateChanged',
@@ -62,8 +76,9 @@ export const init = async() => {
             }));
         },
         state: {
-            // Minimal state — BaseComponent needs at least an initial state.
             loaded: {id: 'loaded', value: true},
+            activity: {cmid, type: 'assign'},
+            submission: {userid, attemptnumber: attempt, files},
         },
         mutations: {},
     });
@@ -74,12 +89,22 @@ export const init = async() => {
         reactive,
     });
 
+    // Give the viewer its file context so each page wrapper carries the real
+    // {files}.id (SegComments matches marks to pages by it). Read-only skips the
+    // grade-gated backend annotation load, so this only sets context — no fetch.
+    pdfViewer.setFileContext(cmid, userid, fileid);
+
     // Wait for the PDF to load.
     await pdfViewer.loadPdf(pdfUrl);
 
     // Always load annotation overlays for the interactive viewer —
     // comment markers display as icons with hover tooltips for the text.
     await loadAnnotationsForFile(pdfViewer, cmid, fileid);
+
+    // Render the grader's segment comments read-only in the margin (column) view —
+    // the SAME component the grader uses (highlights, strikethroughs, numbered
+    // colour pins, and margin cards joined by leader lines), minus the editing UI.
+    mountSegComments(container, reactive);
 
     // Handle file switching (multiple PDFs).
     const fileSelector = container.querySelector('[data-action="file-selector"]');
@@ -91,6 +116,7 @@ export const init = async() => {
 
             // Reset the PDF viewer URL to force reload.
             pdfViewer._currentUrl = null;
+            pdfViewer.setFileContext(cmid, userid, newFileId);
             await pdfViewer.loadPdf(url);
 
             // Always load annotation overlays for hover tooltips.
@@ -98,6 +124,39 @@ export const init = async() => {
         });
     }
 };
+
+/**
+ * Mount the grader's SegComments component read-only. It expects a
+ * [data-region="preview-content"] root that contains the page wrappers plus a
+ * [data-region="seg-comments"] host element; the student template has neither,
+ * so scaffold them around the existing PDF viewer wrapper. The data-readonly flag
+ * makes SegComments skip its toolbar and placement listeners.
+ *
+ * @param {HTMLElement} container The feedback-viewer container.
+ * @param {Reactive} reactive The shared reactive (carries activity/submission).
+ */
+function mountSegComments(container, reactive) {
+    const pdfWrapper = container.querySelector('[data-region="pdf-viewer-wrapper"]');
+    if (!pdfWrapper) {
+        return;
+    }
+    let preview = container.querySelector('[data-region="preview-content"]');
+    if (!preview) {
+        preview = document.createElement('div');
+        preview.dataset.region = 'preview-content';
+        pdfWrapper.parentNode.insertBefore(preview, pdfWrapper);
+        preview.appendChild(pdfWrapper);
+    }
+    let segEl = preview.querySelector('[data-region="seg-comments"]');
+    if (!segEl) {
+        segEl = document.createElement('div');
+        segEl.dataset.region = 'seg-comments';
+        segEl.dataset.readonly = '1';
+        preview.insertBefore(segEl, preview.firstChild);
+    }
+    // eslint-disable-next-line no-new
+    new SegComments({element: segEl, reactive});
+}
 
 /**
  * Load student annotations for a file and apply them to the PDF viewer.

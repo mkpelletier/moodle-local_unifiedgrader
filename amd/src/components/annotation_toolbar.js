@@ -27,6 +27,7 @@
 
 import {get_string as getString} from 'core/str';
 import Notification from 'core/notification';
+import renderDocInfo from '../lib/doc_info';
 
 export default class AnnotationToolbar {
 
@@ -273,14 +274,17 @@ export default class AnnotationToolbar {
      *
      * @param {object} info Document info.
      * @param {string} info.filename File name.
+     * @param {string} info.mimetype File MIME type.
      * @param {number} info.filesize File size in bytes.
      * @param {number} info.pages Total page count.
      * @param {object} info.metadata PDF internal metadata.
      * @param {Function} wordCountFn Async callback that returns the word count.
+     * @param {?Function} commentCountFn Sync callback returning the comment-annotation count.
      */
-    setDocumentInfo(info, wordCountFn) {
+    setDocumentInfo(info, wordCountFn, commentCountFn) {
         this._docInfo = info;
         this._wordCountFn = wordCountFn;
+        this._commentCountFn = commentCountFn || null;
         this._wordCount = null;
         this._wordCountLoading = false;
     }
@@ -341,91 +345,61 @@ export default class AnnotationToolbar {
 
         // Fetch all labels in parallel.
         const [
-            lblFilename, lblFilesize, lblPages, lblWordcount,
-            lblAuthor, lblCreator, lblCreated, lblModified, lblCalc,
+            lblWordcount, lblPages, lblMimetype, lblFilesize, lblCreated, lblModified,
+            lblComments, lblGroupDoc, lblGroupFeedback, lblCalc, lblEmpty,
         ] = await Promise.all([
-            getString('docinfo_filename', 'local_unifiedgrader'),
-            getString('docinfo_filesize', 'local_unifiedgrader'),
-            getString('docinfo_pages', 'local_unifiedgrader'),
             getString('docinfo_wordcount', 'local_unifiedgrader'),
-            getString('docinfo_author', 'local_unifiedgrader'),
-            getString('docinfo_creator', 'local_unifiedgrader'),
+            getString('docinfo_pages', 'local_unifiedgrader'),
+            getString('docinfo_mimetype', 'local_unifiedgrader'),
+            getString('docinfo_filesize', 'local_unifiedgrader'),
             getString('docinfo_created', 'local_unifiedgrader'),
             getString('docinfo_modified', 'local_unifiedgrader'),
+            getString('docinfo_comments', 'local_unifiedgrader'),
+            getString('docinfo_group_document', 'local_unifiedgrader'),
+            getString('docinfo_group_feedback', 'local_unifiedgrader'),
             getString('docinfo_calculating', 'local_unifiedgrader'),
+            getString('docinfo_empty', 'local_unifiedgrader'),
         ]);
 
-        const rows = [];
-        rows.push(this._makeRow(lblFilename, info.filename || ''));
-        rows.push(this._makeRow(lblFilesize, this._formatBytes(info.filesize)));
-        rows.push(this._makeRow(lblPages, String(info.pages || 0)));
+        // Fresh comment-annotation count each time the popout is opened.
+        const comments = this._commentCountFn ? this._commentCountFn() : null;
+        const labels = {
+            wordcount: lblWordcount, pages: lblPages, mimetype: lblMimetype, filesize: lblFilesize,
+            created: lblCreated, modified: lblModified, comments: lblComments,
+            groupDocument: lblGroupDoc, groupFeedback: lblGroupFeedback, empty: lblEmpty,
+        };
 
-        // Word count: show cached value or calculating placeholder.
-        const wordCountValue = this._wordCount !== null
-            ? this._wordCount.toLocaleString()
-            : lblCalc;
-        rows.push(this._makeRow(lblWordcount, wordCountValue, 'doc-info-wordcount'));
+        const build = () => renderDocInfo(popout, {
+            // Word count is lazily computed; show the placeholder until it lands.
+            wordcount: this._wordCount !== null ? this._wordCount.toLocaleString() : lblCalc,
+            pages: info.pages ? String(info.pages) : null,
+            document: {
+                // Prefer the PDF's own authoring dates; fall back to the file's
+                // upload / modified times, which are always present.
+                created: (meta.CreationDate ? this._formatPdfDate(meta.CreationDate) : null)
+                    || this._formatFileDate(info.filetimecreated),
+                modified: (meta.ModDate ? this._formatPdfDate(meta.ModDate) : null)
+                    || this._formatFileDate(info.filetimemodified),
+                mimetype: info.mimetype || null,
+                filesize: info.filesize ? this._formatBytes(info.filesize) : null,
+            },
+            comments,
+            translation: null,
+        }, labels);
+        build();
 
-        // PDF metadata rows (only show if value exists).
-        if (meta.Author) {
-            rows.push(this._makeRow(lblAuthor, meta.Author));
-        }
-        if (meta.Creator) {
-            rows.push(this._makeRow(lblCreator, meta.Creator));
-        }
-        if (meta.CreationDate) {
-            rows.push(this._makeRow(lblCreated, this._formatPdfDate(meta.CreationDate)));
-        }
-        if (meta.ModDate) {
-            rows.push(this._makeRow(lblModified, this._formatPdfDate(meta.ModDate)));
-        }
-
-        popout.innerHTML = '';
-        rows.forEach((row) => popout.appendChild(row));
-
-        // Trigger lazy word count computation if not yet done.
+        // Compute the word count lazily, then re-render with the real number.
         if (this._wordCount === null && !this._wordCountLoading && this._wordCountFn) {
             this._wordCountLoading = true;
             try {
                 this._wordCount = await this._wordCountFn();
-                const wcEl = popout.querySelector('[data-region="doc-info-wordcount"]');
-                if (wcEl) {
-                    wcEl.textContent = this._wordCount.toLocaleString();
-                }
+                build();
             } catch {
                 // Silently ignore word count errors.
             } finally {
                 this._wordCountLoading = false;
             }
         }
-    }
-
-    /**
-     * Create a key-value row element for the popout.
-     *
-     * @param {string} label The label text.
-     * @param {string} value The value text.
-     * @param {string} [valueRegion] Optional data-region for the value element.
-     * @return {HTMLElement}
-     */
-    _makeRow(label, value, valueRegion) {
-        const row = document.createElement('div');
-        row.className = 'docinfo-row';
-
-        const lbl = document.createElement('span');
-        lbl.className = 'docinfo-label';
-        lbl.textContent = label;
-
-        const val = document.createElement('span');
-        val.className = 'docinfo-value';
-        val.textContent = value;
-        if (valueRegion) {
-            val.dataset.region = valueRegion;
-        }
-
-        row.appendChild(lbl);
-        row.appendChild(val);
-        return row;
     }
 
     /**
@@ -442,6 +416,26 @@ export default class AnnotationToolbar {
         const i = Math.floor(Math.log(bytes) / Math.log(1024));
         const size = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1);
         return size + ' ' + units[i];
+    }
+
+    /**
+     * Format a Unix timestamp (seconds) as a short readable date, or null when
+     * absent.
+     *
+     * @param {number} ts Unix timestamp in seconds.
+     * @return {?string}
+     */
+    _formatFileDate(ts) {
+        if (!ts) {
+            return null;
+        }
+        try {
+            return new Date(ts * 1000).toLocaleDateString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric',
+            });
+        } catch {
+            return null;
+        }
     }
 
     /**

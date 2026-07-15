@@ -1096,6 +1096,11 @@ class assign_adapter extends base_adapter {
                 'filename' => $file->get_filename(),
                 'mimetype' => $mimetype,
                 'filesize' => (int) $file->get_filesize(),
+                // Upload / last-modified times for the document-info popout — the
+                // PDF's own internal metadata is usually absent, so these are the
+                // reliable "created / modified" source.
+                'timecreated' => (int) $file->get_timecreated(),
+                'timemodified' => (int) $file->get_timemodified(),
                 'url' => $downloadurl->out(false),
                 'previewurl' => $previewurl->out(false),
                 'convertible' => $convertible,
@@ -1422,6 +1427,17 @@ class assign_adapter extends base_adapter {
         );
 
         foreach ($files as $file) {
+            // A recording / image / archive can never produce a plagiarism result.
+            // Flag it so the marking panel shows a neutral note instead of relaying
+            // the vendor's red "scan failed" (and its futile "Try again").
+            if (!$this->plagiarism_applies_to_file($file)) {
+                $results[] = [
+                    'label' => $file->get_filename(),
+                    'html' => '',
+                    'notapplicable' => true,
+                ];
+                continue;
+            }
             $linkhtml = plagiarism_get_links([
                 'userid' => $userid,
                 'file' => $file,
@@ -1432,6 +1448,7 @@ class assign_adapter extends base_adapter {
                 $results[] = [
                     'label' => $file->get_filename(),
                     'html' => $linkhtml,
+                    'notapplicable' => false,
                 ];
             }
         }
@@ -1450,6 +1467,7 @@ class assign_adapter extends base_adapter {
                 $results[] = [
                     'label' => get_string('onlinetext', 'local_unifiedgrader'),
                     'html' => $linkhtml,
+                    'notapplicable' => false,
                 ];
             }
         }

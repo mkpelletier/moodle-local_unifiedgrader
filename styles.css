@@ -543,27 +543,48 @@
     font-size: 0.8125rem;
 }
 
-.local-unifiedgrader-docinfo-popout .docinfo-row {
+.local-unifiedgrader-docinfo-popout .docinfo-row,
+.local-unifiedgrader-segwarn-pop .docinfo-row {
     display: flex;
     justify-content: space-between;
     padding: 0.25rem 0;
     border-bottom: 1px solid var(--bs-border-color-translucent, rgba(0, 0, 0, 0.06));
 }
 
-.local-unifiedgrader-docinfo-popout .docinfo-row:last-child {
+.local-unifiedgrader-docinfo-popout .docinfo-row:last-child,
+.local-unifiedgrader-segwarn-pop .docinfo-row:last-child {
     border-bottom: none;
 }
 
-.local-unifiedgrader-docinfo-popout .docinfo-label {
+.local-unifiedgrader-docinfo-popout .docinfo-label,
+.local-unifiedgrader-segwarn-pop .docinfo-label {
     color: var(--bs-secondary-color, #6c757d);
     flex-shrink: 0;
     margin-right: 0.5rem;
 }
 
-.local-unifiedgrader-docinfo-popout .docinfo-value {
+.local-unifiedgrader-docinfo-popout .docinfo-value,
+.local-unifiedgrader-segwarn-pop .docinfo-value {
     text-align: right;
     word-break: break-all;
     font-weight: 500;
+}
+
+/* Group header inside the (shared) document-info popout. */
+.local-unifiedgrader-docinfo-popout .docinfo-group,
+.local-unifiedgrader-segwarn-pop .docinfo-group {
+    margin-top: 0.5rem;
+    margin-bottom: 0.125rem;
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.local-unifiedgrader-docinfo-popout .docinfo-group:first-child,
+.local-unifiedgrader-segwarn-pop .docinfo-group:first-child {
+    margin-top: 0;
 }
 
 /* Student profile popout — fixed positioning set by JS for viewport clamping. */
@@ -1412,6 +1433,22 @@
     font-size: 0.65rem;
 }
 
+/* Brief highlight when a student clicks a PDF pin to jump to its comment card. */
+.local-unifiedgrader-seg-flash {
+    animation: local-unifiedgrader-seg-flash 1.2s ease-out;
+}
+
+@keyframes local-unifiedgrader-seg-flash {
+    0%,
+    20% {
+        background-color: rgba(255, 207, 53, 0.35);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
 /* Linked/active state (hover a pin, phrase or card lights the set). */
 .local-unifiedgrader-seg-linked.local-unifiedgrader-seg-commented,
 .local-unifiedgrader-seg-linked.local-unifiedgrader-seg-card {
@@ -1479,6 +1516,15 @@ span.local-unifiedgrader-mark-highlight {
 .local-unifiedgrader-pdfmark-comment {
     background-color: rgba(15, 108, 191, 0.2);
     border-bottom: 2px solid #0f6cbf;
+}
+
+/* Point comment: a thin caret line at the click position, not a word wash. */
+.local-unifiedgrader-pdfmark-point {
+    width: 2px;
+    min-width: 2px;
+    background-color: #0f6cbf;
+    border-bottom: none;
+    border-radius: 1px;
 }
 
 .local-unifiedgrader-pdfmark-tick {

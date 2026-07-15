@@ -272,6 +272,55 @@ class bbb_adapter extends base_adapter {
         $hasattended = $hasjoined || $activitypoints['sessioncount'] > 0;
         $hasrecordings = !empty($recordings);
 
+        // Recording switcher selection. The top-of-pane pills reload this preview
+        // with ?recordingid=<bbb recording id> to pin the annotation overlay and
+        // the Activity Points tiles to a single session; an absent (or
+        // unrecognised) id means "All sessions" — the aggregate tiles with the
+        // first recording loaded in the player. We read the request param here
+        // rather than threading it through get_submission_data() so the switcher
+        // stays self-contained to the BBB adapter: the other callers of this
+        // method (the AJAX external, which posts its args as a JSON body) never
+        // send the param, so they transparently get the aggregate view.
+        $selectedrecordingid = optional_param('recordingid', '', PARAM_RAW_TRIMMED);
+        $activeindex = 0;
+        $isaggregate = true;
+        if ($selectedrecordingid !== '' && $hasrecordings) {
+            foreach ($recordings as $i => $rec) {
+                if ((string) $rec['bbbrecordingid'] === $selectedrecordingid) {
+                    $activeindex = $i;
+                    $isaggregate = false;
+                    break;
+                }
+            }
+            // Unknown id — fall back to the aggregate view and don't hand the
+            // stray id to the overlay renderer.
+            if ($isaggregate) {
+                $selectedrecordingid = '';
+            }
+        }
+        // Student viewing their OWN feedback with no explicit pick: land on a
+        // recording that actually carries their feedback (rescued above from the
+        // group filter) so the overlay opens on their comments rather than the
+        // aggregate/first recording — which, in a separate-groups activity, may be
+        // a different session or one they could not otherwise see.
+        global $USER;
+        if ($selectedrecordingid === '' && $hasrecordings && $userid === (int) $USER->id) {
+            $feedbackrecids = $this->get_feedback_recording_ids($userid);
+            foreach ($recordings as $i => $rec) {
+                if ($feedbackrecids && in_array((string) $rec['bbbrecordingid'], $feedbackrecids, true)) {
+                    $activeindex = $i;
+                    $isaggregate = false;
+                    $selectedrecordingid = (string) $rec['bbbrecordingid'];
+                    break;
+                }
+            }
+        }
+        // Flag the active recording so its switcher pill renders selected
+        // server-side (correct highlight on first paint, no JS required).
+        foreach ($recordings as $i => $rec) {
+            $recordings[$i]['isactive'] = (!$isaggregate && $i === $activeindex);
+        }
+
         // Surface a config diagnostic when the engagement summary is missing.
         // BBB only POSTs the analytics callback (which writes EVENT_SUMMARY rows)
         // when the "Register live sessions" admin setting is enabled — see
@@ -306,6 +355,7 @@ class bbb_adapter extends base_adapter {
                 $recordingsbyref[$rec['bbbrecordingid']] = $rec;
             }
         }
+        $hasactivesession = false;
         if (!empty($activitypoints['sessions'])) {
             foreach ($activitypoints['sessions'] as $i => $session) {
                 $matched = $recordingsbyref[$session['recordingref']] ?? null;
@@ -318,8 +368,19 @@ class bbb_adapter extends base_adapter {
                         : get_string('bbb_session_unmatched', 'local_unifiedgrader');
                     $activitypoints['sessions'][$i]['hasrecording'] = false;
                 }
+                // Pre-select the picked session's tiles so the card renders the
+                // right block on first paint (the switcher JS keeps them in sync
+                // thereafter).
+                $isactivesession = !$isaggregate && $session['recordingref'] === $selectedrecordingid;
+                $activitypoints['sessions'][$i]['isactive'] = $isactivesession;
+                if ($isactivesession) {
+                    $hasactivesession = true;
+                }
             }
         }
+        // Aggregate tiles show by default, and also whenever a picked recording
+        // has no matching engagement session — so the card is never left empty.
+        $showaggregatetiles = $isaggregate || !$hasactivesession;
 
         // Optional: bbbext_advgrd can render an own-player annotation overlay (timeline
         // + comments + audio/video feedback callout) in place of the BBB iframe. Loose
@@ -334,7 +395,11 @@ class bbb_adapter extends base_adapter {
         if ($hasrecordings && file_exists($advgrdlib)) {
             require_once($advgrdlib);
             if (function_exists('bbbext_advgrd_render_overlay')) {
-                $overlay = bbbext_advgrd_render_overlay((int) $this->cm->id, $userid);
+                $overlay = bbbext_advgrd_render_overlay(
+                    (int) $this->cm->id,
+                    $userid,
+                    $selectedrecordingid !== '' ? $selectedrecordingid : null,
+                );
                 if ($overlay !== null) {
                     $overlayhtml = $overlay;
                 }
@@ -346,7 +411,9 @@ class bbb_adapter extends base_adapter {
             'recordings' => $recordings,
             'hasrecordings' => $hasrecordings,
             'hasmultiplerecordings' => count($recordings) > 1,
-            'activerecordingurl' => $hasrecordings ? $recordings[0]['playbackurl'] : '',
+            'activerecordingurl' => $hasrecordings ? $recordings[$activeindex]['playbackurl'] : '',
+            'isaggregate' => $isaggregate,
+            'showaggregatetiles' => $showaggregatetiles,
             'activitypoints' => $activitypoints,
             'hasattended' => $hasattended,
             'hassummary' => $activitypoints['sessioncount'] > 0,
@@ -946,71 +1013,141 @@ class bbb_adapter extends base_adapter {
      * Filters by group mode (delegated to BBB's own recording API). Returns
      * recordings ordered by start time ascending (oldest first).
      *
+     * Protected (not private) so unit tests can stub it with synthetic recordings:
+     * real recording metadata (playbacks, start time) is only available from the
+     * (mock) BBB server, which PHPUnit has no access to.
+     *
      * @param int $userid The student whose recordings are being inspected.
      *                    Note: BBB recordings are scoped to the meeting/group, not
      *                    the participant — so the userid only affects group filtering.
      * @return array Each entry: {recordingid, name, playbackurl, starttime, endtime, groupid, sessionlabel}.
      */
-    private function get_recordings_for_user(int $userid): array {
+    protected function get_recordings_for_user(int $userid): array {
         $instance = \mod_bigbluebuttonbn\instance::get_from_cmid($this->cm->id);
         if (!$instance) {
             return [];
         }
 
+        // NB: BBB filters this by the *viewer's* group, so a student in a
+        // separate-groups activity may see fewer recordings than the grader — or
+        // none at all when meetings ran with groupid 0.
         $recordings = \mod_bigbluebuttonbn\recording::get_recordings_for_instance($instance);
-        if (empty($recordings)) {
-            return [];
-        }
 
         $result = [];
+        $present = [];
         foreach ($recordings as $rec) {
-            $playbackurl = $this->extract_playback_url($rec);
-            if (empty($playbackurl)) {
+            $entry = $this->build_recording_entry($rec);
+            if ($entry === null) {
                 continue;
             }
+            $result[] = $entry;
+            $present[$entry['bbbrecordingid']] = true;
+        }
 
-            $starttime = (int) ($rec->get('starttime') ?? 0);
-            // BBB stores starttime in milliseconds; normalise to seconds.
-            if ($starttime > 1000000000000) {
-                $starttime = (int) ($starttime / 1000);
+        // Personal-feedback rescue: surface every recording this user has
+        // annotation feedback on — fetched by id, which bypasses the group filter
+        // above — so a student can always reach feedback addressed to them and the
+        // annotation overlay has a recording to render. Graders already see all
+        // recordings, so this adds nothing for them.
+        foreach ($this->get_feedback_recording_ids($userid) as $recid) {
+            if ($recid === '' || isset($present[$recid])) {
+                continue;
             }
-            $endtime = (int) ($rec->get('endtime') ?? 0);
-            if ($endtime > 1000000000000) {
-                $endtime = (int) ($endtime / 1000);
+            $rec = \mod_bigbluebuttonbn\recording::get_record([
+                'bigbluebuttonbnid' => (int) $this->bbb->id,
+                'recordingid' => $recid,
+            ]);
+            $entry = $rec ? $this->build_recording_entry($rec) : null;
+            if ($entry !== null) {
+                $result[] = $entry;
+                $present[$recid] = true;
             }
-
-            $name = trim((string) $rec->get('name'));
-            if ($name === '') {
-                $name = format_string($this->bbb->name);
-            }
-
-            // Resolve a direct link to BBB's hosted Statistics dashboard
-            // (target=_blank from the preview pane). This is the same URL the
-            // teacher would reach by clicking "Statistics" in BBB's recording
-            // table — the full per-attendee breakdown, timeline, polls, etc.
-            $statisticsurl = $rec->get_remote_playback_url('statistics');
-
-            $result[] = [
-                'recordingid' => (int) $rec->get('id'),
-                // BBB internal recording id — same string used in the SUMMARY
-                // log meta.recordid and in local_unifiedgrader_bbbeng. Used to
-                // pivot the Activity Points card to a single session when the
-                // teacher clicks a recording switcher button.
-                'bbbrecordingid' => (string) ($rec->get('recordingid') ?? ''),
-                'name' => $name,
-                'playbackurl' => $playbackurl,
-                'statisticsurl' => $statisticsurl ?: '',
-                'hasstatisticsurl' => !empty($statisticsurl),
-                'starttime' => $starttime,
-                'endtime' => $endtime,
-                'groupid' => (int) ($rec->get('groupid') ?? 0),
-                'sessionlabel' => $starttime > 0 ? userdate($starttime) : $name,
-            ];
         }
 
         usort($result, fn($a, $b) => $a['starttime'] <=> $b['starttime']);
 
         return $result;
+    }
+
+    /**
+     * Build a switcher/preview entry from a recording entity, or null when the
+     * recording has no usable playback URL.
+     *
+     * @param \mod_bigbluebuttonbn\recording $rec
+     * @return array|null
+     */
+    private function build_recording_entry(\mod_bigbluebuttonbn\recording $rec): ?array {
+        $playbackurl = $this->extract_playback_url($rec);
+        if (empty($playbackurl)) {
+            return null;
+        }
+
+        $starttime = (int) ($rec->get('starttime') ?? 0);
+        // BBB stores starttime in milliseconds; normalise to seconds.
+        if ($starttime > 1000000000000) {
+            $starttime = (int) ($starttime / 1000);
+        }
+        $endtime = (int) ($rec->get('endtime') ?? 0);
+        if ($endtime > 1000000000000) {
+            $endtime = (int) ($endtime / 1000);
+        }
+
+        $name = trim((string) $rec->get('name'));
+        if ($name === '') {
+            $name = format_string($this->bbb->name);
+        }
+
+        // Direct link to BBB's hosted Statistics dashboard (opened target=_blank
+        // from the preview pane): the full per-attendee breakdown, polls, etc.
+        $statisticsurl = $rec->get_remote_playback_url('statistics');
+
+        return [
+            'recordingid' => (int) $rec->get('id'),
+            // BBB internal recording id — same string used in the SUMMARY log
+            // meta.recordid and in local_unifiedgrader_bbbeng, and the id the
+            // switcher pills reload with to pivot the overlay + tiles.
+            'bbbrecordingid' => (string) ($rec->get('recordingid') ?? ''),
+            'name' => $name,
+            'playbackurl' => $playbackurl,
+            'statisticsurl' => $statisticsurl ?: '',
+            'hasstatisticsurl' => !empty($statisticsurl),
+            'starttime' => $starttime,
+            'endtime' => $endtime,
+            'groupid' => (int) ($rec->get('groupid') ?? 0),
+            'sessionlabel' => $starttime > 0 ? userdate($starttime) : $name,
+        ];
+    }
+
+    /**
+     * BBB recording ids that carry annotation feedback for $userid, via
+     * bbbext_advgrd. Empty when the extension is absent.
+     *
+     * Protected so tests can stub it — the underlying lookup needs bbbext_advgrd
+     * installed with real annotation rows.
+     *
+     * @param int $userid
+     * @return string[]
+     */
+    protected function get_feedback_recording_ids(int $userid): array {
+        global $CFG;
+        // Procedural functions aren't PSR-4 autoloaded, so require the lib before
+        // probing for the public entry point (idempotent — see get_submission_data).
+        $advgrdlib = $CFG->dirroot . '/mod/bigbluebuttonbn/extension/advgrd/lib.php';
+        if (file_exists($advgrdlib)) {
+            require_once($advgrdlib);
+        }
+        if (!function_exists('bbbext_advgrd_recording_ids_with_feedback')) {
+            return [];
+        }
+        try {
+            return bbbext_advgrd_recording_ids_with_feedback((int) $this->cm->id, $userid);
+        } catch (\Throwable $e) {
+            debugging(
+                'bbbext_advgrd_recording_ids_with_feedback failed: ' . $e->getMessage(),
+                DEBUG_DEVELOPER,
+            );
+            return [];
+        }
     }
 
     /**

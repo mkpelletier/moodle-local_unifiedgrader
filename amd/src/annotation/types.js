@@ -44,10 +44,17 @@ export const TOOLS = {
  * @type {object}
  */
 export const COLORS = {
-    RED: '#EF4540',
-    YELLOW: '#FFCF35',
-    GREEN: '#98CA3E',
-    BLUE: '#7D9FD3',
+    // Chosen so the marker pin's number clears WCAG AA (4.5:1): the number's ink
+    // is picked per-swatch (white on dark, dark on light — see _textOn), so red/
+    // green/blue keep a white number while yellow can stay a real bright yellow
+    // (dark number, ~12:1) instead of a muddy gold. Bright originals scored only
+    // ~3.75 / ~1.5 / ~1.9 / ~2.7:1 with the old always-white number. All safe for
+    // the translucent highlighter (0.3–0.35 opacity → light pastel tints, text
+    // under a highlight stays ~9–10:1).
+    RED: '#D0342C',
+    YELLOW: '#F2C200',
+    GREEN: '#2E7D32',
+    BLUE: '#5D779E',
     BLACK: '#333333',
 };
 

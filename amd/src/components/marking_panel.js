@@ -3136,11 +3136,34 @@ export default class extends BaseComponent {
         for (const link of links) {
             html += '<div class="list-group-item px-0 py-2 border-0">';
             html += '<div class="small fw-bold text-truncate mb-1">' + this._escapeHtml(link.label) + '</div>';
-            html += '<div class="small">' + link.html + '</div>';
+            if (link.notapplicable) {
+                // A recording/image/archive was never scannable. Show a neutral,
+                // muted note — relaying the vendor's red "scan failed" here reads
+                // as a broken scan and invites a retry that can never succeed.
+                html += '<div class="small text-muted d-flex align-items-start gap-1">'
+                    + '<i class="fa fa-info-circle mt-1" aria-hidden="true"></i>'
+                    + '<span data-region="plagiarism-na"></span>'
+                    + '</div>';
+            } else {
+                html += '<div class="small">' + link.html + '</div>';
+            }
             html += '</div>';
         }
         html += '</div>';
         body.innerHTML = html;
+
+        // Fill the not-applicable notes (the string resolves asynchronously).
+        const nanotes = body.querySelectorAll('[data-region="plagiarism-na"]');
+        if (nanotes.length) {
+            getString('plagiarism_notapplicable', 'local_unifiedgrader').then((s) => {
+                nanotes.forEach((n) => {
+                    n.textContent = s;
+                });
+                return s;
+            }).catch(() => {
+                // Leave the note empty rather than showing a raw string key.
+            });
+        }
 
         // Academic-integrity action below the file shields. The action belongs
         // with the plagiarism report, so whenever this card is shown it hosts the

@@ -286,6 +286,7 @@
         <FIELD NAME="commenttext" TYPE="text" NOTNULL="true" SEQUENCE="false" COMMENT="The grader comment HTML"/>
         <FIELD NAME="commentformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Text format constant"/>
         <FIELD NAME="marktype" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="comment" SEQUENCE="false" COMMENT="Segment mark type: comment, tick, cross, highlight or query"/>
+        <FIELD NAME="color" TYPE="char" LENGTH="7" NOTNULL="false" SEQUENCE="false" COMMENT="Hex colour (#RRGGBB) for the comment marker; null uses the default"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
       </FIELDS>

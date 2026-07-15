@@ -334,7 +334,10 @@ export default class extends BaseComponent {
         // An audio-only submission has no text translation but still needs the
         // panel (to play the English dub), so keep it open when dubs are present.
         const hasAudio = Array.isArray(result.audio) && result.audio.length > 0;
-        // Only offer the toggle when a translation (or a dub) is available.
+        // Only offer the toggle when a translation (or a dub) is available. 'pending'
+        // is deliberately NOT hidden here — a French/Afrikaans paper being translated
+        // should surface its "pending" state. (An English paper must never reach
+        // 'pending'; that's handled at the source so it resolves to 'nottranslated'.)
         if (!hasAudio && (status === 'nottranslated' || status === 'unavailable' || status === 'noattempt')) {
             this._hidePanel();
             return;
@@ -392,6 +395,22 @@ export default class extends BaseComponent {
         const select = this.getElement(this.selectors.LANG_SELECT);
         if (select) {
             select.innerHTML = '';
+            // When the detected/resolved language isn't one of the confirmable
+            // options — e.g. a French submission in a course whose nida targets
+            // don't include French — lead with a disabled placeholder showing the
+            // detected code. Without it the browser silently pre-selects the first
+            // real option ('English'), contradicting the "FR" badge and inviting a
+            // confirm of the wrong language. The placeholder's empty value is a
+            // no-op if it ever reaches _confirmLang (guarded there).
+            const inOptions = this._langOptions.some((opt) => opt.code === shown);
+            if (shown && !inOptions) {
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.disabled = true;
+                placeholder.selected = true;
+                placeholder.textContent = shown.toUpperCase();
+                select.appendChild(placeholder);
+            }
             this._langOptions.forEach((opt) => {
                 const option = document.createElement('option');
                 option.value = opt.code;
