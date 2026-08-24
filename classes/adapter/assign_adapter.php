@@ -2142,7 +2142,10 @@ class assign_adapter extends base_adapter {
             'decimalpoints' => $decimalpoints,
         ];
 
-        if ($method === 'rubric' && !empty($definition->rubric_criteria)) {
+        if (
+            \local_unifiedgrader\grading_method_helper::is_rubric($method)
+                && !empty($definition->rubric_criteria)
+        ) {
             $criteria = [];
             foreach ($definition->rubric_criteria as $criterionid => $criterion) {
                 $levels = [];
@@ -2174,7 +2177,16 @@ class assign_adapter extends base_adapter {
                     'levels' => $levels,
                 ];
             }
-            $result['criteria'] = $criteria;
+            $result['criteria'] = \local_unifiedgrader\grading_method_helper::annotate_ranged_criteria(
+                $criteria,
+                $definition->rubric_criteria,
+            );
+            $result['isranged'] = \local_unifiedgrader\grading_method_helper::is_ranged_rubric($method);
+            $result['areaid'] = (int) $controller->get_areaid();
+            $result['pdfurl'] = \local_unifiedgrader\grading_method_helper::get_pdf_url(
+                $method,
+                (int) $controller->get_areaid(),
+            );
         } else if ($method === 'guide' && !empty($definition->guide_criteria)) {
             $criteria = [];
             foreach ($definition->guide_criteria as $criterionid => $criterion) {
@@ -2223,11 +2235,11 @@ class assign_adapter extends base_adapter {
             // Each grading form type has its own filling method.
             if ($instance instanceof \gradingform_guide_instance) {
                 return $instance->get_guide_filling();
-            } else if ($instance instanceof \gradingform_rubric_instance) {
-                return $instance->get_rubric_filling();
             }
 
-            return null;
+            // Covers rubric and rubric_ranges: the ranged instance does not
+            // extend gradingform_rubric_instance, so instanceof misses it.
+            return \local_unifiedgrader\grading_method_helper::get_rubric_filling($instance);
         } catch (\Throwable $e) {
             return null;
         }
