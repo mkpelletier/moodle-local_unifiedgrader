@@ -91,7 +91,7 @@ class grading_method_helper {
      * @param array $criteria Serialised criteria, each with id/levels.
      * @param array $rawcriteria The controller's rubric_criteria, keyed by criterion id.
      * @param bool $sortlevelsasc Whether levels are sorted ascending (the sortlevelsasc option).
-     * @return array The criteria with isranged, points and level rangelabel added.
+     * @return array The criteria with isranged, points and per-level rangestart/rangeend/rangelabel added.
      */
     public static function annotate_ranged_criteria(
         array $criteria,
@@ -124,7 +124,12 @@ class grading_method_helper {
                     $end = $index === $count - 1 ? 0 : ((float) $levels[$index + 1]['score'] + 1);
                 }
                 $a = (object) ['rangestart' => self::format_score($start), 'rangeend' => self::format_score($end)];
-                $levels[$index]['rangelabel'] = get_string('levelrange', 'gradingform_rubric_ranges', $a);
+                // The bounds are carried separately from the label so callers --
+                // and tests -- do not depend on the ranged rubric's lang pack
+                // being installed just to know where a band begins and ends.
+                $levels[$index]['rangestart'] = $a->rangestart;
+                $levels[$index]['rangeend'] = $a->rangeend;
+                $levels[$index]['rangelabel'] = self::range_label($a);
             }
             $criterion['levels'] = $levels;
         }
@@ -151,6 +156,26 @@ class grading_method_helper {
             ['areaid' => $areaid],
         );
         return $url->out(false);
+    }
+
+    /**
+     * Render a band label, e.g. "6 to 10".
+     *
+     * Uses the ranged rubric's own string so the label matches what that
+     * plugin's preview shows and follows the site language. That plugin is
+     * necessarily installed whenever a ranged rubric is being displayed, but
+     * the helper is also exercised without it -- calling get_string() on an
+     * absent string would return "[[levelrange]]" and raise a debugging call,
+     * so fall back to the same format its English string uses.
+     *
+     * @param \stdClass $a Object with rangestart and rangeend.
+     * @return string
+     */
+    private static function range_label(\stdClass $a): string {
+        if (get_string_manager()->string_exists('levelrange', 'gradingform_rubric_ranges')) {
+            return get_string('levelrange', 'gradingform_rubric_ranges', $a);
+        }
+        return $a->rangestart . ' to ' . $a->rangeend;
     }
 
     /**

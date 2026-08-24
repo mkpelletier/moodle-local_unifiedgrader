@@ -29,6 +29,16 @@ use advanced_testcase;
 #[\PHPUnit\Framework\Attributes\CoversClass(grading_method_helper::class)]
 final class grading_method_helper_test extends advanced_testcase {
     /**
+     * The band bounds of a level, which do not need the ranged rubric's lang pack.
+     *
+     * @param array $level
+     * @return array [start, end]
+     */
+    protected function bounds(array $level): array {
+        return [$level['rangestart'], $level['rangeend']];
+    }
+
+    /**
      * Both rubric flavours must be recognised as rubrics.
      */
     public function test_is_rubric(): void {
@@ -71,6 +81,9 @@ final class grading_method_helper_test extends advanced_testcase {
 
         $this->assertTrue($result[0]['isranged']);
         $this->assertEquals(20.0, $result[0]['points']);
+        $this->assertSame(['0', '5'], $this->bounds($result[0]['levels'][0]));
+        $this->assertSame(['6', '10'], $this->bounds($result[0]['levels'][1]));
+        $this->assertSame(['11', '20'], $this->bounds($result[0]['levels'][2]));
         $this->assertSame('0 to 5', $result[0]['levels'][0]['rangelabel']);
         $this->assertSame('6 to 10', $result[0]['levels'][1]['rangelabel']);
         $this->assertSame('11 to 20', $result[0]['levels'][2]['rangelabel']);
@@ -96,6 +109,9 @@ final class grading_method_helper_test extends advanced_testcase {
 
         $result = grading_method_helper::annotate_ranged_criteria($criteria, $raw, false);
 
+        $this->assertSame(['20', '11'], $this->bounds($result[0]['levels'][0]));
+        $this->assertSame(['10', '6'], $this->bounds($result[0]['levels'][1]));
+        $this->assertSame(['5', '0'], $this->bounds($result[0]['levels'][2]));
         $this->assertSame('20 to 11', $result[0]['levels'][0]['rangelabel']);
         $this->assertSame('10 to 6', $result[0]['levels'][1]['rangelabel']);
         $this->assertSame('5 to 0', $result[0]['levels'][2]['rangelabel']);
@@ -121,8 +137,11 @@ final class grading_method_helper_test extends advanced_testcase {
         $result = grading_method_helper::annotate_ranged_criteria($criteria, $raw);
 
         $this->assertFalse($result[0]['isranged']);
-        $this->assertArrayNotHasKey('rangelabel', $result[0]['levels'][0]);
-        $this->assertArrayNotHasKey('rangelabel', $result[0]['levels'][1]);
+        foreach ($result[0]['levels'] as $level) {
+            $this->assertArrayNotHasKey('rangestart', $level);
+            $this->assertArrayNotHasKey('rangeend', $level);
+            $this->assertArrayNotHasKey('rangelabel', $level);
+        }
     }
 
     /**
