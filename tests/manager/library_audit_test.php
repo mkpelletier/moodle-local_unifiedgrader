@@ -539,5 +539,143 @@ final class library_audit_test extends \advanced_testcase {
         $this->assertSame(0, library_audit::recode_comments([], 'BIB3129'));
         $this->assertSame(0, library_audit::reassign_comments([], 1));
         $this->assertSame(0, library_audit::purge_orphan_maps());
+        $this->assertSame(0, library_audit::delete_comments([]));
+    }
+
+    /**
+     * Deleting a comment removes its tag mappings too, and leaves comments
+     * outside the requested set untouched.
+     */
+    public function test_delete_comments(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('local_unifiedgrader');
+
+        $teacher = $generator->create_user();
+        $target = $plugingen->create_library_comment(['userid' => $teacher->id]);
+        $untouched = $plugingen->create_library_comment(['userid' => $teacher->id]);
+        $tag = $plugingen->create_library_tag(['userid' => $teacher->id]);
+        $plugingen->create_tag_mapping(['commentid' => $target->id, 'tagid' => $tag->id]);
+
+        $deleted = library_audit::delete_comments([$target->id]);
+
+        $this->assertSame(1, $deleted);
+        $this->assertFalse($DB->record_exists('local_unifiedgrader_clib', ['id' => $target->id]));
+        $this->assertFalse($DB->record_exists('local_unifiedgrader_clmap', ['commentid' => $target->id]));
+        $this->assertTrue($DB->record_exists('local_unifiedgrader_clib', ['id' => $untouched->id]));
+    }
+
+    /**
+     * The owner argument confines a delete to that teacher's own rows —
+     * this is what makes the self-service delete safe.
+     */
+    public function test_delete_comments_respects_the_owner_scope(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('local_unifiedgrader');
+
+        $mine = $generator->create_user();
+        $theirs = $generator->create_user();
+        $ownrow = $plugingen->create_library_comment(['userid' => $mine->id]);
+        $otherrow = $plugingen->create_library_comment(['userid' => $theirs->id]);
+
+        $deleted = library_audit::delete_comments([$ownrow->id, $otherrow->id], $mine->id);
+
+        $this->assertSame(1, $deleted);
+        $this->assertFalse($DB->record_exists('local_unifiedgrader_clib', ['id' => $ownrow->id]));
+        $this->assertTrue($DB->record_exists('local_unifiedgrader_clib', ['id' => $otherrow->id]));
+    }
+
+    /**
+     * A comment with no duplicate is not reported.
+     */
+    public function test_find_duplicate_comments_ignores_unique_rows(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $teacher = $generator->create_user();
+        $generator->get_plugin_generator('local_unifiedgrader')->create_library_comment([
+            'userid' => $teacher->id,
+            'content' => 'One of a kind',
+        ]);
+
+        $this->assertSame([], library_audit::find_duplicate_comments($teacher->id));
+    }
+
+    /**
+     * Exact repeats — same owner, course code and content — are grouped
+     * together, oldest first, with the group's own tags attached per copy.
+     */
+    public function test_find_duplicate_comments_groups_exact_repeats(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('local_unifiedgrader');
+        $teacher = $generator->create_user();
+
+        $older = $plugingen->create_library_comment([
+            'userid' => $teacher->id,
+            'coursecode' => 'BIB3129',
+            'content' => 'Repeated comment',
+            'timecreated' => 1000,
+        ]);
+        $newer = $plugingen->create_library_comment([
+            'userid' => $teacher->id,
+            'coursecode' => 'BIB3129',
+            'content' => 'Repeated comment',
+            'timecreated' => 2000,
+        ]);
+
+        $groups = library_audit::find_duplicate_comments($teacher->id);
+
+        $this->assertCount(1, $groups);
+        $this->assertSame('BIB3129', $groups[0]['coursecode']);
+        $this->assertSame('Repeated comment', $groups[0]['content']);
+        $this->assertCount(2, $groups[0]['comments']);
+        $this->assertSame($older->id, $groups[0]['comments'][0]['id']);
+        $this->assertSame($newer->id, $groups[0]['comments'][1]['id']);
+    }
+
+    /**
+     * The same content under two different course codes is not a
+     * duplicate — a teacher reusing one generic comment across courses is
+     * legitimate, not a data problem.
+     */
+    public function test_find_duplicate_comments_scopes_by_coursecode(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('local_unifiedgrader');
+        $teacher = $generator->create_user();
+
+        $plugingen->create_library_comment([
+            'userid' => $teacher->id,
+            'coursecode' => 'BIB3127',
+            'content' => 'Well cited',
+        ]);
+        $plugingen->create_library_comment([
+            'userid' => $teacher->id,
+            'coursecode' => 'BIB3129',
+            'content' => 'Well cited',
+        ]);
+
+        $this->assertSame([], library_audit::find_duplicate_comments($teacher->id));
+    }
+
+    /**
+     * Duplicates are scoped per owner even when filtering site-wide — two
+     * teachers who happen to save the same comment are not "duplicates" of
+     * each other.
+     */
+    public function test_find_duplicate_comments_scopes_by_owner(): void {
+        $this->resetAfterTest();
+        $generator = $this->getDataGenerator();
+        $plugingen = $generator->get_plugin_generator('local_unifiedgrader');
+        $one = $generator->create_user();
+        $two = $generator->create_user();
+
+        $plugingen->create_library_comment(['userid' => $one->id, 'content' => 'Same words']);
+        $plugingen->create_library_comment(['userid' => $two->id, 'content' => 'Same words']);
+
+        $this->assertSame([], library_audit::find_duplicate_comments());
     }
 }

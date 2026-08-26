@@ -565,6 +565,132 @@ class library_audit {
     }
 
     /**
+     * Delete a set of comments and their tag mappings.
+     *
+     * @param int[] $commentids Comments to delete.
+     * @param int $owner When non-zero, only comments owned by this user are touched —
+     *                   this is what makes the teacher self-service delete safe.
+     * @return int Number of comments deleted.
+     */
+    public static function delete_comments(array $commentids, int $owner = 0): int {
+        global $DB;
+
+        $commentids = array_values(array_unique(array_filter(array_map('intval', $commentids))));
+        if (empty($commentids)) {
+            return 0;
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($commentids, SQL_PARAMS_NAMED, 'cid');
+        $where = "id {$insql}";
+        if ($owner > 0) {
+            $where .= ' AND userid = :owner';
+            $params['owner'] = $owner;
+        }
+
+        // Read first so the count reflects rows actually eligible, not the
+        // size of the requested set — mirrors recode_comments/reassign_comments.
+        $targets = $DB->get_fieldset_select('local_unifiedgrader_clib', 'id', $where, $params);
+        if (empty($targets)) {
+            return 0;
+        }
+
+        [$targetsql, $targetparams] = $DB->get_in_or_equal($targets, SQL_PARAMS_NAMED, 'tid');
+        $DB->delete_records_select('local_unifiedgrader_clib', "id {$targetsql}", $targetparams);
+        $DB->delete_records_select('local_unifiedgrader_clmap', "commentid {$targetsql}", $targetparams);
+
+        return count($targets);
+    }
+
+    /**
+     * Groups of exact duplicates — same owner, course code and content —
+     * most often produced by re-importing the same file twice, a slow
+     * connection causing a double-submit, or a comment saved before and
+     * after a page reload lost the "already saved" state.
+     *
+     * @param int $userid Restrict to one owner (0 = every owner).
+     * @return array List of groups: userid, coursecode, content, and the
+     *               member comment rows (oldest first).
+     */
+    public static function find_duplicate_comments(int $userid = 0): array {
+        global $DB;
+
+        $where = '1 = 1';
+        $params = [];
+        if ($userid > 0) {
+            $where = 'userid = :userid';
+            $params['userid'] = $userid;
+        }
+
+        // Content is TEXT, which can't be GROUP BY'd portably across every
+        // supported database, so group in PHP instead — libraries are small
+        // enough that this is cheap, and it avoids a database-specific
+        // HAVING COUNT() clause.
+        $records = $DB->get_records_select(
+            'local_unifiedgrader_clib',
+            $where,
+            $params,
+            'userid ASC, coursecode ASC, timecreated ASC',
+        );
+
+        $groups = [];
+        foreach ($records as $r) {
+            $key = $r->userid . "\0" . $r->coursecode . "\0" . $r->content;
+            $groups[$key][] = $r;
+        }
+
+        $tagnames = self::tag_names_for_duplicates(array_keys($records));
+
+        $out = [];
+        foreach ($groups as $rows) {
+            if (count($rows) < 2) {
+                continue;
+            }
+            $first = reset($rows);
+            $out[] = [
+                'userid' => (int) $first->userid,
+                'coursecode' => $first->coursecode,
+                'content' => $first->content,
+                'comments' => array_map(fn($r) => [
+                    'id' => (int) $r->id,
+                    'tags' => $tagnames[(int) $r->id] ?? [],
+                    'shared' => (int) $r->shared,
+                    'timecreated' => (int) $r->timecreated,
+                ], array_values($rows)),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Batch-fetch tag names for a set of comment ids, for find_duplicate_comments().
+     *
+     * @param int[] $commentids
+     * @return array<int,string[]> commentid => list of tag names.
+     */
+    private static function tag_names_for_duplicates(array $commentids): array {
+        global $DB;
+
+        if (empty($commentids)) {
+            return [];
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($commentids, SQL_PARAMS_NAMED, 'cid');
+        $sql = "SELECT m.id, m.commentid, t.name
+                  FROM {local_unifiedgrader_clmap} m
+                  JOIN {local_unifiedgrader_cltag} t ON t.id = m.tagid
+                 WHERE m.commentid {$insql}
+              ORDER BY t.sortorder ASC, t.name ASC";
+
+        $out = [];
+        foreach ($DB->get_records_sql($sql, $params) as $row) {
+            $out[(int) $row->commentid][] = $row->name;
+        }
+
+        return $out;
+    }
+
+    /**
      * Delete every tag mapping whose comment or tag no longer exists.
      *
      * @return int Number of mappings removed.

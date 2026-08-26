@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.11.0 (2026082601)
+
+Export, import, and clean up the comment library — as CSV, from either the admin moderation tool or a teacher's own library.
+
+### CSV export and import
+
+Every library view — a teacher's own library, one admin-inspected bucket, or the moderation page's full filtered list across every teacher — now has an **Export (CSV)** link, and a matching **Import** upload alongside it. The two shapes are deliberately minimal: `coursecode,shared,tags,content` for a single owner, with `ownerid,ownername` added at the front when the export spans more than one teacher. Tags are one cell, pipe-separated (`Grammar|Needs revision`).
+
+Import is additive and idempotent, in the same spirit as the legacy importer added in v2.10.0: a row whose owner, course code and content already match an existing comment is skipped rather than duplicated, so re-running an import — after fixing a couple of bad rows, say — never doubles up what already succeeded. `content` is the only required column; a missing `tags` cell resolves against the owner's existing tags by name (case-insensitively) before creating a new one, and a missing `coursecode` cell falls back to whatever the import context implies — the current bucket when importing into one, or universal otherwise.
+
+Two safety rules are enforced beneath the UI, not just by it: a teacher's own import always writes to their own library regardless of what an `ownerid` column in the file claims, and an admin importing without a chosen owner filter is required to either filter to one teacher first or supply that column — otherwise every unattributed row would default to `userid = 0`, the system-defaults bucket, which is almost never what "restore this backup" means.
+
+### Bulk delete and duplicate cleanup
+
+The bucket view (both admin and teacher) gains a **Delete selected** action beside the existing re-scope and reassign forms, reusing the same checkboxes — tick comments, then move, hand off, or remove them in one visit rather than three.
+
+A new **Possible duplicate comments** section — on the moderation page (site-wide or filtered to one teacher) and on the teacher's own library — groups exact repeats: same owner, same course code, same content, most often left behind by a double-submit or a re-run import. Each group gets a one-click **Delete extra copies, keep oldest** button. Comments that happen to share wording across two different courses, or across two different teachers, are not flagged — that's normal reuse, not a duplicate.
+
+### Coverage
+
+`tests/manager/library_csv_test.php` (14 tests) covers both export shapes, the required-content-column and empty-file error paths, the skip-on-duplicate behaviour, tag reuse and creation, the owner-column override and its teacher-side lockout, an invalid ownerid being reported rather than silently defaulting, and forced-coursecode bucket imports. `tests/manager/library_audit_test.php` gains coverage for `delete_comments()` (including its owner scope) and `find_duplicate_comments()` (grouping, and that it does *not* group across course codes or across owners). Full suite: 605 tests, 1685 assertions, all passing.
+
 ## v2.10.0 (2026082500)
 
 Comment libraries you can audit, and three defects that were quietly misfiling them.
