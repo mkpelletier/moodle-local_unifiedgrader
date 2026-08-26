@@ -1,5 +1,52 @@
 # Changelog
 
+## v2.10.0 (2026082500)
+
+Comment libraries you can audit, and three defects that were quietly misfiling them.
+
+### Comment libraries can now be moderated
+
+A comment library entry is scoped by a free-text `coursecode` string, not a link to a course. Nothing at the database level keeps that string pointing anywhere real, and nothing in the interface showed an admin what had been stored — so an entry filed under the wrong code was indistinguishable from an entry that had never been saved. A teacher reporting "my library from last term is gone" could not be answered.
+
+**Site administration → Plugins → Local plugins → Unified Grader → Moderate comment libraries** lists every library on the site, one row per owner per course code, and flags seven ways an entry can drift out of its owner's reach:
+
+- **Owner missing** / **Owner deleted** — the `userid` points at no user row, or at a deleted one.
+- **System default with a course code** — a `userid = 0` row is always written with an empty code, so a code here means a scoped comment was written into the system bucket.
+- **Sentinel stored as code** — the modal's sidebar buckets (`__system__`, `__universal__`) stored verbatim as a course code.
+- **Padded code** — leading or trailing whitespace, which splits one bucket into two and is invisible in the interface. Codes are shown in `[brackets]` throughout so this is legible at a glance.
+- **Code matches no course** — no course on the site currently produces this code.
+- **Competing spellings of one code** — two codes that differ only by case or padding. Detected site-wide, so filtering to one teacher still reports a clash with another teacher's spelling.
+
+The **Matching courses** column shows which courses each stored code resolves to today, which is also how an over-truncating extraction regex becomes visible: two different courses collapsing onto one code is a merged library, not a coincidence.
+
+From a bucket you can re-scope comments to another code (blank makes them universal), or reassign them to another owner — for rescuing a library after a duplicate account is merged. Both are logged as a `library_repaired` event. Orphaned tag mappings can be purged, and rows still stranded in the pre-v2 `local_unifiedgrader_comments` table are listed with the code they would be filed under, and can be imported. That import is additive and idempotent: it skips inserting anything the owner already has, unlike the upgrade-time migration, which opens by deleting the entire v2 table. Each row's legacy source is removed only once its copy is confirmed present in the current library — whether newly inserted or already there — so a successful import clears the backlog instead of reporting the same rows on every subsequent visit.
+
+Gated on a new `local/unifiedgrader:moderatelibraries` capability, granted to managers.
+
+### Teachers can re-file their own comments
+
+**Organise library**, linked from the comment library sidebar, shows a teacher their own comments grouped by course code and lets them move a selection to another code without involving an admin. Only codes for courses they are enrolled in are offered — moving comments into a course they do not teach would only lose them again. Every operation is scoped to the teacher's own rows at the manager level.
+
+### Three defects that misfiled comments
+
+- **An extraction regex with an empty capture group silently made comments universal.** `course_code_helper::extract_code()` returned `$matches[1] ?? $matches[0]`, and `??` only falls back on null — not on a group that participated in the match without capturing anything. Such a group yields `''`, and an empty course code is precisely what `get_comments()` treats as "visible in all my courses". Every comment a teacher saved while grading an affected course went into their universal bucket, where they used it all term without noticing, and where it does not appear under the course next term. Extraction now tests for emptiness rather than null, and never returns an empty code for a shortname that has one.
+- **The library sidebar's `__system__` bucket leaked into saved comments.** `__universal__` was handled explicitly when computing a new comment's course code; `__system__` fell through and was stored verbatim, producing a phantom course bucket only that teacher could see. Both sentinels are now filtered.
+- **A delete attempted by a non-owner stripped a comment's tags.** `delete_comment()` scoped the comment delete by `userid` but deleted the tag mappings unconditionally, and `delete_records()` reports success whether or not it matched a row. The comment survived, untagged and much harder to find. Both `delete_comment()` and `delete_system_comment()` now confirm the scoped row exists before touching the mappings.
+
+### Every language pack brought up to date
+
+All twelve translations — Afrikaans, German, Greek, Spanish, French, Hebrew, Italian, Portuguese, Russian, Swahili, Xhosa and Zulu — were last touched for content in v2.6.6 (2 July). Seven releases of English strings had landed since, so each pack was short **350 strings** and still carried **29 keys that no longer exist** in English: leftovers from the marking-panel and comment-library rewrites (`clib_edit_comment`, `markingpanel`, `status_needsgrading`, `download_annotated_pdf` and the like).
+
+Every pack is now at full parity with English — 682 strings each, obsolete keys removed, files re-sorted by key. The newly translated material covers the BigBlueButton engagement and attendance work, forum post-rating and post views, submission translation and segment-anchored marking, the dual file view, integrity referrals, ranged rubrics, the comment-library approval queue, and this release's own moderation pages.
+
+Checked mechanically across all twelve, not just spot-read: key parity against English in both directions, no duplicate keys, sort order, `php -l` on every file, and — the check that matters most for a translation pass — **placeholder parity**, so no `{$a}`, `{$a->count}`, `{parsed}` or `{recordings}` token was dropped, renamed or mistranslated in any of the 4,200 new strings. Every one of those checks passes on every language.
+
+Terms that are product names or configuration values are deliberately left in English: BigBlueButton, Moodle, `local_nida`, `unoconv`, and the literal setting name "Register live sessions" that admins have to find in the BigBlueButton plugin's own settings page.
+
+### Coverage
+
+`tests/manager/library_audit_test.php` covers each anomaly flag, site-wide variant detection surviving a user filter, owner-scoped re-scoping, reassignment refusing an invalid owner, orphan purging leaving live mappings alone, and legacy import being idempotent. `tests/helper/course_code_helper_test.php` gains regressions for the empty capture group and for a regex that can match zero characters. `tests/manager/comment_library_manager_test.php` strengthens the existing wrong-owner delete test to assert the comment's *tags* survive as well — the original only checked the comment itself, which is why the mapping bug went unnoticed. Full suite: 583 tests, 1620 assertions, all passing.
+
 ## v2.9.5 (2026082400)
 
 - **Ranged rubrics were invisible to the grader.** A `gradingform_rubric_ranges` rubric produced an empty "Assessment criteria" modal for students and an empty marking pane for teachers — the modal opened, showed its title, and nothing else. The ranged rubric reports its grading method as `rubric_ranges`, and the adapters tested for the literal string `rubric` in five separate places, so it fell through every one of them. `serialize_grading_definition()` still returned a definition — id, name, description — but never populated `criteria`, which is why the modal opened at all rather than failing outright. Assignments, forums and BigBlueButton sessions were all affected, not just forums. The method test now lives in one place, `local_unifiedgrader\grading_method_helper`, so the three adapters cannot drift apart again.
