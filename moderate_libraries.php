@@ -133,7 +133,12 @@ if ($action === 'importcsv') {
 
     $firstline = strtok($csvcontent, "\n");
     if ($filteruser === 0 && stripos((string) $firstline, 'ownerid') === false) {
-        redirect($listurl, get_string('clibcsv_need_owner_filter', 'local_unifiedgrader'), null, \core\output\notification::NOTIFY_ERROR);
+        redirect(
+            $listurl,
+            get_string('clibcsv_need_owner_filter', 'local_unifiedgrader'),
+            null,
+            \core\output\notification::NOTIFY_ERROR,
+        );
     }
 
     $result = library_csv::import($csvcontent, $filteruser, null, true, false);
