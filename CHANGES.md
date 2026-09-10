@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.11.1 (2026091000)
+
+Overall feedback could be typed into an assignment that has nowhere to store it, and two attempt-handling slips could overwrite feedback on multi-attempt assignments.
+
+### Assignments with "Feedback comments" disabled
+
+The Overall Feedback editor was shown on every assignment, including ones whose **Feedback types** settings leave **Feedback comments** unticked. `mod_assign` discards feedback text for a disabled feedback type without complaint, so a teacher could write feedback, click save, see success, and lose it. On those assignments the editor is now replaced with a warning label: *Feedback comments are not enabled for this assessment*. Forums and quizzes are unaffected; they always store feedback.
+
+The save itself is guarded as well. A grader page opened before the setting was changed still has the editor, so a save that carries feedback text to a comments-disabled assignment is now refused with an explanatory error before anything is written, and the text stays in the teacher's editor. A blank editor saves the grade as normal.
+
+### Feedback on previous attempts
+
+- **Viewing a previous attempt loaded the latest attempt's feedback into the editor.** `prepare_feedback_draft()` accepted an attempt number but never used it. Saving from that screen then wrote the latest attempt's text over the previous attempt's own feedback. The editor now loads the attempt on screen.
+- **Re-saving a previous attempt overwrote the latest attempt's feedback.** After `mod_assign` stored the graded attempt, the follow-up step that moves embedded files out of the editor's draft area rewrote the comment of the *latest* attempt's grade instead. The manual-grade-override step on rubric and marking-guide saves had the same slip and could put the typed mark on the latest attempt. Both now target the attempt being graded.
+
+### Coverage
+
+`tests/adapter/assign_adapter_test.php` gains four tests: a feedback-carrying save is refused on a comments-disabled assignment (text and media-only feedback) with no grade written; blank feedback still saves the grade there without creating a comment row; re-saving a previous attempt leaves the latest attempt's feedback and grade intact; and the feedback draft loads the requested attempt's feedback. A new Behat feature, `feedback_comments_disabled.feature`, checks that the notice replaces the editor only when comments are disabled. `marking_keyboard_navigation.feature` now enables feedback comments on its assignment explicitly: core's assignment generator leaves them off unless asked, and that scenario types into the feedback editor. For the same reason, `tests/penalty_roundtrip_test.php` now enables feedback comments on its assignment: its web-service test sends feedback text, which was previously discarded silently and is now refused.
+
 ## v2.11.0 (2026082601)
 
 Export, import, and clean up the comment library — as CSV, from either the admin moderation tool or a teacher's own library.
