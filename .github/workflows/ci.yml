@@ -45,9 +45,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 5.0 is what production runs, so it gets the full PHP x database grid.
         php: ['8.2', '8.3']
         moodle-branch: ['MOODLE_500_STABLE']
         database: [pgsql, mariadb]
+        include:
+          # Moodle 5.3 is the LTS we move to around December 2026. It is still
+          # in development, so it lives on main rather than a MOODLE_503_STABLE
+          # branch, and it moved the webroot into public/ — moodle-plugin-ci
+          # needs 4.5.11 or newer to install a plugin into that layout.
+          #
+          # One combination rather than a second full grid: this is an early
+          # warning that the plugin still builds and passes on 5.3, and CI
+          # minutes here are finite. Widen it when 5.3 becomes the target.
+          - php: '8.3'
+            moodle-branch: 'main'
+            database: 'pgsql'
 
     steps:
       - name: Check out repository code

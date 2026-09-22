@@ -81,6 +81,18 @@ if ! verify_thirdparty_integrity; then
     exit 1
 fi
 
+# Where a given install keeps its plugins. Moodle 5.3 moved the webroot into
+# public/, so plugins live at <root>/public/local/... there while 5.0 and
+# earlier keep <root>/local/... . Detected from the tree rather than configured,
+# so adding an install of either vintage to MOODLE_DIRS needs no extra thought.
+plugin_dir_for() {
+    if [ -f "$1/public/version.php" ]; then
+        echo "$1/public/local/unifiedgrader"
+    else
+        echo "$1/local/unifiedgrader"
+    fi
+}
+
 # Refuse to deploy anywhere if any target is missing, rather than updating some
 # installs and leaving the others on stale code with a non-zero exit nobody
 # reads. A missing local/unifiedgrader is fine — that is a first install.
@@ -88,6 +100,9 @@ missing=0
 for dir in "${MOODLE_DIRS[@]}"; do
     if [ ! -f "$dir/config.php" ]; then
         echo "Not a Moodle install (no config.php): $dir"
+        missing=$((missing + 1))
+    elif [ ! -f "$dir/version.php" ] && [ ! -f "$dir/public/version.php" ]; then
+        echo "No version.php in $dir or $dir/public — is this a Moodle root?"
         missing=$((missing + 1))
     fi
 done
@@ -100,21 +115,28 @@ fi
 # compile, then copy the result back to the dev folder so the remaining installs
 # and the repo get the same artifacts.
 BUILD_DIR="${MOODLE_DIRS[0]}"
-BUILD_PLUGIN_DIR="$BUILD_DIR/local/unifiedgrader"
+BUILD_PLUGIN_DIR="$(plugin_dir_for "$BUILD_DIR")"
 
 echo ""
 echo "Syncing $DEV_DIR → $BUILD_PLUGIN_DIR (build host)"
+mkdir -p "$BUILD_PLUGIN_DIR"
 rsync -av --delete \
   --exclude='.claude' \
   --exclude='amd/build' \
   --exclude='.eslintrc' \
   --exclude='deploy.sh' \
   --exclude='.git' \
+  --exclude='vendor' \
   "$DEV_DIR/" "$BUILD_PLUGIN_DIR/"
 
 echo ""
-echo "Building AMD modules in $BUILD_DIR..."
-if ! (cd "$BUILD_DIR" && npx grunt amd --root=local/unifiedgrader); then
+# Grunt runs from the webroot and takes a path relative to it, which is the
+# same string either way once the public/ prefix is stripped.
+BUILD_GRUNT_DIR="$BUILD_DIR"
+[ -f "$BUILD_DIR/public/version.php" ] && BUILD_GRUNT_DIR="$BUILD_DIR/public"
+
+echo "Building AMD modules in $BUILD_GRUNT_DIR..."
+if ! (cd "$BUILD_GRUNT_DIR" && npx grunt amd --root=local/unifiedgrader); then
     echo "AMD build failed. Aborting before the other installs are touched."
     exit 1
 fi
@@ -126,21 +148,26 @@ cp -R "$BUILD_PLUGIN_DIR/amd/build" "$DEV_DIR/amd/"
 # Pass 2 — every other install. amd/build is no longer excluded: it now exists
 # in the dev folder and is the artifact we want shipped, unbuilt and unchanged.
 for dir in "${MOODLE_DIRS[@]:1}"; do
+    target="$(plugin_dir_for "$dir")"
     echo ""
-    echo "Syncing $DEV_DIR → $dir/local/unifiedgrader"
+    echo "Syncing $DEV_DIR → $target"
+    mkdir -p "$target"
     rsync -av --delete \
       --exclude='.claude' \
       --exclude='.eslintrc' \
       --exclude='deploy.sh' \
       --exclude='.git' \
-      "$DEV_DIR/" "$dir/local/unifiedgrader/"
+      --exclude='vendor' \
+      "$DEV_DIR/" "$target/"
 done
 
 echo ""
 echo "Purging Moodle caches..."
 for dir in "${MOODLE_DIRS[@]}"; do
+    cli="$dir/admin/cli/purge_caches.php"
+    [ -f "$dir/public/version.php" ] && cli="$dir/public/admin/cli/purge_caches.php"
     echo "  $dir"
-    php "$dir/admin/cli/purge_caches.php"
+    php "$cli"
 done
 
 echo ""
