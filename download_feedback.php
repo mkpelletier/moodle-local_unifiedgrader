@@ -134,7 +134,7 @@ if ($cm->modname === 'bigbluebuttonbn') {
 
 // Build the summary data array.
 $studentname = fullname(\core_user::get_user($userid));
-// strftimedatefull is not a core string — asking for it put a literal
+// The string strftimedatefull is not a core one — asking for it put a literal
 // "[[strftimedatefull]]" in the PDF footer where the date should be.
 $dategraded = !empty($gradedata['timegraded'])
     ? userdate($gradedata['timegraded'], get_string('strftimedaydatetime', 'langconfig'))

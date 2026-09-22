@@ -1508,7 +1508,8 @@ class bbb_adapter extends base_adapter {
         $kept = [];
         foreach ($recordings as $rec) {
             $groupid = (int) ($rec['groupid'] ?? 0);
-            if ($groupid === 0
+            if (
+                $groupid === 0
                 || isset($memberof[$groupid])
                 || isset($feedbackrefs[(string) $rec['bbbrecordingid']])
             ) {

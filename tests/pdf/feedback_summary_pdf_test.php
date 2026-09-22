@@ -223,6 +223,8 @@ final class feedback_summary_pdf_test extends \advanced_testcase {
     }
 
     /**
+     * Grade values spanning every band the donut colours, plus its two edges.
+     *
      * @return array<string, array{0: float|null, 1: int|null}>
      */
     public static function grade_band_provider(): array {

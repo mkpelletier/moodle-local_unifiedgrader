@@ -189,15 +189,25 @@ class feedback_summary_pdf extends \pdf {
             $this->set_fill_from_hex(self::COLOR_WHITE);
             $this->RoundedRect($chipx, $chipy, $chipwidth, $chipheight, self::RADIUS, '1111', 'F');
 
-            // 'CM' fits the image inside the box, centred, keeping its ratio —
-            // so a tall roundel and a wide wordmark both sit correctly.
+            // The 'CM' alignment fits the image inside the box, centred and
+            // keeping its ratio, so a tall roundel and a wide wordmark both sit
+            // correctly.
             $this->Image(
                 $logopath,
                 $chipx + $padding,
                 $chipy + $padding,
                 $chipwidth - ($padding * 2),
                 $chipheight - ($padding * 2),
-                '', '', '', false, 300, '', false, false, 0, 'CM'
+                '',
+                '',
+                '',
+                false,
+                300,
+                '',
+                false,
+                false,
+                0,
+                'CM'
             );
 
             // Keep the heading clear of the chip.
@@ -254,7 +264,7 @@ class feedback_summary_pdf extends \pdf {
         if ($feedback !== '') {
             $this->render_section_heading(
                 get_string('feedback_summary_overall_feedback', 'local_unifiedgrader'),
-                0xF4AD, // comment-dots.
+                0xF4AD, // Icon: comment-dots.
                 $rightx,
                 $rightwidth
             );
@@ -427,7 +437,7 @@ class feedback_summary_pdf extends \pdf {
 
         $this->render_section_heading(
             get_string('rubric', 'local_unifiedgrader'),
-            0xF00A, // table-cells.
+            0xF00A, // Icon: table-cells.
             null,
             null,
             20
@@ -535,7 +545,7 @@ class feedback_summary_pdf extends \pdf {
 
         $this->render_section_heading(
             get_string('markingguide', 'local_unifiedgrader'),
-            0xF0AE, // list-check.
+            0xF0AE, // Icon: list-check.
             null,
             null,
             20
@@ -647,7 +657,7 @@ class feedback_summary_pdf extends \pdf {
 
         $this->render_section_heading(
             get_string('plagiarism', 'local_unifiedgrader'),
-            0xF3ED // shield-halved.
+            0xF3ED // Icon: shield-halved.
         );
 
         $html = '<table cellpadding="3" cellspacing="0" style="font-size: 8pt;">';
@@ -824,6 +834,11 @@ class feedback_summary_pdf extends \pdf {
      * Render a section heading with a blue accent bar.
      *
      * @param string $title
+     * @param int|null $icon Font Awesome codepoint to set beside the title.
+     * @param float|null $x Left edge, for a heading inside a column.
+     * @param float|null $width Heading width; defaults to the content width.
+     * @param float $keepwithnext Height of the block that must stay on the same
+     *                            page as this heading, in mm.
      */
     private function render_section_heading(
         string $title,
@@ -877,12 +892,12 @@ class feedback_summary_pdf extends \pdf {
      * @var array<string, int>
      */
     private const METRIC_ICONS = [
-        'chats' => 0xF086,      // comments.
-        'talks' => 0xF130,      // microphone.
-        'raisehand' => 0xF0A6,  // hand-point-up.
-        'pollvotes' => 0xF681,  // square-poll-vertical.
-        'emojis' => 0xF118,     // face-smile.
-        'duration' => 0xF017,   // clock.
+        'chats' => 0xF086, // Icon: comments.
+        'talks' => 0xF130, // Icon: microphone.
+        'raisehand' => 0xF0A6, // Icon: hand-point-up.
+        'pollvotes' => 0xF681, // Icon: square-poll-vertical.
+        'emojis' => 0xF118, // Icon: face-smile.
+        'duration' => 0xF017, // Icon: clock.
     ];
 
     /** @var array Footer content, kept for TCPDF's per-page Footer() callback. */
@@ -964,7 +979,7 @@ class feedback_summary_pdf extends \pdf {
         // the foot of a page says nothing on its own.
         $this->render_section_heading(
             get_string('bbb_activitypoints_heading', 'local_unifiedgrader'),
-            0xE0E3, // chart-column.
+            0xE0E3, // Icon: chart-column.
             null,
             null,
             $this->icon_font() ? 32 : 27
@@ -1092,7 +1107,7 @@ class feedback_summary_pdf extends \pdf {
 
         $this->render_section_heading(
             get_string('feedback_summary_recording_comments', 'local_unifiedgrader'),
-            0xF008 // film.
+            0xF008 // Icon: film.
         );
 
         $rows = '';
@@ -1252,6 +1267,11 @@ class feedback_summary_pdf extends \pdf {
         return [($hex >> 16) & 0xFF, ($hex >> 8) & 0xFF, $hex & 0xFF];
     }
 
+    /**
+     * Set the fill colour from a packed hex value.
+     *
+     * @param int $hex
+     */
     private function set_fill_from_hex(int $hex): void {
         $this->SetFillColor(($hex >> 16) & 0xFF, ($hex >> 8) & 0xFF, $hex & 0xFF);
     }

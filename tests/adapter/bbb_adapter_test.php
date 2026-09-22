@@ -969,6 +969,8 @@ final class bbb_adapter_test extends \advanced_testcase {
      * Build a separate-groups scenario with two groups and the target student
      * placed in the first of them.
      *
+     * @param int $groupmode Activity group mode, so the visible-groups case can
+     *                       reuse the same setup.
      * @return object{scenario: \stdClass, target: \stdClass, other: \stdClass,
      *                groupa: int, groupb: int}
      */
@@ -1122,7 +1124,7 @@ final class bbb_adapter_test extends \advanced_testcase {
         $target = $s->scenario->students[0];
         $other = $s->scenario->students[1];
 
-        // rec-1 has a roster; rec-2 has none, so guard 1 keeps it.
+        // Here rec-1 has a roster; rec-2 has none, so guard 1 keeps it.
         $gen->create_bbb_summary_log($s->scenario->activity, $other->id, [], 1800, null, 'rec-1');
         // This student attended, under an id matching neither recording.
         $gen->create_bbb_summary_log($s->scenario->activity, $target->id, [], 1800, null, 'some-other-id');
@@ -1163,7 +1165,7 @@ final class bbb_adapter_test extends \advanced_testcase {
 
         $s = $this->create_scenario(['modparams' => ['name' => 'Grief & Loss']]);
         $adapter = $this->adapter_with_recordings($s->scenario, [
-            // starttime 0 forces the name fallback rather than a formatted date.
+            // A starttime of 0 forces the name fallback rather than a formatted date.
             ['recordingid' => 1, 'bbbrecordingid' => 'rec-1', 'name' => 'Grief & Loss',
              'playbackurl' => 'https://bbb.example.com/play/alpha', 'statisticsurl' => '',
              'hasstatisticsurl' => false, 'starttime' => 0, 'endtime' => 0, 'groupid' => 0,
