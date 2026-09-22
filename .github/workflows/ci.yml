@@ -23,7 +23,10 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # Moodle 5.3 requires PostgreSQL 17; 5.0 requires 14 or newer, so one
+        # image serves both. The 5.3 job failed its install step on postgres:16
+        # with "version 17 is required and you are running 16.15".
+        image: postgres:17
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -32,7 +35,9 @@ jobs:
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 3
 
       mariadb:
-        image: mariadb:10.11
+        # Moodle 5.3 requires MariaDB 11.4; 5.0 requires 10.11 or newer, so
+        # this one image covers both branches too.
+        image: mariadb:11.4
         env:
           MYSQL_USER: 'root'
           MYSQL_ALLOW_EMPTY_PASSWORD: "true"
