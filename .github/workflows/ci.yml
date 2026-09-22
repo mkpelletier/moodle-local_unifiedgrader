@@ -39,13 +39,22 @@ jobs:
         # this one image covers both branches too.
         image: mariadb:11.4
         env:
-          MYSQL_USER: 'root'
+          # No MYSQL_USER here: root already exists, and asking the newer images
+          # to create a user called root is rejected outright.
           MYSQL_ALLOW_EMPTY_PASSWORD: "true"
           MYSQL_CHARACTER_SET_SERVER: "utf8mb4"
           MYSQL_COLLATION_SERVER: "utf8mb4_unicode_ci"
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 3
+        # healthcheck.sh, not mysqladmin: MariaDB 11 dropped the mysql-prefixed
+        # binaries, so `mysqladmin ping` is not found and the container is
+        # declared unhealthy even though the server logs "ready for
+        # connections". Both services are attached to every job, so that one
+        # failing healthcheck took down the pgsql jobs too. The script ships
+        # with the image and works on 10.11 as well.
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s --health-timeout 5s --health-retries 5
 
     strategy:
       fail-fast: false
