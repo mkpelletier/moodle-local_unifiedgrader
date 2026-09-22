@@ -3,8 +3,18 @@
 # Usage: ./deploy.sh
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd)"
-MOODLE_DIR="/Applications/MAMP/htdocs/moodle"
-PLUGIN_DIR="$MOODLE_DIR/local/unifiedgrader"
+
+# Every Moodle install to deploy into, in order. The first is the BUILD host:
+# AMD is compiled there once and the result copied back to the dev folder, then
+# shipped to the rest as-is, so every install runs byte-identical built JS and
+# the artifacts committed to the repo are the ones production will run.
+#
+# Keep the install matching production first. When the 5.0.7 install is retired
+# at the end of 2026, drop its line and 5.3 becomes the build host on its own.
+MOODLE_DIRS=(
+    "/Users/mathieu/Sites/moodle/prod507"   # Moodle 5.0.7 — matches production.
+    "/Users/mathieu/Sites/moodle/dev53"     # Moodle 5.3 — future LTS.
+)
 
 # Defense-in-depth: verify SHA-256 of bundled third-party libs against the
 # values recorded in thirdpartylibs.xml. Catches accidental or malicious
@@ -71,27 +81,67 @@ if ! verify_thirdparty_integrity; then
     exit 1
 fi
 
+# Refuse to deploy anywhere if any target is missing, rather than updating some
+# installs and leaving the others on stale code with a non-zero exit nobody
+# reads. A missing local/unifiedgrader is fine — that is a first install.
+missing=0
+for dir in "${MOODLE_DIRS[@]}"; do
+    if [ ! -f "$dir/config.php" ]; then
+        echo "Not a Moodle install (no config.php): $dir"
+        missing=$((missing + 1))
+    fi
+done
+if [ "$missing" -gt 0 ]; then
+    echo "Aborting deploy: fix MOODLE_DIRS at the top of this script."
+    exit 1
+fi
+
+# Pass 1 — the build host. Sync without amd/build (grunt is about to write it),
+# compile, then copy the result back to the dev folder so the remaining installs
+# and the repo get the same artifacts.
+BUILD_DIR="${MOODLE_DIRS[0]}"
+BUILD_PLUGIN_DIR="$BUILD_DIR/local/unifiedgrader"
+
 echo ""
-echo "Syncing $DEV_DIR → $PLUGIN_DIR"
+echo "Syncing $DEV_DIR → $BUILD_PLUGIN_DIR (build host)"
 rsync -av --delete \
   --exclude='.claude' \
   --exclude='amd/build' \
   --exclude='.eslintrc' \
   --exclude='deploy.sh' \
   --exclude='.git' \
-  "$DEV_DIR/" "$PLUGIN_DIR/"
+  "$DEV_DIR/" "$BUILD_PLUGIN_DIR/"
 
 echo ""
-echo "Building AMD modules..."
-cd "$MOODLE_DIR" && npx grunt amd --root=local/unifiedgrader
+echo "Building AMD modules in $BUILD_DIR..."
+if ! (cd "$BUILD_DIR" && npx grunt amd --root=local/unifiedgrader); then
+    echo "AMD build failed. Aborting before the other installs are touched."
+    exit 1
+fi
 
 echo ""
 echo "Copying built files back to dev folder..."
-cp -R "$PLUGIN_DIR/amd/build" "$DEV_DIR/amd/"
+cp -R "$BUILD_PLUGIN_DIR/amd/build" "$DEV_DIR/amd/"
+
+# Pass 2 — every other install. amd/build is no longer excluded: it now exists
+# in the dev folder and is the artifact we want shipped, unbuilt and unchanged.
+for dir in "${MOODLE_DIRS[@]:1}"; do
+    echo ""
+    echo "Syncing $DEV_DIR → $dir/local/unifiedgrader"
+    rsync -av --delete \
+      --exclude='.claude' \
+      --exclude='.eslintrc' \
+      --exclude='deploy.sh' \
+      --exclude='.git' \
+      "$DEV_DIR/" "$dir/local/unifiedgrader/"
+done
 
 echo ""
 echo "Purging Moodle caches..."
-php "$MOODLE_DIR/admin/cli/purge_caches.php"
+for dir in "${MOODLE_DIRS[@]}"; do
+    echo "  $dir"
+    php "$dir/admin/cli/purge_caches.php"
+done
 
 echo ""
-echo "Done!"
+echo "Done — deployed to ${#MOODLE_DIRS[@]} install(s)."

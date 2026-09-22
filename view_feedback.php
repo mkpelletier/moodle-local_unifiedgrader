@@ -312,6 +312,15 @@ if ($cm->modname === 'quiz') {
         'selectedattempt' => $selectedattempt,
         'hascommentsfeature' => $hascommentsfeature,
         'commentcount' => $commentcount,
+        'hasrubric' => $gradinginfo['hasrubric'],
+        'rubriccriteria' => $gradinginfo['rubriccriteria'],
+        'rubrictotal' => $gradinginfo['rubrictotal'],
+        'hasguide' => $gradinginfo['hasguide'],
+        'guidecriteria' => $gradinginfo['guidecriteria'],
+        'guidetotal' => $gradinginfo['guidetotal'],
+        'guidemaxtotal' => $gradinginfo['guidemaxtotal'],
+        'hasadvancedgrading' => $gradinginfo['hasadvancedgrading'],
+        'gradingmethodname' => $gradinginfo['gradingmethodname'],
     ];
 
     echo $OUTPUT->header();
@@ -341,9 +350,16 @@ if ($cm->modname === 'bigbluebuttonbn') {
     $penaltyinfo = feedback_data_helper::format_penalties($cmid, $userid);
     $gradeinfo = feedback_data_helper::format_grade($gradedata, $activityinfo);
     $gradedisplay = $gradeinfo['gradedisplay'];
+    // The rubric or marking guide the mark was built from. Without this the
+    // student saw the overall feedback alone and had no way to see which
+    // criterion earned what — the criterion comments are often where the
+    // substance of the marking is, and they were reaching the student only in
+    // the downloadable PDF.
+    $gradinginfo = feedback_data_helper::parse_grading_data($gradedata, $context);
 
     $feedback = $gradedata['feedback'] ?? '';
-    $showrightcolumn = !empty($feedback);
+    // A marking guide with no overall feedback is still worth a column.
+    $showrightcolumn = !empty($feedback) || $gradinginfo['hasadvancedgrading'];
 
     $feedbackdownloadurl = (new moodle_url(
         '/local/unifiedgrader/download_feedback.php',
