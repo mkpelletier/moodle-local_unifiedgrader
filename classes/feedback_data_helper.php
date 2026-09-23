@@ -172,6 +172,33 @@ class feedback_data_helper {
     }
 
     /**
+     * The rubric/marking-guide keys every feedback template expects.
+     *
+     * Each activity type builds its own template context, and the nine keys
+     * below were repeated in each of them. In v2.12.0 the BigBlueButton branch
+     * parsed its grading data and then did not pass it on: the criteria reached
+     * the PDF but never the screen, and the omission was invisible because the
+     * surrounding lines are identical in all four branches. Naming the set once
+     * makes a branch that forgets it obvious.
+     *
+     * @param array $gradinginfo Output of parse_grading_data().
+     * @return array Merge into the template context with the + operator.
+     */
+    public static function grading_template_data(array $gradinginfo): array {
+        return [
+            'hasrubric' => $gradinginfo['hasrubric'],
+            'rubriccriteria' => $gradinginfo['rubriccriteria'],
+            'rubrictotal' => $gradinginfo['rubrictotal'],
+            'hasguide' => $gradinginfo['hasguide'],
+            'guidecriteria' => $gradinginfo['guidecriteria'],
+            'guidetotal' => $gradinginfo['guidetotal'],
+            'guidemaxtotal' => $gradinginfo['guidemaxtotal'],
+            'hasadvancedgrading' => $gradinginfo['hasadvancedgrading'],
+            'gradingmethodname' => $gradinginfo['gradingmethodname'],
+        ];
+    }
+
+    /**
      * A local copy of the site's logo for the feedback PDF, or null when unset.
      *
      * TCPDF needs a file it can read, not a pluginfile URL — fetching that over

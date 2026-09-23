@@ -1,50 +1,58 @@
 # Changelog
 
+## v2.12.1 (2026092300)
+
+### Marking guide missing from the student's BBB feedback view
+
+v2.12.0 parsed the grading data in the BigBlueButton branch of `view_feedback.php` but never passed it to the template, so the rubric and marking guide reached the downloadable PDF and not the screen. The four branches end in identical lines, and the edit landed on the quiz one.
+
+The nine template keys are now produced by `feedback_data_helper::grading_template_data()` and merged by every branch, so a branch that omits them is visible at a glance. `tests/feedback_data_helper_test.php` asserts each `render_from_template()` call site has its merge — reintroducing the defect fails that test.
+
 ## v2.12.0 (2026092200)
 
-BigBlueButton graders were offered every session on the activity, including ones the student was never in. Students could not see the marking guide their grade came from. The feedback PDF is redesigned, and an ampersand in a course name reached the screen as `&amp;`.
+BigBlueButton graders were offered every session on the activity, students could not see the marking guide behind their grade, the feedback PDF is redesigned, and an ampersand in a course name reached the screen as `&amp;`.
 
 ### Sessions a student was never in
 
-On a BBB activity the attendance *is* the submission, so a session the student did not attend is not theirs to be marked on. The pane already filtered its session pills by attendance, but that filter can only compare BBB recording ids against attendance ids — and where a site's analytics callback reports a `recordid` that corresponds to no recording, nothing reconciles and the filter stands down. A guard then kept every unrostered recording visible, so a student who attended one session of seven was offered all seven, with nothing on screen to explain it.
+Attendance *is* the submission on BBB, so a session the student did not attend is not theirs to be marked on. The existing filter compares BBB recording ids against attendance ids; where a site's analytics callback reports a `recordid` matching no recording, nothing reconciles and every session stays visible.
 
-Group membership is now consulted first. In a separate-groups activity each meeting belongs to one group and each recording is stamped with it, so a student who is not in that group could not have joined — decided from enrolment data the site always holds rather than from a roster BBB may never have sent. Sessions that ran ungrouped are kept for everyone, as is any recording carrying annotation feedback for the student. Under visible groups or no groups the pass stands down, since a student is then free to join another group's meeting and membership proves nothing about where they were. A student in no group at all keeps every session and is told why.
-
-The "these ids do not reconcile" notice now fires whenever none of a student's attendance matches any recording on offer, rather than only when the filter empties the list. Previously an activity with some unrostered recordings kept them visible, the list never emptied, and the mismatch went unreported — which is exactly the silence the notice exists to break.
+- Group membership is now checked first. Under separate groups each recording carries the group it ran for, so a student outside that group could not have joined — decided from enrolment data rather than a roster BBB may never have sent.
+- Ungrouped sessions, and any recording carrying the student's own feedback, are always kept.
+- Under visible groups or no groups the pass stands down: a student may then join another group's meeting, so membership proves nothing.
+- A student in no group keeps every session and is told why.
+- The "ids do not reconcile" notice now fires whenever nothing matches, not only when the filter empties the list.
 
 ### Double-escaped course and activity names
 
-A course named "Grief & Loss" appeared as "Grief &amp; Loss" in the grader header. `format_string()` escaped the value and the output layer escaped it again. The plugin renders these through escaping sinks throughout — Mustache's `{{ }}`, `textContent`, `encodeURIComponent`, and TCPDF's literal `Cell()` — so `format_string()` now runs with `'escape' => false` at each of those sources and exactly one layer escapes, at the point of output.
+`format_string()` escaped these values and the output layer escaped them again, so "Grief & Loss" reached the screen as "Grief &amp; Loss". They all flow into sinks that escape on their own — Mustache, `textContent`, `encodeURIComponent`, TCPDF's literal `Cell()` — so `format_string()` now runs with `'escape' => false` at each source.
 
-That covers the course short and full names, the activity name across all four adapters, BBB session labels, forum post subjects and discussion names, quiz criterion shortnames, and the group names in the group filter. It also fixes two places the entity reached data rather than a screen: the impropriety report form received `Grief &amp; Loss` as a URL parameter, and the feedback PDF header printed the entities literally. `download_feedback.php` was formatting an activity name the adapter had already formatted, escaping it twice before the PDF saw it. Calls whose output goes into raw HTML — `html_writer` in the library pages, the forum and quiz preview builders, `$PAGE->set_title()` — are unchanged, where the escaping is doing real work.
+Affects course short and full names, activity names across all four adapters, BBB session labels, forum subjects and discussion names, quiz criterion shortnames, and group names in the filter. Two cases where the entity reached data rather than a screen are also fixed: the impropriety report form's URL parameters, and the PDF header. Calls feeding raw HTML are unchanged.
 
-### The marking guide in the student's feedback view
+### Marking guide in the student's feedback view
 
-The BBB branch of `view_feedback.php` built its own template context without parsing the grading data, and rendered through a template that had no rubric or marking-guide markup at all. A student saw the overall feedback alone: the per-criterion scores and the teacher's remarks — often where the substance of the marking sits — reached them only in the downloadable PDF. Both are fixed, and the right-hand column now opens for a marking guide even when there is no written feedback.
+The BBB branch of `view_feedback.php` never parsed its grading data and rendered through a template with no rubric or guide markup, so students saw the overall feedback alone — the per-criterion scores and remarks reached them only in the PDF. The right-hand column now opens for a marking guide even with no written feedback.
 
-A student reading their own BBB feedback also sees every session's figures at once, totals then a block per session, rather than the one-at-a-time switcher the grader drives. They are looking at a finished record, not marking against a particular recording.
+A student reading their own BBB feedback also sees every session's figures at once, totals then one block per session, rather than the grader's one-at-a-time switcher.
 
-### The feedback summary PDF
+### Feedback summary PDF
 
-The summary now opens with the score and the overall feedback side by side: the grade as a donut on the left, what the teacher wrote on the right. A ring rather than a filled disc, because the hole is what makes the proportion readable — a solid circle is the same shape at 40% as at 90%. This is the shared summary every adapter routes through, so assignments, forums, quizzes and BBB sessions all open the same way.
+Shared by every adapter, so assignments, forums, quizzes and BBB sessions all open the same way.
 
-The site logo is drawn into the header band, taken from Moodle's own settings in the order Moodle prefers them (compact site logo, full site logo, then the active theme's), on a white chip so that a logo drawn for a light background stays legible on the blue. The chip sizes itself to the logo's aspect ratio. An SVG logo is skipped, since TCPDF cannot read one, and a site with no logo configured renders without one.
-
-Engagement figures are drawn as dashboard tiles below the band: an emphasised totals row in solid blue, then one outlined row per session the student attended, each carrying all six metrics so the rows stay comparable column by column. Each tile takes the Font Awesome mark the Activity Points card uses on screen, converted from the TrueType original Moodle ships and cached locally; every failure path renders without icons rather than failing the download. The section headings carry their on-screen icons too.
-
-Previously the PDF dumped the grading pane's Bootstrap markup into TCPDF, which ignores the `d-none` that hides all but the selected session — so every session's tiles rendered at once as an unstyled column of numbers, under a video player that a PDF cannot play. BigBlueButton now contributes data rather than rendered HTML, and the recording's annotations are listed as timestamped text on their own page instead of the player.
-
-Smaller fixes in the same pass: the footer was painted once, before the annotation pages were added, so those pages carried no date and no attribution — it is now a per-page callback and includes a page number. And "Graded on [[strftimedatefull]]" appeared in the footer because `strftimedatefull` is not a core string; it is now `strftimedaydatetime`.
+- Score and overall feedback side by side: the grade as a donut on the left, the teacher's comments on the right.
+- Site logo is drawn into the header band, taken from Moodle's own settings. SVG logos are skipped — TCPDF cannot read them.
+- Engagement figures as dashboard tiles: an emphasised totals row, then one row per attended session, each carrying all six metrics.
+- Font Awesome icons on each tile and section heading, converted from the TrueType original Moodle ships.
+- Recording annotations listed as timestamped text. Previously the PDF dumped the grading pane's Bootstrap markup into TCPDF, which ignores the class hiding unselected sessions, so every session rendered at once under a player a PDF cannot play.
+- Footer on every page, with a page number. It was painted once, before the annotation pages existed.
+- "Graded on [[strftimedatefull]]" fixed — not a core string.
 
 ### Deployment
 
-`deploy.sh` targets a list of Moodle installs rather than one. The first is the build host: AMD is compiled there once and the result copied back, then shipped to the rest unbuilt, so every install runs byte-identical JavaScript and the artifacts committed to the repo are the ones production will run. It refuses to deploy anywhere if any target is missing a `config.php`, rather than updating some installs and leaving the others on stale code.
+`deploy.sh` takes a list of Moodle installs rather than one. AMD is built on the first and shipped to the rest, so every install runs identical JavaScript.
 
 ### Coverage
 
-`tests/adapter/bbb_adapter_test.php` gains twelve tests: other groups' sessions hidden under separate groups, narrowing when the attendance ids never reconcile, ungrouped sessions kept, visible groups left alone, a student in no group keeping everything with a notice, the unreconciled notice firing despite unrostered sessions, the feedback report's totals and per-session labelling, its scoping to one student, its empty case, the student's stacked session tiles, an activity name surviving unescaped, and the grading data parsing into guide criteria for the student's view. `tests/adapter/assign_adapter_test.php` adds two, covering the unescaped activity name and the markup that `format_string()` still strips when escaping is off.
-
-Two new files: `tests/pdf/feedback_summary_pdf_test.php` exercises the summary across the grade bands (including the two that take their own path, an unfilled ring and a full one), with and without engagement, annotations, feedback and a logo, and with enough sessions and enough feedback to run past a page break; `tests/feedback_data_helper_logo_test.php` covers the logo lookup order, the SVG skip and its fall-through to a raster logo, and the unconfigured case.
+`tests/adapter/bbb_adapter_test.php` gains twelve tests covering the group filter, the reconciliation notice, the feedback report and the student's stacked session tiles; `assign_adapter_test.php` adds two for the unescaped activity name. Two new files: `tests/pdf/feedback_summary_pdf_test.php` (grade bands, engagement, annotations, logo, page breaks) and `tests/feedback_data_helper_logo_test.php` (logo lookup order, SVG skip, unconfigured site).
 
 ## v2.11.1 (2026091000)
 

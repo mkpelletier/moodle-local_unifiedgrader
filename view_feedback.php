@@ -191,19 +191,11 @@ if ($cm->modname === 'forum') {
         'annotatedpdfmapjson' => json_encode($annotatedpdfmap),
         'feedbackdownloadurl' => $feedbackdownloadurl,
         'userid' => $userid,
-        'hasrubric' => $gradinginfo['hasrubric'],
-        'rubriccriteria' => $gradinginfo['rubriccriteria'],
-        'rubrictotal' => $gradinginfo['rubrictotal'],
-        'hasguide' => $gradinginfo['hasguide'],
-        'guidecriteria' => $gradinginfo['guidecriteria'],
-        'guidetotal' => $gradinginfo['guidetotal'],
-        'guidemaxtotal' => $gradinginfo['guidemaxtotal'],
-        'hasadvancedgrading' => $gradinginfo['hasadvancedgrading'],
-        'gradingmethodname' => $gradinginfo['gradingmethodname'],
         'showrightcolumn' => $showrightcolumn,
         'haspenalties' => $penaltyinfo['haspenalties'],
         'penalties' => $penaltyinfo['penalties'],
     ];
+    $templatedata += feedback_data_helper::grading_template_data($gradinginfo);
 
     echo $OUTPUT->header();
     echo $OUTPUT->render_from_template('local_unifiedgrader/feedback_view_forum', $templatedata);
@@ -312,16 +304,8 @@ if ($cm->modname === 'quiz') {
         'selectedattempt' => $selectedattempt,
         'hascommentsfeature' => $hascommentsfeature,
         'commentcount' => $commentcount,
-        'hasrubric' => $gradinginfo['hasrubric'],
-        'rubriccriteria' => $gradinginfo['rubriccriteria'],
-        'rubrictotal' => $gradinginfo['rubrictotal'],
-        'hasguide' => $gradinginfo['hasguide'],
-        'guidecriteria' => $gradinginfo['guidecriteria'],
-        'guidetotal' => $gradinginfo['guidetotal'],
-        'guidemaxtotal' => $gradinginfo['guidemaxtotal'],
-        'hasadvancedgrading' => $gradinginfo['hasadvancedgrading'],
-        'gradingmethodname' => $gradinginfo['gradingmethodname'],
     ];
+    $templatedata += feedback_data_helper::grading_template_data($gradinginfo);
 
     echo $OUTPUT->header();
     echo $OUTPUT->render_from_template('local_unifiedgrader/feedback_view_quiz', $templatedata);
@@ -392,6 +376,7 @@ if ($cm->modname === 'bigbluebuttonbn') {
         'hascommentsfeature' => $hascommentsfeature,
         'commentcount' => $commentcount,
     ];
+    $templatedata += feedback_data_helper::grading_template_data($gradinginfo);
 
     echo $OUTPUT->header();
     echo $OUTPUT->render_from_template('local_unifiedgrader/feedback_view_quiz', $templatedata);
@@ -683,15 +668,6 @@ $templatedata = [
     'commentcount' => $commentcount,
     'canpostcomments' => $canpostcomments,
     'showrightcolumn' => $showrightcolumn,
-    'hasrubric' => $gradinginfo['hasrubric'],
-    'rubriccriteria' => $gradinginfo['rubriccriteria'],
-    'rubrictotal' => $gradinginfo['rubrictotal'],
-    'hasguide' => $gradinginfo['hasguide'],
-    'guidecriteria' => $gradinginfo['guidecriteria'],
-    'guidetotal' => $gradinginfo['guidetotal'],
-    'guidemaxtotal' => $gradinginfo['guidemaxtotal'],
-    'hasadvancedgrading' => $gradinginfo['hasadvancedgrading'],
-    'gradingmethodname' => $gradinginfo['gradingmethodname'],
     'haspenalties' => $penaltyinfo['haspenalties'],
     'penalties' => $penaltyinfo['penalties'],
     'hasmultipleattempts' => $hasmultipleattempts,
@@ -703,6 +679,7 @@ $templatedata = [
     'translationpending' => $translationpending,
     'translationpendingtext' => $translationpendingtext,
 ];
+$templatedata += feedback_data_helper::grading_template_data($gradinginfo);
 
 // Output.
 echo $OUTPUT->header();
