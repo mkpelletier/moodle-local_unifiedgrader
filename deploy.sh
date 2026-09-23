@@ -150,6 +150,14 @@ build_release_zip() {
     suffix="$ZIP_SUFFIX"
     [ -z "$suffix" ] && suffix="${release//./}"
 
+    # Refuse anything that is not a plain version-ish token. The suffix ends up
+    # in a filesystem path, and an earlier version of this function derived it
+    # from unvalidated output and then ran rm -f on the result - never again.
+    if ! printf '%s' "$suffix" | grep -qE '^[A-Za-z0-9._-]+$'; then
+        echo "Refusing to use '$suffix' as a filename suffix."
+        return 1
+    fi
+
     zipname="local_unifiedgrader_${suffix}.zip"
     zippath="$(dirname "$DEV_DIR")/$zipname"
 
@@ -185,7 +193,8 @@ build_release_zip() {
 
     echo ""
     echo "Building $zipname (release $release) from HEAD..."
-    rm -f "$zippath"
+    # No rm here: git archive -o overwrites, so deleting first bought nothing
+    # and put a derived path in front of rm.
     if ! git -C "$DEV_DIR" archive --format=zip -9 \
             --prefix=unifiedgrader/ -o "$zippath" HEAD; then
         echo "git archive failed. Aborting."
