@@ -1,8 +1,39 @@
 #!/bin/bash
 # Sync plugin from dev folder to Moodle installation and rebuild AMD.
-# Usage: ./deploy.sh
+#
+# Usage:
+#   ./deploy.sh                 Deploy to every install in MOODLE_DIRS.
+#   ./deploy.sh --zip           Deploy, then build a release zip.
+#   ./deploy.sh --zip-only      Build the release zip; deploy nothing.
+#   ./deploy.sh --zip --suffix=212
+#                               Override the version suffix in the zip's
+#                               filename (default: the release with its dots
+#                               removed, so 2.12.0 becomes 2120).
+#
+# Zipping is opt-in because a deploy happens on every test run and a release
+# does not.
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+DO_DEPLOY=1
+DO_ZIP=0
+ZIP_SUFFIX=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --zip)        DO_ZIP=1 ;;
+        --zip-only)   DO_ZIP=1; DO_DEPLOY=0 ;;
+        --suffix=*)   ZIP_SUFFIX="${arg#--suffix=}" ;;
+        -h|--help)
+            sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg (try --help)"
+            exit 1
+            ;;
+    esac
+done
 
 # Every Moodle install to deploy into, in order. The first is the BUILD host:
 # AMD is compiled there once and the result copied back to the dev folder, then
@@ -77,8 +108,97 @@ verify_thirdparty_integrity() {
     return 0
 }
 
+# Build an installable release zip from the committed tree.
+#
+# git archive rather than a copy-and-delete: it takes only tracked files, so
+# vendor/ and .git/ cannot leak in, and the rest of the exclusions live in
+# .gitattributes as export-ignore instead of in someone's memory. The flip side
+# is that it archives HEAD, so uncommitted work is not in the zip - deliberate
+# for a release, but worth saying out loud.
+#
+# The directory inside the zip MUST be "unifiedgrader". Moodle's installer
+# compares it against the component declared in version.php:
+#
+#     if ($reqname !== $this->rootdir) { ... 'componentmismatchname' ... }
+#
+# so a root named local_unifiedgrader, or one carrying a version suffix, is
+# rejected. The suffix belongs in the filename only. A zip built by Finder's
+# "Compress" also fails, because the __MACOSX folder it adds is a second root
+# directory and the validator insists on exactly one.
+build_release_zip() {
+    local release suffix zipname zippath
+
+    release=$(grep -oE "\$plugin->release *= *'[^']+'" "$DEV_DIR/version.php" \
+        | sed -E "s/.*'([^']+)'.*/\1/")
+    if [ -z "$release" ]; then
+        echo "Could not read \$plugin->release from version.php. Aborting."
+        return 1
+    fi
+
+    suffix="$ZIP_SUFFIX"
+    [ -z "$suffix" ] && suffix="${release//./}"
+
+    zipname="local_unifiedgrader_${suffix}.zip"
+    zippath="$(dirname "$DEV_DIR")/$zipname"
+
+    if ! git -C "$DEV_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+        echo "Not a git repository, so there is nothing to archive. Aborting."
+        return 1
+    fi
+
+    # An unclean tree means the zip will not match what is on screen.
+    if [ -n "$(git -C "$DEV_DIR" status --porcelain)" ]; then
+        echo ""
+        echo "WARNING: uncommitted changes present. The zip is built from HEAD,"
+        echo "         so those changes will NOT be in it:"
+        git -C "$DEV_DIR" status --short | sed 's/^/           /'
+        echo ""
+        printf "Continue anyway? [y/N] "
+        read -r reply
+        case "$reply" in
+            [yY]*) ;;
+            *) echo "Aborted."; return 1 ;;
+        esac
+    fi
+
+    echo ""
+    echo "Building $zipname (release $release) from HEAD..."
+    rm -f "$zippath"
+    if ! git -C "$DEV_DIR" archive --format=zip -9 \
+            --prefix=unifiedgrader/ -o "$zippath" HEAD; then
+        echo "git archive failed. Aborting."
+        return 1
+    fi
+
+    # Prove the two things Moodle's validator checks, rather than assuming them.
+    local roots
+    roots=$(unzip -Z1 "$zippath" | cut -d/ -f1 | sort -u)
+    if [ "$roots" != "unifiedgrader" ]; then
+        echo "Unexpected root director(ies) in the zip: $roots"
+        echo "Moodle requires exactly one, named unifiedgrader."
+        return 1
+    fi
+    if unzip -Z1 "$zippath" | grep -qE '^unifiedgrader/(tests|vendor)/'; then
+        echo "The zip still contains tests/ or vendor/. Check .gitattributes."
+        return 1
+    fi
+
+    echo "  $zippath"
+    echo "  $(unzip -Z1 "$zippath" | wc -l | tr -d ' ') files, $(du -h "$zippath" | cut -f1)"
+    return 0
+}
+
 if ! verify_thirdparty_integrity; then
     exit 1
+fi
+
+# --zip-only stops here: the integrity check above still runs, because a broken
+# bundled library should never reach a release either.
+if [ "$DO_DEPLOY" -eq 0 ]; then
+    build_release_zip || exit 1
+    echo ""
+    echo "Done — zip only, nothing deployed."
+    exit 0
 fi
 
 # Where a given install keeps its plugins. Moodle 5.3 moved the webroot into
@@ -172,3 +292,7 @@ done
 
 echo ""
 echo "Done — deployed to ${#MOODLE_DIRS[@]} install(s)."
+
+if [ "$DO_ZIP" -eq 1 ]; then
+    build_release_zip || exit 1
+fi
