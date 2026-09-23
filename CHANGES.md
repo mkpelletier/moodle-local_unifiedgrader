@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.12.2 (2026092301)
+
+### Quiz extensions vanishing from the student's calendar
+
+Saving or deleting a core quiz override rewrites the student's calendar events on that quiz, and the due date extension's event went with them. The combined overrides and extensions form does exactly that whenever an extension runs past the close date, since it pushes the close date out to match. The student's calendar and timeline then showed the class due date, not their extension.
+
+After a core override is saved or deleted (the combined form, the override page, and `quiz_adapter::delete_user_override()`, which the delete and clear-all web services use), `quiz_adapter::refresh_duedate_calendar_events()` has quizaccess_duedate rebuild the quiz's due-date events. It needs quizaccess_duedate v2.0 and does nothing on older versions.
+
+### Deleting a quiz override threw an error
+
+`quiz_adapter::delete_user_override()` called core's `delete_overrides()` with a named argument, `overrideids`, that it does not have, so removing a student's quiz override from the grader, or clearing all their overrides, failed with "Unknown named parameter". It now calls `delete_overrides_by_id()`. The existing web service tests only covered assignments, so `test_core_override_changes_keep_duedate_event` now exercises the quiz path.
+
 ## v2.12.1 (2026092300)
 
 ### Marking guide missing from the student's BBB feedback view

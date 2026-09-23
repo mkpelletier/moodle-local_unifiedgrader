@@ -393,6 +393,7 @@ function local_unifiedgrader_save_quiz_overrides($adapter, $cm, $userid, $fromfo
         }
         $quizobj = \mod_quiz\quiz_settings::create_for_cmid($cm->id);
         $quizobj->get_override_manager()->save_override($overridedata);
+        \local_unifiedgrader\adapter\quiz_adapter::refresh_duedate_calendar_events((int) $cm->instance);
     } else if ($overrideid) {
         // All checkboxes unchecked — delete existing override.
         $adapter->delete_user_override($userid);

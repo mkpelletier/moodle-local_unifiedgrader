@@ -1042,9 +1042,26 @@ class quiz_adapter extends base_adapter {
             return true;
         }
 
-        $this->quizobj->get_override_manager()->delete_overrides(overrideids: [$record->id]);
+        $this->quizobj->get_override_manager()->delete_overrides_by_id([(int) $record->id]);
+        self::refresh_duedate_calendar_events((int) $this->quiz->id);
 
         return true;
+    }
+
+    /**
+     * Put back the quizaccess_duedate calendar events a core override change removed.
+     *
+     * Saving or deleting a core quiz override runs quiz_update_events(), which rewrites or
+     * deletes the student's calendar events on the quiz, the due date extension's included.
+     * Call this after any such change. A duedate plugin older than v2.0 has no refresh
+     * method and is left alone.
+     *
+     * @param int $quizid The quiz ID.
+     */
+    public static function refresh_duedate_calendar_events(int $quizid): void {
+        if (method_exists('\quizaccess_duedate\override_manager', 'refresh_calendar_events')) {
+            \quizaccess_duedate\override_manager::refresh_calendar_events($quizid);
+        }
     }
 
     // Duedate plugin extension methods.

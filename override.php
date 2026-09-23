@@ -270,6 +270,7 @@ function local_unifiedgrader_handle_quiz_override($cm, $context, $course, $useri
 
         $manager = $quizobj->get_override_manager();
         $manager->save_override((array) $fromform);
+        \local_unifiedgrader\adapter\quiz_adapter::refresh_duedate_calendar_events((int) $quiz->id);
 
         local_unifiedgrader_output_postmessage('override_saved');
         return;

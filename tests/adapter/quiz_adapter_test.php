@@ -182,6 +182,56 @@ final class quiz_adapter_test extends \advanced_testcase {
     }
 
     /**
+     * A due date extension keeps its calendar event when a core override is saved alongside
+     * it, as the combined form does, and when that core override is deleted.
+     */
+    public function test_core_override_changes_keep_duedate_event(): void {
+        global $DB;
+        $this->resetAfterTest();
+
+        if (!method_exists('\quizaccess_duedate\override_manager', 'refresh_calendar_events')) {
+            $this->markTestSkipped('quizaccess_duedate v2.0 or later is not installed.');
+        }
+
+        $timeclose = time() + DAYSECS * 7;
+        $s = $this->create_scenario(['modparams' => ['timeclose' => $timeclose]]);
+        $quizid = (int) $s->scenario->activity->id;
+        $studentid = (int) $s->scenario->students[0]->id;
+        $extension = $timeclose + DAYSECS * 3;
+
+        $DB->insert_record('quizaccess_duedate_instances', (object) [
+            'quizid' => $quizid,
+            'duedate' => $timeclose,
+        ]);
+        $s->adapter->save_duedate_extension($studentid, $extension);
+
+        $hasevent = function () use ($DB, $quizid, $studentid, $extension): bool {
+            return $DB->record_exists('event', [
+                'modulename' => 'quiz',
+                'instance' => $quizid,
+                'eventtype' => 'due',
+                'courseid' => 0,
+                'userid' => $studentid,
+                'timestart' => $extension,
+            ]);
+        };
+        $this->assertTrue($hasevent(), 'The extension is a personal calendar event');
+
+        // As overrides_extensions.php: push the close date out to the extension.
+        $quizobj = \mod_quiz\quiz_settings::create($quizid);
+        $quizobj->get_override_manager()->save_override([
+            'quiz' => $quizid,
+            'userid' => $studentid,
+            'timeclose' => $extension,
+        ]);
+        quiz_adapter::refresh_duedate_calendar_events($quizid);
+        $this->assertTrue($hasevent(), 'Saving a core override must not lose the extension event');
+
+        $s->adapter->delete_user_override($studentid);
+        $this->assertTrue($hasevent(), 'Deleting a core override must not lose the extension event');
+    }
+
+    /**
      * Test are_grades_posted defaults to true.
      */
     public function test_are_grades_posted_default(): void {
