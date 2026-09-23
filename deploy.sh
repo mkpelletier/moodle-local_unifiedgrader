@@ -6,6 +6,8 @@
 #   ./deploy.sh --zip           Deploy, then build a release zip.
 #   ./deploy.sh --zip-only      Build the release zip; deploy nothing.
 #   ./deploy.sh --zip --force   Build even with uncommitted changes.
+#   ./deploy.sh --zip --slim    Leave tests/ out (production only; the
+#                               Marketplace package should keep them).
 #   ./deploy.sh --zip --suffix=212
 #                               Override the version suffix in the zip's
 #                               filename (default: the release with its dots
@@ -20,6 +22,7 @@ DO_DEPLOY=1
 DO_ZIP=0
 ZIP_SUFFIX=""
 FORCE=0
+SLIM=0
 
 for arg in "$@"; do
     case "$arg" in
@@ -27,6 +30,7 @@ for arg in "$@"; do
         --zip-only)   DO_ZIP=1; DO_DEPLOY=0 ;;
         --suffix=*)   ZIP_SUFFIX="${arg#--suffix=}" ;;
         --force)      FORCE=1 ;;
+        --slim)       SLIM=1 ;;
         -h|--help)
             sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -209,9 +213,21 @@ build_release_zip() {
         echo "Moodle requires exactly one, named unifiedgrader."
         return 1
     fi
-    if unzip -Z1 "$zippath" | grep -qE '^unifiedgrader/(tests|vendor)/'; then
-        echo "The zip still contains tests/ or vendor/. Check .gitattributes."
+    if unzip -Z1 "$zippath" | grep -qE '^unifiedgrader/vendor/'; then
+        echo "The zip contains vendor/. Check .gitattributes."
         return 1
+    fi
+
+    # tests/ ships by default - the Marketplace package should carry it. --slim
+    # drops it for a production-only package; 184K, so rarely worth a second
+    # artifact and the risk of uploading the wrong one.
+    if [ "$SLIM" -eq 1 ]; then
+        zip -q -d "$zippath" 'unifiedgrader/tests/*' >/dev/null 2>&1
+        if unzip -Z1 "$zippath" | grep -qE '^unifiedgrader/tests/'; then
+            echo "--slim asked for, but tests/ is still in the zip."
+            return 1
+        fi
+        echo "  (slim: tests/ removed)"
     fi
 
     echo "  $zippath"

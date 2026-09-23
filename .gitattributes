@@ -3,7 +3,11 @@
 # `git archive` honours export-ignore, so ./deploy.sh --zip gets its exclusion
 # list from here rather than from a list of rm commands someone has to remember.
 # Anything untracked (vendor/, .git/) is absent from a git archive already.
-/tests              export-ignore
+#
+# tests/ is deliberately NOT listed. The Moodle Marketplace package should carry
+# it: the prechecker does not run PHPUnit, but reviewers and site admins expect
+# a plugin's tests to ship with it, and it costs 184K compressed. ./deploy.sh
+# --zip --slim strips it when a leaner production package is wanted.
 /.github            export-ignore
 /.gitattributes     export-ignore
 /.gitignore         export-ignore
