@@ -5,6 +5,7 @@
 #   ./deploy.sh                 Deploy to every install in MOODLE_DIRS.
 #   ./deploy.sh --zip           Deploy, then build a release zip.
 #   ./deploy.sh --zip-only      Build the release zip; deploy nothing.
+#   ./deploy.sh --zip --force   Build even with uncommitted changes.
 #   ./deploy.sh --zip --suffix=212
 #                               Override the version suffix in the zip's
 #                               filename (default: the release with its dots
@@ -18,14 +19,16 @@ DEV_DIR="$(cd "$(dirname "$0")" && pwd)"
 DO_DEPLOY=1
 DO_ZIP=0
 ZIP_SUFFIX=""
+FORCE=0
 
 for arg in "$@"; do
     case "$arg" in
         --zip)        DO_ZIP=1 ;;
         --zip-only)   DO_ZIP=1; DO_DEPLOY=0 ;;
         --suffix=*)   ZIP_SUFFIX="${arg#--suffix=}" ;;
+        --force)      FORCE=1 ;;
         -h|--help)
-            sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -128,8 +131,11 @@ verify_thirdparty_integrity() {
 build_release_zip() {
     local release suffix zipname zippath
 
-    release=$(grep -oE "\$plugin->release *= *'[^']+'" "$DEV_DIR/version.php" \
-        | sed -E "s/.*'([^']+)'.*/\1/")
+    # Read it with PHP rather than a regex: version.php is PHP, and in a grep
+    # pattern the leading $ of $plugin is an end-of-line anchor, which silently
+    # matches nothing.
+    release=$(php -r 'define("MOODLE_INTERNAL", 1); $plugin = new stdClass();
+        include $argv[1]; echo $plugin->release ?? "";' "$DEV_DIR/version.php" 2>/dev/null)
     if [ -z "$release" ]; then
         echo "Could not read \$plugin->release from version.php. Aborting."
         return 1
@@ -153,12 +159,22 @@ build_release_zip() {
         echo "         so those changes will NOT be in it:"
         git -C "$DEV_DIR" status --short | sed 's/^/           /'
         echo ""
-        printf "Continue anyway? [y/N] "
-        read -r reply
-        case "$reply" in
-            [yY]*) ;;
-            *) echo "Aborted."; return 1 ;;
-        esac
+        if [ "$FORCE" -eq 1 ]; then
+            echo "--force given; building from HEAD regardless."
+        elif [ -t 0 ]; then
+            printf "Continue anyway? [y/N] "
+            read -r reply
+            case "$reply" in
+                [yY]*) ;;
+                *) echo "Aborted."; return 1 ;;
+            esac
+        else
+            # No terminal to ask at - a prompt here would hang forever rather
+            # than fail, which is the worse of the two.
+            echo "Not running interactively, so refusing to guess."
+            echo "Commit the changes, or re-run with --force to build from HEAD."
+            return 1
+        fi
     fi
 
     echo ""
