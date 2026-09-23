@@ -131,11 +131,17 @@ verify_thirdparty_integrity() {
 build_release_zip() {
     local release suffix zipname zippath
 
-    # Read it with PHP rather than a regex: version.php is PHP, and in a grep
-    # pattern the leading $ of $plugin is an end-of-line anchor, which silently
-    # matches nothing.
-    release=$(php -r 'define("MOODLE_INTERNAL", 1); $plugin = new stdClass();
-        include $argv[1]; echo $plugin->release ?? "";' "$DEV_DIR/version.php" 2>/dev/null)
+    # Parsed, not executed. version.php refers to Moodle constants such as
+    # MATURITY_STABLE that do not exist outside Moodle, and including it raises
+    # a fatal that PHP prints on STDOUT - which lands in $release and corrupts
+    # the filename. The regex lives in PHP rather than grep because in an
+    # extended regular expression the leading $ of $plugin is an anchor.
+    release=$(php -d display_errors=0 -r '
+        $src = file_get_contents($argv[1]);
+        if (preg_match("/\\\$plugin->release\\s*=\\s*\\x27([^\\x27]+)\\x27/", $src, $m)) {
+            echo $m[1];
+        }
+    ' "$DEV_DIR/version.php" 2>/dev/null)
     if [ -z "$release" ]; then
         echo "Could not read \$plugin->release from version.php. Aborting."
         return 1
