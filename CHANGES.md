@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0.5 (2026111600)
+
+### Fixed: a grade saved after grades were posted skipped Friction Feedback
+
+- With Friction Feedback on, a student graded after the activity's grades were posted saw the mark straight away, with no walk through the feedback. Their mark is now held and they are walked through it, as if it had been posted.
+- Students whose mark existed before Friction Feedback was switched on, or who have already finished a walk, are left as they are.
+
 ## v3.0.4 (2026110300)
 
 ### Fixed: debugging messages from quizzes when the quiz type is switched off

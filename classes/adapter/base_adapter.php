@@ -446,6 +446,14 @@ abstract class base_adapter {
     }
 
     /**
+     * Keep the activity's own release mail from going to students with an open walk.
+     *
+     * Most activities send none.
+     */
+    public function hold_friction_mail(): void {
+    }
+
+    /**
      * The current posting status: posted, partial, the item's hidden value, and the counts.
      *
      * @return array{posted:bool,partial:bool,hidden:int,postedcount:int,total:int,lifted:bool}

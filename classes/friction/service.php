@@ -155,6 +155,87 @@ class service {
     }
 
     /**
+     * Hold a mark saved while the activity's grades are posted, as posting would.
+     *
+     * Only a student first graded after Friction Feedback was switched on is
+     * held. One who already has a walk on this item, or whose mark predates the
+     * switch, is left alone: they may have seen it. A hidden cell is left to the
+     * next post.
+     *
+     * @param \local_unifiedgrader\adapter\base_adapter $adapter
+     * @param int $userid
+     */
+    public static function hold_saved($adapter, int $userid): void {
+        global $DB;
+
+        $cmid = $adapter->get_cmid();
+        if ($userid <= 0 || !self::applies($cmid)) {
+            return;
+        }
+        $item = $adapter->get_grade_item();
+        if (!$item || $item->is_hidden()) {
+            return;
+        }
+        $grade = \grade_grade::fetch(['itemid' => $item->id, 'userid' => $userid]);
+        if (!$grade || $grade->is_hidden()) {
+            return;
+        }
+        if ($DB->record_exists('local_unifiedgrader_friction', ['itemid' => $item->id, 'userid' => $userid])) {
+            return;
+        }
+        if (self::first_graded($grade) < self::switched_on($cmid)) {
+            return;
+        }
+
+        self::settle_user($adapter, $item, $userid, true);
+        $adapter->hold_friction_mail();
+    }
+
+    /**
+     * When the student first had a mark on this item.
+     *
+     * Activities write the cell without timecreated, and posting can create the
+     * cell before there is a mark, so the grade history is the record. Without
+     * history, the cell's own times are the best there is.
+     *
+     * @param \grade_grade $grade
+     * @return int
+     */
+    private static function first_graded(\grade_grade $grade): int {
+        global $CFG, $DB;
+
+        if (empty($CFG->disablegradehistory)) {
+            $first = $DB->get_field_sql(
+                "SELECT MIN(timemodified)
+                   FROM {grade_grades_history}
+                  WHERE oldid = :oldid AND finalgrade IS NOT NULL",
+                ['oldid' => $grade->id],
+            );
+            if ($first) {
+                return (int) $first;
+            }
+        }
+        return (int) ($grade->timecreated ?: $grade->timemodified);
+    }
+
+    /**
+     * When Friction Feedback was switched on for the activity.
+     *
+     * Zero when it follows the site setting, which records no time.
+     *
+     * @param int $cmid
+     * @return int
+     */
+    private static function switched_on(int $cmid): int {
+        global $DB;
+
+        if (self::mode($cmid) !== self::MODE_ON) {
+            return 0;
+        }
+        return (int) $DB->get_field('local_unifiedgrader_frictioncfg', 'timemodified', ['cmid' => $cmid]);
+    }
+
+    /**
      * Students with a walk still open on this grade item.
      *
      * @param int $itemid

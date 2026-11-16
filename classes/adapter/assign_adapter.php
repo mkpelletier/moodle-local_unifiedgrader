@@ -1560,7 +1560,7 @@ class assign_adapter extends base_adapter {
      * mark itself. Put those students back to sent. The fail-safe does not clear
      * this, so a mark opened days later is not emailed.
      */
-    private function hold_friction_mail(): void {
+    public function hold_friction_mail(): void {
         $item = $this->fetch_grade_item();
         if (!$item) {
             return;

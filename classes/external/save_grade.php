@@ -244,6 +244,10 @@ class save_grade extends external_api {
             $adapter->sync_gradebook_penalty($params['userid']);
         }
 
+        // Posting is what starts a walk. A student graded after the class was
+        // posted gets one here, after the penalty sync has stamped the cell.
+        \local_unifiedgrader\friction\service::hold_saved($adapter, (int) $params['userid']);
+
         // Five seconds is the threshold: anything under it is normal noise;
         // above it suggests a real bottleneck (large gradebook, slow DB,
         // misbehaving plugin observer). The PHP session lock timeout is

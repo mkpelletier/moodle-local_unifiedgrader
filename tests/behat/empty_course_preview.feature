@@ -26,6 +26,8 @@ Feature: A course with no students still shows its rubric
     And I define the following rubric:
       | Argument | Missing | 0.0 | Partial | 1 | Complete | 2 |
     And I press "Save rubric and make it ready"
+    # Wait for the save to land, or the visit below can be overtaken by it.
+    And I should see "Ready for use"
     When I am on the Unified Grader for activity "Essay 1"
     And the marking panel has loaded
     Then I should see "No students to grade in this activity"

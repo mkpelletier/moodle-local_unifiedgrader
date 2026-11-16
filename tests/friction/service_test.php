@@ -558,6 +558,86 @@ final class service_test extends \advanced_testcase {
     }
 
     /**
+     * A student first graded after the class was posted gets the walk, and no mail.
+     */
+    public function test_grade_saved_while_posted_is_held(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $built = $this->posted_assignment();
+        $student = $built->scenario->students[0];
+        service::set_mode($built->adapter->get_cmid(), service::MODE_ON);
+
+        $built->adapter->save_grade($student->id, 80.0, '<p>Marked.</p>');
+        $params = ['assignment' => $built->scenario->activity->id, 'userid' => $student->id];
+        $DB->set_field('assign_user_flags', 'mailed', 0, $params);
+        service::hold_saved($built->adapter, $student->id);
+
+        $itemid = $built->adapter->get_grade_item()->id;
+        $this->assertTrue(service::is_pending_user($built->adapter, $student->id));
+        $this->assertSame(1, $this->cell_hidden($itemid, $student->id));
+        $this->assertSame(1, (int) $DB->get_field('assign_user_flags', 'mailed', $params));
+    }
+
+    /**
+     * A mark that was there before Friction Feedback was switched on stays visible.
+     */
+    public function test_grade_from_before_the_switch_is_left(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $built = $this->posted_assignment();
+        $student = $built->scenario->students[0];
+        $built->adapter->save_grade($student->id, 70.0, '<p>First pass.</p>');
+        $itemid = $built->adapter->get_grade_item()->id;
+        $gradeid = $DB->get_field('grade_grades', 'id', ['itemid' => $itemid, 'userid' => $student->id]);
+        $DB->set_field('grade_grades_history', 'timemodified', time() - HOURSECS, ['oldid' => $gradeid]);
+        service::set_mode($built->adapter->get_cmid(), service::MODE_ON);
+
+        $built->adapter->save_grade($student->id, 80.0, '<p>Marked again.</p>');
+        service::hold_saved($built->adapter, $student->id);
+
+        $this->assertFalse(service::is_pending_user($built->adapter, $student->id));
+        $this->assertSame(0, $this->cell_hidden($itemid, $student->id));
+    }
+
+    /**
+     * A finished walk is not started again by a later save.
+     */
+    public function test_finished_walk_is_not_restarted_by_a_save(): void {
+        $this->resetAfterTest();
+        $this->enable_friction();
+        $built = $this->graded_assignment();
+        $student = $built->scenario->students[0];
+        $built->adapter->set_grades_posted(0, []);
+        $this->setUser($student);
+        service::advance($built->adapter->get_cmid(), $student->id);
+        $this->setUser($built->scenario->teacher);
+
+        $built->adapter->save_grade($student->id, 85.0, '<p>Revised.</p>');
+        service::hold_saved($built->adapter, $student->id);
+
+        $itemid = $built->adapter->get_grade_item()->id;
+        $this->assertFalse(service::is_pending_user($built->adapter, $student->id));
+        $this->assertSame(0, $this->cell_hidden($itemid, $student->id));
+    }
+
+    /**
+     * An assignment posted to the class before anyone is graded.
+     *
+     * @return object{adapter:\local_unifiedgrader\adapter\assign_adapter,scenario:\stdClass}
+     */
+    private function posted_assignment(): object {
+        $plugingen = $this->getDataGenerator()->get_plugin_generator('local_unifiedgrader');
+        $scenario = $plugingen->create_grading_scenario('assign', ['studentcount' => 1]);
+        $adapter = adapter_factory::create($scenario->cm->id);
+        $student = $scenario->students[0];
+        $this->setUser($student);
+        $plugingen->create_assign_submission($scenario->activity, $student->id);
+        $this->setUser($scenario->teacher);
+        $adapter->set_grades_posted(0, []);
+        return (object) ['adapter' => $adapter, 'scenario' => $scenario];
+    }
+
+    /**
      * Turn the site setting on.
      */
     private function enable_friction(): void {
